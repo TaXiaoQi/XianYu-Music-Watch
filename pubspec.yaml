@@ -1,0 +1,30 @@
+name: xianyu_watch
+description: "弦予音乐腕上版（Wear OS）：连接手机时为延伸控制器，独立时支持本地/在线播放。"
+publish_to: 'none'
+
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.13.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+
+  # 状态管理（与移动端同栈）
+  flutter_riverpod: ^2.6.1
+  # 手表表冠旋转输入
+  wearable_rotary: ^2.0.4
+  # 已配对手机地址持久化
+  shared_preferences: ^2.3.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
