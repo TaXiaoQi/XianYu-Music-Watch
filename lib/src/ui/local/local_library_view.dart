@@ -7,7 +7,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../library/library_provider.dart';
 import '../../library/scan_settings_provider.dart';
 import '../online/search_page.dart';
-import 'watch_player_page.dart';
+import 'local_music_hub.dart';
 
 /// 独立模式本地库页：权限引导 → 扫描 → 圆屏歌曲列表 → 点歌进播放页。
 class LocalLibraryView extends ConsumerStatefulWidget {
@@ -124,11 +124,9 @@ class _LocalLibraryViewState extends ConsumerState<LocalLibraryView> {
           onTap: () async {
             await ref.read(libraryProvider.notifier).playFrom(i);
             if (!context.mounted) return;
-            Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const WatchPlayerPage(),
-              ),
-            );
+            // 网易云式：点歌后返回 hub 并自动切到播放页。
+            ref.read(localHubPageProvider.notifier).state = 1;
+            Navigator.of(context).pop();
           },
         );
       },

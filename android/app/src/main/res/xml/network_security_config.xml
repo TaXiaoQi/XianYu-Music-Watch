@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  网络安全配置（与移动端一致）。
+
+  在线音源返回的播放直链多为 http 明文（各平台 CDN 如 kuwo/kugou/163 等），
+  且域名带随机前缀、会动态变化，无法用固定白名单枚举，因此在此允许明文流量。
+  头像等用户资源也可能经 http CDN 下发。
+
+  安全影响：明文流量可被中间人窃听或篡改。此处仅涉及公开音乐内容与头像，
+  不传输凭据；登录等敏感请求仍走 HTTPS。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system"/>
+        </trust-anchors>
+    </base-config>
+</network-security-config>

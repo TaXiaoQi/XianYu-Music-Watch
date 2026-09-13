@@ -1,10 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 
+import 'package:audio_service/audio_service.dart' as asrv;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
+
+import '../favorites/favorites_provider.dart';
 
 import '../core/db_path.dart';
 import '../core/settings.dart';
@@ -70,6 +74,8 @@ class PlaybackState {
   final double position;
   final double duration;
   final int playMode; // 0 顺序(列表循环) 1 单曲循环 2 随机
+  /// 倍速（独立播放；联动模式恒 1.0 不经此处）。
+  final double speed;
   /// 当前播放错误信息（本地播放失败时展示）。
   final String? error;
   const PlaybackState({
@@ -80,6 +86,7 @@ class PlaybackState {
     this.position = 0,
     this.duration = 0,
     this.playMode = 0,
+    this.speed = 1.0,
     this.error,
   });
 
@@ -91,6 +98,7 @@ class PlaybackState {
     double? position,
     double? duration,
     int? playMode,
+    double? speed,
     Object? error = _noChange,
   }) {
     return PlaybackState(
@@ -101,6 +109,7 @@ class PlaybackState {
       position: position ?? this.position,
       duration: duration ?? this.duration,
       playMode: playMode ?? this.playMode,
+      speed: speed ?? this.speed,
       error: error == _noChange ? this.error : error as String?,
     );
   }
@@ -112,6 +121,10 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     with WidgetsBindingObserver {
   PlayerNotifier(this._ref) : super(const PlaybackState()) {
     WidgetsBinding.instance.addObserver(this);
+    // 留存全局引用：AudioService.init 后台异步完成，构造时 handler 可能
+    // 尚未就绪导致 bindNotifier 落空，main 中 init 完成后补绑（同移动端）。
+    activePlayerNotifier = this;
+    audioHandler?.bindNotifier(this);
     _init();
   }
 
@@ -152,6 +165,7 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     _stateSub = _player.playerStateStream.listen((ps) {
       if (ps.playing != state.isPlaying) {
         state = state.copyWith(isPlaying: ps.playing);
+        _syncPlaybackState();
       }
     });
     // 自然播完的权威信号：just_audio 在源播完时把 processingState 置为
@@ -202,6 +216,8 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
       duration: item.durationMs / 1000.0,
       error: null,
     );
+    // 切歌即更新系统媒体卡片（标题/封面先行，起播窗口内通知已就绪）。
+    audioHandler?.syncMediaItem(item, item.durationMs / 1000.0);
     try {
       // 切歌即停上一首：加载窗口内不得让上一首继续出声。
       try {
@@ -216,6 +232,13 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
       }
       await _player.setVolume(
           _ref.read(settingsProvider).valueOrNull?.volume ?? 1.0);
+      // just_audio 的 speed 是 player 级设置，切源不重置；这里兜底重申，
+      // 覆盖「进程重启后 player 默认 1.0 而设置里存了倍速」的场景。
+      if (state.speed != 1.0) {
+        try {
+          await _player.setSpeed(state.speed);
+        } catch (_) {}
+      }
       if (epoch != _playEpoch) return;
       await _player.play();
       if (epoch != _playEpoch) return;
@@ -326,6 +349,7 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
   Future<void> seek(double secs) async {
     await _player.seek(Duration(milliseconds: (secs * 1000).round()));
     state = state.copyWith(position: secs);
+    _syncPlaybackState();
   }
 
   Future<void> next() async {
@@ -368,6 +392,27 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     } catch (_) {}
   }
 
+  /// 倍速档位（表上低频操作，循环切换即可，同主流手表播放器）。
+  static const _speedSteps = [1.0, 1.25, 1.5, 2.0, 0.75];
+
+  /// 循环切换倍速并持久化（跨会话保留，切歌不重置）。
+  Future<void> cycleSpeed() async {
+    final idx = _speedSteps.indexOf(state.speed);
+    final next = _speedSteps[(idx + 1) % _speedSteps.length];
+    await setSpeed(next);
+  }
+
+  /// 设置播放倍速（0.5–3.0 越界截断）。
+  Future<void> setSpeed(double s) async {
+    final v = s.clamp(0.5, 3.0);
+    state = state.copyWith(speed: v);
+    try {
+      await _player.setSpeed(v);
+    } catch (_) {}
+    _syncPlaybackState();
+    await _ref.read(settingsProvider.notifier).setPlaybackSpeed(v);
+  }
+
   Future<void> removeFromQueue(int index) async {
     final queue = [...state.queue];
     if (index < 0 || index >= queue.length) return;
@@ -377,6 +422,7 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
       _playEpoch++;
       await _player.stop();
       state = const PlaybackState();
+      audioHandler?.clearNowPlaying();
       return;
     }
     var newIndex = state.queueIndex;
@@ -399,6 +445,7 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
       await _player.stop();
     } catch (_) {}
     state = const PlaybackState();
+    audioHandler?.clearNowPlaying();
   }
 
   /// 将队列中 [oldIndex] 的歌曲移动到 [newIndex]。
@@ -600,6 +647,9 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
 
       final curIdx = queue.indexWhere((q) => q.path == curPath);
       final currentItem = curIdx >= 0 ? queue[curIdx] : queue.first;
+      // 倍速随设置跨会话恢复（设置未就绪时用默认 1.0）。
+      final spd =
+          _ref.read(settingsProvider).valueOrNull?.playbackSpeed ?? 1.0;
       state = PlaybackState(
         queue: queue,
         queueIndex: curIdx >= 0 ? curIdx : 0,
@@ -607,12 +657,21 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
         isPlaying: false,
         position: pos,
         playMode: mode,
+        speed: spd,
       );
       try {
         await _loadItemSource(currentItem);
         await seek(pos);
         await _player.setVolume(
             _ref.read(settingsProvider).valueOrNull?.volume ?? 1.0);
+        if (spd != 1.0) {
+          try {
+            await _player.setSpeed(spd);
+          } catch (_) {}
+        }
+        // 恢复态也挂上媒体卡片（暂停态通知，表上可一键续播）。
+        audioHandler?.syncMediaItem(currentItem, currentItem.durationMs / 1000.0);
+        _syncPlaybackState();
       } catch (e) {
         debugPrint('[session] 曲目预加载失败: $e');
       }
@@ -625,6 +684,36 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     final name = p.split(RegExp(r'[\\/]')).last;
     final dot = name.lastIndexOf('.');
     return dot > 0 ? name.substring(0, dot) : name;
+  }
+
+  /// 同步系统媒体通知的播放状态（播放/暂停键翻转与进度 seek 时调用）。
+  void _syncPlaybackState() {
+    audioHandler?.syncPlaybackState(
+      isPlaying: state.isPlaying,
+      positionSecs: state.position,
+      speed: state.speed,
+    );
+  }
+
+  /// 切换当前歌收藏状态（独立模式红心；联动模式红心走手机链路，不经此处）。
+  /// 返回切换后是否已收藏；无当前歌返回 null。
+  Future<bool?> toggleFavorite() async {
+    final item = state.current;
+    if (item == null) return null;
+    return _ref.read(favoritesProvider.notifier).toggle(FavoriteEntry(
+          path: item.path,
+          title: item.title,
+          artist: item.artist,
+          album: item.album,
+          durationMs: item.durationMs,
+          coverPath: item.coverPath,
+          coverUrl: item.coverUrl,
+          onlineSongJson: item.onlineSongJson,
+          onlineQuality: item.onlineQuality,
+          source: item.source,
+          onlineInfoJson: item.onlineInfoJson,
+          addedAt: DateTime.now().millisecondsSinceEpoch,
+        ));
   }
 
   @override
@@ -648,3 +737,96 @@ final volumeProvider = Provider<double>((ref) {
 final playerProvider = StateNotifierProvider<PlayerNotifier, PlaybackState>(
   (ref) => PlayerNotifier(ref),
 );
+
+/// 全局 AudioService 处理器（main 中后台 init 完成后赋值）与最近创建的
+/// 播放控制器（init 晚于 PlayerNotifier 构造时补绑用，同移动端模式）。
+WatchAudioHandler? audioHandler;
+PlayerNotifier? activePlayerNotifier;
+
+/// 系统媒体通知（MediaSession）与 Flutter 播放状态的双向桥梁
+///（腕上精简版：上一首/播放暂停/下一首 + 进度 seek，无收藏/模式自定义键）。
+class WatchAudioHandler extends asrv.BaseAudioHandler with asrv.SeekHandler {
+  PlayerNotifier? _notifier;
+
+  void bindNotifier(PlayerNotifier notifier) {
+    _notifier = notifier;
+  }
+
+  /// 广播当前歌的系统媒体卡片（标题/歌手/专辑/封面/时长）。
+  void syncMediaItem(QueueItem item, double durationSecs) {
+    mediaItem.add(asrv.MediaItem(
+      id: item.path,
+      album: item.album.isEmpty ? '弦予音乐' : item.album,
+      title: item.title,
+      artist: item.artist.isEmpty ? '未知歌手' : item.artist,
+      // 时长无效时不下发 0：0 会被部分系统判定无效元数据，卡片不显示。
+      duration: durationSecs > 0
+          ? Duration(milliseconds: (durationSecs * 1000).round())
+          : null,
+      artUri: _artUriFor(item),
+    ));
+  }
+
+  /// 通知卡片封面：本地缩略图优先（表上加载网络图慢且费电），无则退网络 URL。
+  Uri? _artUriFor(QueueItem item) {
+    final local = item.coverPath;
+    if (local != null &&
+        local.isNotEmpty &&
+        !local.startsWith('http') &&
+        File(local).existsSync()) {
+      return Uri.file(local);
+    }
+    final url = item.coverUrl;
+    if (url != null && url.isNotEmpty) return Uri.tryParse(url);
+    return null;
+  }
+
+  /// 广播系统播放状态（上一首/播放暂停/下一首三键 + 进度 seek）。
+  void syncPlaybackState({
+    required bool isPlaying,
+    required double positionSecs,
+    double speed = 1.0,
+  }) {
+    playbackState.add(asrv.PlaybackState(
+      controls: [
+        asrv.MediaControl.skipToPrevious,
+        if (isPlaying) asrv.MediaControl.pause else asrv.MediaControl.play,
+        asrv.MediaControl.skipToNext,
+      ],
+      systemActions: const {
+        asrv.MediaAction.seek,
+        asrv.MediaAction.seekForward,
+        asrv.MediaAction.seekBackward,
+      },
+      androidCompactActionIndices: const [0, 1, 2],
+      processingState: asrv.AudioProcessingState.ready,
+      playing: isPlaying,
+      updatePosition: Duration(milliseconds: (positionSecs * 1000).round()),
+      bufferedPosition: Duration(milliseconds: (positionSecs * 1000).round()),
+      speed: speed,
+    ));
+  }
+
+  /// 队列清空/停止：撤掉媒体通知并退出前台服务。
+  void clearNowPlaying() {
+    mediaItem.add(null);
+    playbackState.add(asrv.PlaybackState());
+    stop();
+  }
+
+  @override
+  Future<void> play() => _notifier?.resumeFromSystem() ?? Future.value();
+
+  @override
+  Future<void> pause() => _notifier?.pauseFromSystem() ?? Future.value();
+
+  @override
+  Future<void> skipToNext() => _notifier?.next() ?? Future.value();
+
+  @override
+  Future<void> skipToPrevious() => _notifier?.previous() ?? Future.value();
+
+  @override
+  Future<void> seek(Duration position) =>
+      _notifier?.seek(position.inMilliseconds / 1000.0) ?? Future.value();
+}

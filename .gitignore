@@ -36,6 +36,9 @@ migrate_working_dir/
 # Release binaries — use GitHub Releases instead of committing APKs
 /releases/
 
+# Rust build artifacts
+/rust/target/
+
 # Signing credentials — never commit
 /android/key.properties
 /android/app/*.keystore

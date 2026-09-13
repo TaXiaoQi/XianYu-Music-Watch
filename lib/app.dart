@@ -1,18 +1,20 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'src/core/ambient.dart';
+import 'src/core/settings.dart';
+import 'src/auth/auth_provider.dart';
 import 'src/link/link_provider.dart';
+import 'src/sync/sync_provider.dart';
 import 'src/ui/controller/watch_controller_page.dart';
-import 'src/ui/local/local_library_view.dart';
-import 'src/ui/pair/pair_view.dart';
+import 'src/ui/local/local_music_hub.dart';
 
-/// 弦予腕上版入口：联接状态即路由 + 独立本地库双模式。
+/// 弦予腕上版入口：全屏音乐页（左侧功能列表 ↔ 中间播放 ↔ 右侧歌词横移），
+/// 开屏落在播放页；设置/账号/插件管理从左侧功能列表进入。
 ///
-/// - 手机控制 tab：已连接 → 联接控制页；连接中 → 手机名 + 取消；
-///   未连接 → 无配对选设备 / 已配对给重连/换设备
-/// - 本地音乐 tab：断连独立播放本地音乐（P2）
-/// 两个模式可共存：正在控制手机时也可切到本地库浏览。
+/// 联动建立（含后台通知拉起）时自动跳转播放控制页，返回后停在原处。
 class XianYuWatchApp extends ConsumerStatefulWidget {
   const XianYuWatchApp({super.key});
 
@@ -24,16 +26,32 @@ class _XianYuWatchAppState extends ConsumerState<XianYuWatchApp> {
   @override
   void initState() {
     super.initState();
-    // 链路初始化（读配对地址 → 自动连接 / 退避重连 / 心跳）。
-    Future.microtask(() => ref.read(linkControllerProvider.notifier).init());
+    // 链路初始化（读配对地址 → 自动连接 / 退避重连 / 心跳）+ 账号凭证恢复。
+    Future.microtask(() {
+      // 先创建 SyncNotifier 注册登录态监听：登录/凭证恢复后自动触发首次云同步。
+      ref.read(syncProvider.notifier);
+      ref.read(linkControllerProvider.notifier).init();
+      ref.read(authProvider.notifier).init();
+    });
     // Wear OS 环境模式监听（进出 ambient 压暗 UI + 暂停刷新）。
     initAmbientListener(ref);
+    // 屏幕常亮设置应用（设置-播放，原生 FLAG_KEEP_SCREEN_ON）。
+    ref.listenManual(settingsProvider, (prev, next) {
+      _applyKeepScreenOn(next.valueOrNull?.keepScreenOn ?? true);
+    });
+  }
+
+  static Future<void> _applyKeepScreenOn(bool enable) {
+    return const MethodChannel('xianyu/keep_screen')
+        .invokeMethod('set', {'enable': enable})
+        .catchError((_) {});
   }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: '弦予腕上',
+      // 多任务卡片标题取 MaterialApp.title（覆盖 manifest label），debug 带·测试。
+      title: kDebugMode ? '腕上弦予·测试' : '腕上弦予',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
@@ -76,153 +94,29 @@ class LinkHome extends ConsumerStatefulWidget {
 }
 
 class _LinkHomeState extends ConsumerState<LinkHome> {
-  int _tab = 0;
+  bool _pushingController = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // 联动建立（含冷启动自动连接、后台通知拉起）→ 自动进入播放控制页。
+    ref.listenManual(linkControllerProvider, (prev, next) {
+      if (_pushingController || !mounted) return;
+      if (next.phase != LinkPhase.connected) return;
+      if (prev?.phase == LinkPhase.connected) return;
+      _pushingController = true;
+      Navigator.of(context)
+          .push(
+        MaterialPageRoute<void>(builder: (_) => const WatchControllerPage()),
+      )
+          .whenComplete(() => _pushingController = false);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    final link = ref.watch(linkControllerProvider);
-    Widget controllerTab;
-    switch (link.phase) {
-      case LinkPhase.connected:
-        controllerTab = const WatchControllerPage();
-      case LinkPhase.connecting:
-        controllerTab = const _ConnectingView();
-      case LinkPhase.disconnected:
-        controllerTab = link.pairedAddress == null
-            ? const PairView()
-            : const _DisconnectedView();
-    }
-
-    return Scaffold(
-      body: IndexedStack(
-        index: _tab,
-        children: [
-          controllerTab,
-          const LocalLibraryView(),
-        ],
-      ),
-      bottomNavigationBar: SafeArea(
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            _tabBtn(
-              icon: Icons.smartphone_rounded,
-              label: '控制',
-              selected: _tab == 0,
-              onTap: () => setState(() => _tab = 0),
-            ),
-            const SizedBox(width: 28),
-            _tabBtn(
-              icon: Icons.library_music_rounded,
-              label: '本地',
-              selected: _tab == 1,
-              onTap: () => setState(() => _tab = 1),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _tabBtn({
-    required IconData icon,
-    required String label,
-    required bool selected,
-    required VoidCallback onTap,
-  }) {
-    final color = selected
-        ? const Color(0xFFFF4D6E)
-        : Colors.white.withValues(alpha: 0.45);
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 20, color: color),
-            Text(
-              label,
-              style: TextStyle(fontSize: 10, color: color),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// 连接中：展示目标手机名。
-class _ConnectingView extends ConsumerWidget {
-  const _ConnectingView();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final link = ref.watch(linkControllerProvider);
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const CircularProgressIndicator(strokeWidth: 3),
-          const SizedBox(height: 16),
-          Text(
-            '正在连接\n${link.pairedName ?? ''}',
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 14, height: 1.4),
-          ),
-          const SizedBox(height: 16),
-          TextButton(
-            onPressed: () =>
-                ref.read(linkControllerProvider.notifier).disconnectManually(),
-            child: const Text('取消'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 已配对但断连：重连 / 更换设备。
-class _DisconnectedView extends ConsumerWidget {
-  const _DisconnectedView();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final link = ref.watch(linkControllerProvider);
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.watch_off_rounded,
-            size: 40,
-            color: Colors.white.withValues(alpha: 0.4),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            '未连接手机\n${link.pairedName ?? ''}',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 14,
-              height: 1.4,
-              color: Colors.white.withValues(alpha: 0.7),
-            ),
-          ),
-          const SizedBox(height: 18),
-          FilledButton(
-            onPressed: () => ref.read(linkControllerProvider.notifier).retry(),
-            child: const Text('重新连接'),
-          ),
-          const SizedBox(height: 8),
-          TextButton(
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const PairView()),
-            ),
-            child: const Text('更换设备'),
-          ),
-        ],
-      ),
-    );
+    // 全屏音乐页（功能列表 ↔ 播放 ↔ 歌词三页横移），
+    // 设置/账号/插件管理等入口都在左侧功能列表里。
+    return const LocalMusicHub();
   }
 }

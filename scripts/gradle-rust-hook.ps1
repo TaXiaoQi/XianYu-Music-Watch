@@ -3,7 +3,6 @@ $realSource = Split-Path -Parent $PSScriptRoot
 
 if ($env:XIANMU_SKIP_RUST -eq "1") { exit 0 }
 
-$soFile     = Join-Path $realSource "android\app\src\main\jniLibs\arm64-v8a\libxianyu_core.so"
 $bindings   = Join-Path $realSource "lib\src\rust\frb_generated.dart"
 $rustSrcDir = Join-Path $realSource "rust\src"
 $hookLog    = Join-Path $realSource "build\rust-hook.log"
@@ -17,9 +16,26 @@ foreach ($f in @("rust\Cargo.toml", "rust\Cargo.lock", "flutter_rust_bridge.yaml
 }
 $newestRust = ($rustFiles | Measure-Object LastWriteTime -Maximum).Maximum
 
+# ABI 选择：XIANMU_RUST_ABI=v8 只编 arm64，=v7 只编 armv7（32 位国表），缺省双 ABI 全编。
+# 对应出包命令见 README「构建安装包」。
+$abiTable = @{
+    'arm64-v8a'  = 'aarch64-linux-android'
+    'armeabi-v7a' = 'armv7-linux-androideabi'
+}
+$abiSel = if ($env:XIANMU_RUST_ABI -eq 'v8') { @('arm64-v8a') }
+          elseif ($env:XIANMU_RUST_ABI -eq 'v7') { @('armeabi-v7a') }
+          else { @('arm64-v8a', 'armeabi-v7a') }
+$soPaths = @{}
+foreach ($abi in $abiSel) {
+    $soPaths[$abi] = Join-Path $realSource "android\app\src\main\jniLibs\$abi\libxianyu_core.so"
+}
+
 $needSo = $true
-if (Test-Path $soFile) {
-    $soTime = (Get-Item $soFile).LastWriteTime
+$existing = @($abiSel | Where-Object { Test-Path $soPaths[$_] })
+if ($existing.Count -eq $abiSel.Count) {
+    # 取所选 ABI 产物中最旧的时间：任一过期即重建（产物缺失也走重建分支）。
+    $soTime = ($existing | ForEach-Object { (Get-Item $soPaths[$_]).LastWriteTime } |
+        Measure-Object -Minimum).Minimum
     $newestAll = @($newestRust, (($configFiles | Measure-Object LastWriteTime -Maximum).Maximum)) | Measure-Object -Maximum | Select-Object -ExpandProperty Maximum
     if ($newestAll -le $soTime) { $needSo = $false }
 }
@@ -119,7 +135,9 @@ if ($needSo) {
         if (-not (Test-Path $cargoExe)) { $cargoExe = "cargo" }
         $pInfo = New-Object System.Diagnostics.ProcessStartInfo
         $pInfo.FileName = $cargoExe
-        $pInfo.Arguments = "ndk -t arm64-v8a build --release"
+        # 按所选 ABI 出产物：-t 全 triple 名（cargo-ndk 原样透传给 cargo，最稳）。
+        $targetArgs = ($abiSel | ForEach-Object { "-t"; $abiTable[$_] }) -join ' '
+        $pInfo.Arguments = "ndk $targetArgs build --release"
         $pInfo.WorkingDirectory = Join-Path $realSource "rust"
         $pInfo.UseShellExecute = $false
         $pInfo.RedirectStandardOutput = $true
@@ -158,12 +176,17 @@ if ($needSo) {
             throw "[rust-hook] cargo ndk build failed (exit=$($p.ExitCode))"
         }
     } finally { Pop-Location }
-    $src = Join-Path $realSource "rust\target\aarch64-linux-android\release\libxianyu_core.so"
-    $dst = Join-Path $realSource "android\app\src\main\jniLibs\arm64-v8a"
-    New-Item -ItemType Directory -Force -Path $dst | Out-Null
-    Copy-Item $src -Destination $dst -Force
+    foreach ($abi in $abiSel) {
+        $src = Join-Path $realSource "rust\target\$($abiTable[$abi])\release\libxianyu_core.so"
+        $dst = Join-Path $realSource "android\app\src\main\jniLibs\$abi"
+        New-Item -ItemType Directory -Force -Path $dst | Out-Null
+        Copy-Item $src -Destination $dst -Force
+    }
+    # 只保留两个标准 ABI 的 libxianyu_core.so，其余过期 .so 清理
+    # （未选 ABI 的既有产物保留不动，下次构建该 ABI 时走过期检测）。
     Get-ChildItem (Join-Path $realSource "android\app\src\main\jniLibs") -Recurse -Filter "*.so" |
-        Where-Object { $_.Directory.Name -ne "arm64-v8a" -or $_.Name -ne "libxianyu_core.so" } |
+        Where-Object { $_.Name -ne "libxianyu_core.so" -or
+            ($_.Directory.Name -notin @('arm64-v8a', 'armeabi-v7a')) } |
         Remove-Item -Force
 }
 

@@ -37,9 +37,23 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        // 仅打包 arm64：与移动端一致（libxianyu_core.so 只有 arm64-v8a 产物）。
+        // ABI 打包策略（disable-abi-filtering=true 会拦掉 Flutter 插件的自动过滤，这里自己读）：
+        // - `--target-platform android-arm64` → 仅 arm64（v8 包）
+        // - `--target-platform android-arm`   → 仅 armv7（v7 包，32 位国表如华为 GLL-AL00）
+        // - 不传 → 双 ABI 全量包；flutter run 按设备 ABI 自动传，无需关心。
+        val tpAbis = (project.findProperty("target-platform") as String?)
+            ?.split(',')
+            ?.mapNotNull { tp ->
+                when (tp.trim()) {
+                    "android-arm64" -> "arm64-v8a"
+                    "android-arm" -> "armeabi-v7a"
+                    else -> null
+                }
+            }
+            ?.toSet()
+            ?: emptySet()
         ndk {
-            abiFilters += "arm64-v8a"
+            abiFilters += if (tpAbis.isNotEmpty()) tpAbis else setOf("arm64-v8a", "armeabi-v7a")
         }
     }
 
@@ -60,7 +74,12 @@ android {
     }
 
     buildTypes {
+        debug {
+            // debug 显示名加「·测试」后缀，多任务/桌面与正式版一眼区分
+            manifestPlaceholders["appLabel"] = "腕上弦予·测试"
+        }
         release {
+            manifestPlaceholders["appLabel"] = "腕上弦予"
             // key.properties 存在时用专用 release 密钥签名，缺失时回退 debug 签名
             signingConfig = if (keystorePropertiesFile.exists()) {
                 signingConfigs.getByName("release")
@@ -135,7 +154,7 @@ tasks.matching { it.name == "preBuild" }.configureEach {
     dependsOn("rustHook")
 }
 
-// 正式包自动归档：assembleRelease 完成后把 release APK（abiFilters 已限定 arm64）
+// 正式包自动归档：assembleRelease 完成后把 release APK（arm64+armv7 双 ABI）
 // 复制到 releases/android/弦予音乐_<版本>_android-release.apk，让裸
 // `flutter build apk --release` 一条命令出正式包并归档（与移动端同款钩子）。
 tasks.register("archiveReleaseApk") {

@@ -14,11 +14,19 @@
     <!-- 独立模式本地音乐扫描：Android 13+ 音频媒体权限，12 及以下存储读权限 -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <!-- audio_service 后台媒体前台服务（独立播放灭屏/切走不被杀） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application
-        android:label="弦予音乐"
+        android:label="${appLabel}"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <!-- ambient 共享库（仅真 Wear OS 设备存在；required=false 允许手机/无 GMS 设备缺失，
+             MainActivity 已按库探测结果决定是否注册 AmbientLifecycleObserver） -->
+        <uses-library android:name="com.google.android.wearable" android:required="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -40,6 +48,23 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- audio_service 后台媒体前台服务支持 -->
+        <service android:name="com.ryanheise.audioservice.AudioService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.media.browse.MediaBrowserService"/>
+            </intent-filter>
+        </service>
+
+        <!-- audio_service 控制中心/媒体按键广播接收器 -->
+        <receiver android:name="com.ryanheise.audioservice.MediaButtonReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON"/>
+            </intent-filter>
+        </receiver>
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

@@ -16,6 +16,7 @@ class AppSettings {
   const AppSettings({
     this.volume = 1.0,
     this.playMode = 0, // 0 顺序(列表循环) 1 单曲循环 2 随机
+    this.playbackSpeed = 1.0,
     this.keepScreenOn = true,
     this.libraryMinDurationSeconds = 0,
     this.scanFormats = kSupportedScanFormats,
@@ -25,6 +26,9 @@ class AppSettings {
 
   final double volume;
   final int playMode;
+
+  /// 倍速（独立播放，跨会话保留；联动模式由手机端自控）。
+  final double playbackSpeed;
   final bool keepScreenOn;
   final int libraryMinDurationSeconds;
   final List<String> scanFormats;
@@ -38,6 +42,7 @@ class AppSettings {
   AppSettings copyWith({
     double? volume,
     int? playMode,
+    double? playbackSpeed,
     bool? keepScreenOn,
     int? libraryMinDurationSeconds,
     List<String>? scanFormats,
@@ -47,6 +52,7 @@ class AppSettings {
     return AppSettings(
       volume: volume ?? this.volume,
       playMode: playMode ?? this.playMode,
+      playbackSpeed: playbackSpeed ?? this.playbackSpeed,
       keepScreenOn: keepScreenOn ?? this.keepScreenOn,
       libraryMinDurationSeconds:
           libraryMinDurationSeconds ?? this.libraryMinDurationSeconds,
@@ -64,6 +70,7 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
     return AppSettings(
       volume: prefs.getDouble('volume') ?? 1.0,
       playMode: prefs.getInt('playMode') ?? 0,
+      playbackSpeed: prefs.getDouble('playbackSpeed') ?? 1.0,
       keepScreenOn: prefs.getBool('keepScreenOn') ?? true,
       libraryMinDurationSeconds:
           prefs.getInt('libraryMinDurationSeconds') ?? 0,
@@ -80,6 +87,7 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
     await Future.wait([
       prefs.setDouble('volume', next.volume),
       prefs.setInt('playMode', next.playMode),
+      prefs.setDouble('playbackSpeed', next.playbackSpeed),
       prefs.setBool('keepScreenOn', next.keepScreenOn),
       prefs.setInt(
           'libraryMinDurationSeconds', next.libraryMinDurationSeconds),
@@ -93,6 +101,8 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
       _save((state.valueOrNull ?? const AppSettings()).copyWith(volume: v));
   Future<void> setPlayMode(int m) =>
       _save((state.valueOrNull ?? const AppSettings()).copyWith(playMode: m));
+  Future<void> setPlaybackSpeed(double s) => _save(
+      (state.valueOrNull ?? const AppSettings()).copyWith(playbackSpeed: s));
   Future<void> setKeepScreenOn(bool v) =>
       _save((state.valueOrNull ?? const AppSettings()).copyWith(keepScreenOn: v));
   Future<void> setLibraryMinDurationSeconds(int s) => _save(

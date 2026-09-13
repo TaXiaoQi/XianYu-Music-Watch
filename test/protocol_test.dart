@@ -9,6 +9,28 @@ void main() {
     expect(crc16CcittFalse(utf8.encode('123456789')), 0x29B1);
   });
 
+  test('cloud_bind 帧编解码往返（含 url 可选缺省）', () {
+    final seq = makeSeqGenerator();
+    final decoder = FrameDecoder();
+
+    final withUrl = LinkMessage.cloudBind(
+      key: 'a' * 64,
+      url: 'wss://api.xianyumusic.cn/watch-relay',
+    );
+    final out1 = decoder.feed(encodeFrames(withUrl, nextSeq: seq)[0]);
+    expect(out1.length, 1);
+    expect(out1[0].type, LinkMsgType.cloudBind);
+    final bind1 = out1[0].payload['cloud_bind'] as Map;
+    expect(bind1['key'], 'a' * 64);
+    expect(bind1['url'], 'wss://api.xianyumusic.cn/watch-relay');
+
+    final noUrl = LinkMessage.cloudBind(key: 'b' * 64);
+    final out2 = FrameDecoder().feed(encodeFrames(noUrl, nextSeq: seq)[0]);
+    final bind2 = out2[0].payload['cloud_bind'] as Map;
+    expect(bind2['key'], 'b' * 64);
+    expect(bind2.containsKey('url'), false);
+  });
+
   test('编码→解码单帧往返', () {
     final seq = makeSeqGenerator();
     final msg = LinkMessage.state(
@@ -149,6 +171,31 @@ void main() {
     );
     final out2 = FrameDecoder().feed(encodeFrames(noVol, nextSeq: seq)[0]);
     expect(out2[0].payload.containsKey('volume'), isFalse);
+  });
+
+  test('lyric 帧编解码往返（含超长 payload 自动分片重组）', () {
+    final seq = makeSeqGenerator();
+    final bigPayload = jsonEncode({
+      'displayLines': [
+        for (var i = 0; i < 400; i++)
+          {'time': i.toDouble(), 'endTime': (i + 1).toDouble(), 'text': '歌词行$i 🎵'}
+      ],
+    });
+
+    final msg = LinkMessage.lyric(id: 'song-1', payload: bigPayload);
+    final frames = encodeFrames(msg, nextSeq: seq);
+    expect(frames.length, greaterThan(1));
+
+    final decoder = FrameDecoder();
+    final all = <LinkMessage>[];
+    for (final f in frames) {
+      all.addAll(decoder.feed(f));
+    }
+    expect(all.length, 1);
+    expect(all[0].type, LinkMsgType.lyric);
+    final lyric = all[0].payload['lyric'] as Map;
+    expect(lyric['id'], 'song-1');
+    expect(lyric['payload'], bigPayload);
   });
 }
 

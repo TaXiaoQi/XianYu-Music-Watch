@@ -23,11 +23,15 @@ dependencies:
   flutter_rust_bridge: 2.12.0
   # 本地播放
   just_audio: ^0.9.0
+  # 后台播放保障：系统 MediaSession + 前台媒体服务（灭屏/切走不被杀）
+  audio_service: ^0.18.18
   # 数据目录/路径
   path_provider: ^2.1.0
   path: ^1.9.0
   # 插件脚本 SHA-256 指纹（与移动端同栈）
   crypto: ^3.0.3
+  # 账号扫码登录二维码渲染（与桌面端同款 generate_tv_login_code 流程）
+  qr_flutter: ^4.1.0
   # 本地音乐扫描运行时权限
   permission_handler: ^11.3.0
 

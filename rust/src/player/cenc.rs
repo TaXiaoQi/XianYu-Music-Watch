@@ -102,7 +102,9 @@ fn read_box_header(data: &[u8], off: usize) -> Option<BoxInfo> {
         if off + 16 > data.len() {
             return None;
         }
-        size = ((read_u32(data, off + 8) as usize) << 32) | read_u32(data, off + 12) as usize;
+        // u64 中转：usize 在 32 位（armv7）下直接 <<32 会触发 arithmetic_overflow。
+        // 超过 4GB 的盒大小截断即可，下方边界校验会兜住。
+        size = read_u64(data, off + 8) as usize;
         header_len = 16;
     } else if size == 0 {
         // 延伸到文件末尾

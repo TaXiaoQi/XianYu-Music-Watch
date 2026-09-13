@@ -6,8 +6,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/ambient.dart';
+import 'cloud_client.dart';
 import 'protocol.dart';
 import 'rfcomm_client.dart';
+
+/// 云端中继默认地址（服务端 `/watch-relay`，可用手机下发的 url 覆盖）。
+const String kDefaultCloudRelayUrl = 'wss://api.xianyumusic.cn/watch-relay';
 
 /// 链路阶段。
 enum LinkPhase { disconnected, connecting, connected }
@@ -58,6 +62,9 @@ class LinkState {
     this.liked = false,
     this.volume,
     this.position = 0,
+    this.viaCloud = false,
+    this.lyricSongId,
+    this.lyricPayload,
   });
 
   final LinkPhase phase;
@@ -79,6 +86,14 @@ class LinkState {
   /// 显示进度（本地 1s 插值 + 手机 position 帧校正）。
   final double position;
 
+  /// 当前链路是否走云端中继（false = 蓝牙 RFCOMM）。
+  final bool viaCloud;
+
+  /// 手机推送的当前歌歌词（结构化 payload JSON）及其歌曲 id。
+  /// id 与 now.id 不一致表示歌词尚未到达/已过期，歌词页显示占位。
+  final String? lyricSongId;
+  final String? lyricPayload;
+
   LinkState copyWith({
     LinkPhase? phase,
     String? phoneName,
@@ -91,6 +106,9 @@ class LinkState {
     bool? liked,
     Object? volume = _noChange,
     double? position,
+    bool? viaCloud,
+    Object? lyricSongId = _noChange,
+    Object? lyricPayload = _noChange,
   }) =>
       LinkState(
         phase: phase ?? this.phase,
@@ -109,6 +127,13 @@ class LinkState {
         volume:
             volume == _noChange ? this.volume : volume as double?,
         position: position ?? this.position,
+        viaCloud: viaCloud ?? this.viaCloud,
+        lyricSongId: lyricSongId == _noChange
+            ? this.lyricSongId
+            : lyricSongId as String?,
+        lyricPayload: lyricPayload == _noChange
+            ? this.lyricPayload
+            : lyricPayload as String?,
       );
 }
 
@@ -122,6 +147,7 @@ class LinkController extends StateNotifier<LinkState> {
   LinkController() : super(const LinkState());
 
   final LinkClientChannel _channel = LinkClientChannel();
+  final CloudLinkClient _cloud = CloudLinkClient();
   FrameDecoder _decoder = FrameDecoder();
   final int Function() _nextSeq = makeSeqGenerator();
 
@@ -137,6 +163,16 @@ class LinkController extends StateNotifier<LinkState> {
   Duration _backoff = _minBackoff;
 
   DateTime _lastFrame = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// 当前链路是否走云端中继（false = 蓝牙 RFCOMM）。
+  bool _viaCloud = false;
+
+  /// 云端绑定凭据（手机经 `cloud_bind` 帧下发，持久化）。
+  String _cloudKey = '';
+  String _cloudUrl = '';
+
+  /// 云连接尝试进行中（防重入）。
+  bool _cloudTryActive = false;
 
   /// 拉起回调：收到 now_playing 且应用在后台时触发
   ///（Kotlin 侧发 fullScreenIntent 高优先级通知拉起控制页）。
@@ -155,18 +191,24 @@ class LinkController extends StateNotifier<LinkState> {
     _subs.add(_channel.onRaw.listen(_onRaw));
     _subs.add(_channel.onConnection.listen(_onConnection));
     _subs.add(_channel.onPermission.listen(_onPermission));
+    _subs.add(_cloud.onRaw.listen(_onRaw));
+    _subs.add(_cloud.onEvent.listen(_onCloudEvent));
 
     final prefs = await SharedPreferences.getInstance();
     final addr = prefs.getString('watch.pairedAddress');
     final name = prefs.getString('watch.pairedName');
     final auto = prefs.getBool('watch.autoEnabled') ?? true;
+    _cloudKey = prefs.getString('watch.cloudKey') ?? '';
+    _cloudUrl = prefs.getString('watch.cloudUrl') ?? '';
     state = state.copyWith(
       autoEnabled: auto,
       pairedAddress: addr,
       pairedName: name,
     );
     if (addr != null && auto) {
-      _attemptConnect();
+      // 设置-手机联动总开关：关闭时不自动连接（手动重连仍可用）。
+      final linkageOn = prefs.getBool('watchLinkageEnabled') ?? true;
+      if (linkageOn) _attemptConnect();
     }
   }
 
@@ -178,6 +220,7 @@ class LinkController extends StateNotifier<LinkState> {
     _heartbeat?.cancel();
     _interpolate?.cancel();
     _reconnect?.cancel();
+    _cloud.close();
     _channel.disconnect();
     super.dispose();
   }
@@ -206,7 +249,14 @@ class LinkController extends StateNotifier<LinkState> {
   Future<void> disconnectManually() async {
     _reconnect?.cancel();
     _stopAlive();
-    state = state.copyWith(phase: LinkPhase.disconnected, now: null);
+    _viaCloud = false;
+    _cloudTryActive = false;
+    state = state.copyWith(
+      phase: LinkPhase.disconnected,
+      now: null,
+      viaCloud: false,
+    );
+    await _cloud.close();
     await _channel.disconnect();
   }
 
@@ -220,6 +270,10 @@ class LinkController extends StateNotifier<LinkState> {
       if (addr != null && state.phase == LinkPhase.disconnected) {
         _backoff = _minBackoff;
         _attemptConnect();
+      } else if (_cloudKey.isNotEmpty &&
+          state.phase == LinkPhase.disconnected) {
+        _backoff = _minBackoff;
+        _tryCloud();
       }
     } else {
       _reconnect?.cancel();
@@ -269,7 +323,11 @@ class LinkController extends StateNotifier<LinkState> {
       return;
     }
     final addr = state.pairedAddress;
-    if (addr == null || addr.isEmpty) return;
+    if ((addr == null || addr.isEmpty)) {
+      // 无蓝牙配对但有云端凭据：直接走云。
+      if (_cloudKey.isNotEmpty) _tryCloud();
+      return;
+    }
     _wasExpectingConnect = true;
     state = state.copyWith(phase: LinkPhase.connecting);
     _channel.connect(addr);
@@ -279,6 +337,7 @@ class LinkController extends StateNotifier<LinkState> {
     _reconnect?.cancel();
     if (evt.connected) {
       _decoder = FrameDecoder();
+      _viaCloud = false;
       _backoff = _minBackoff;
       _lastFrame = DateTime.now();
       state = state.copyWith(
@@ -288,6 +347,7 @@ class LinkController extends StateNotifier<LinkState> {
         isPlaying: false,
         liked: false,
         position: 0,
+        viaCloud: false,
       );
       _send(LinkMessage.hello(
         ver: kLinkProtocolVersion,
@@ -305,9 +365,96 @@ class LinkController extends StateNotifier<LinkState> {
         isPlaying: false,
         position: 0,
       );
-      if (wasConnected || _wasExpectingConnect) _scheduleReconnect();
+      if (wasConnected || _wasExpectingConnect) {
+        // 云端兜底：蓝牙不可达时立即尝试云（凭据在手），不再等满退避；
+        // 云也失败则并入原退避循环（下轮先蓝牙后云）。
+        if (_cloudKey.isNotEmpty) {
+          _tryCloud();
+        } else {
+          _scheduleReconnect();
+        }
+      }
       _wasExpectingConnect = false;
     }
+  }
+
+  // ---- 云端兜底传输 ----
+
+  /// 发起云中继连接（角色 watch，凭据 device_key）。
+  void _tryCloud() {
+    if (_cloudKey.isEmpty) return;
+    if (_cloudTryActive || state.phase == LinkPhase.connected) return;
+    _cloudTryActive = true;
+    state = state.copyWith(phase: LinkPhase.connecting);
+    _cloud.connect(
+      url: _cloudUrl.isEmpty ? kDefaultCloudRelayUrl : _cloudUrl,
+      key: _cloudKey,
+    );
+  }
+
+  void _onCloudEvent(CloudLinkEvent evt) {
+    switch (evt.kind) {
+      case CloudLinkEvent.ready:
+        _onCloudUp(evt.peerName);
+      case CloudLinkEvent.peerLost:
+        // 手机端离线：链路死亡，走统一拆除 + 退避重连。
+        if (_viaCloud) _killLink(reschedule: true);
+      case CloudLinkEvent.replaced:
+        // 同 key 被新连接替换：静默让位，不重连（避免与新连接互踢）。
+        if (_viaCloud) _killLink(reschedule: false);
+      case CloudLinkEvent.closed:
+        _cloudTryActive = false;
+        if (_viaCloud) {
+          _killLink(reschedule: true);
+        } else if (state.phase == LinkPhase.connecting) {
+          // 云连接尝试失败：并入退避循环（下轮先蓝牙）。
+          _scheduleReconnect();
+        }
+    }
+  }
+
+  void _onCloudUp(String name) {
+    _cloudTryActive = false;
+    _viaCloud = true;
+    _decoder = FrameDecoder();
+    _backoff = _minBackoff;
+    _lastFrame = DateTime.now();
+    state = state.copyWith(
+      phase: LinkPhase.connected,
+      phoneName: name,
+      now: null,
+      isPlaying: false,
+      liked: false,
+      position: 0,
+      viaCloud: true,
+    );
+    _send(LinkMessage.hello(
+      ver: kLinkProtocolVersion,
+      role: 'watch',
+      name: '弦予腕上',
+    ));
+    _startAlive();
+  }
+
+  /// 统一链路拆除：断开当前传输（按 [_viaCloud] 分派）、复位状态、按需重连。
+  void _killLink({required bool reschedule}) {
+    _stopAlive();
+    final wasCloud = _viaCloud;
+    _viaCloud = false;
+    _cloudTryActive = false;
+    state = state.copyWith(
+      phase: LinkPhase.disconnected,
+      now: null,
+      isPlaying: false,
+      position: 0,
+      viaCloud: false,
+    );
+    if (wasCloud) {
+      _cloud.close();
+    } else {
+      _channel.disconnect();
+    }
+    if (reschedule) _scheduleReconnect();
   }
 
   /// connect 发起后到结果回传前的窗口标记（失败也退避重试）。
@@ -331,9 +478,13 @@ class LinkController extends StateNotifier<LinkState> {
       if (state.phase != LinkPhase.connected) return;
       _send(LinkMessage(LinkMsgType.ping, {'t': DateTime.now().millisecondsSinceEpoch}));
       if (DateTime.now().difference(_lastFrame) > _deadAfter) {
-        // 10s 无帧判死：主动断开，onConnection(false) 将触发退避重连。
-        _wasExpectingConnect = true;
-        _channel.disconnect();
+        // 10s 无帧判死：主动断开，onConnection(false)/cloud closed 将触发退避重连。
+        if (_viaCloud) {
+          _killLink(reschedule: true);
+        } else {
+          _wasExpectingConnect = true;
+          _channel.disconnect();
+        }
       }
     });
     _interpolate = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -387,14 +538,44 @@ class LinkController extends StateNotifier<LinkState> {
         state = state.copyWith(
           position: (msg.payload['pos'] as num?)?.toDouble() ?? 0,
         );
+      case LinkMsgType.lyric:
+        final lyric = msg.payload['lyric'];
+        if (lyric is! Map) break;
+        final id = lyric['id'] as String?;
+        final payload = lyric['payload'] as String?;
+        if (id == null || id.isEmpty || payload == null) break;
+        state = state.copyWith(lyricSongId: id, lyricPayload: payload);
       case LinkMsgType.hello:
         // 手机侧 hello（握手回应），phoneName 以 onConnection 事件为准。
         break;
       case LinkMsgType.pong:
       case LinkMsgType.bye:
         break;
+      case LinkMsgType.cloudBind:
+        _onCloudBind(msg.payload['cloud_bind']);
       default:
         break;
+    }
+  }
+
+  /// 手机下发的云端兜底绑定：持久化凭据；未连接时立即尝试建链。
+  Future<void> _onCloudBind(Object? bind) async {
+    if (bind is! Map) return;
+    final key = bind['key'] as String?;
+    final url = bind['url'] as String?;
+    if (key == null || key.isEmpty) return;
+    _cloudKey = key;
+    if (url != null && url.isNotEmpty) _cloudUrl = url;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('watch.cloudKey', _cloudKey);
+    if (_cloudUrl.isNotEmpty) {
+      await prefs.setString('watch.cloudUrl', _cloudUrl);
+    }
+    // 蓝牙已连着则暂不动；断连状态下立即用新凭据建链。
+    if (state.phase == LinkPhase.disconnected && state.autoEnabled) {
+      _reconnect?.cancel();
+      _backoff = _minBackoff;
+      _attemptConnect();
     }
   }
 
@@ -412,7 +593,11 @@ class LinkController extends StateNotifier<LinkState> {
   void _send(LinkMessage msg) {
     try {
       for (final frame in encodeFrames(msg, nextSeq: _nextSeq)) {
-        _channel.send(frame);
+        if (_viaCloud) {
+          _cloud.send(frame);
+        } else {
+          _channel.send(frame);
+        }
       }
     } catch (_) {
       // 发送失败静默：断连由读线程统一上报。

@@ -5,7 +5,7 @@ import '../../player/player_provider.dart';
 import '../../plugin/plugin_models.dart';
 import '../../plugin/plugin_provider.dart';
 import '../../plugin/plugin_search.dart';
-import '../local/watch_player_page.dart';
+import '../local/local_music_hub.dart';
 
 /// 在线搜索页（P3）：跨已启用插件搜索 → 结果转播放队列。
 class OnlineSearchPage extends ConsumerStatefulWidget {
@@ -126,9 +126,9 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
     }
     await ref.read(playerProvider.notifier).playQueue(items, startIndex: start);
     if (!mounted) return;
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const WatchPlayerPage()),
-    );
+    // 网易云式：点歌后回 hub 并自动切到播放页。
+    ref.read(localHubPageProvider.notifier).state = 1;
+    Navigator.of(context).pop();
   }
 
   @override
