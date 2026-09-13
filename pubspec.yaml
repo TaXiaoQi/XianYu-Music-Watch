@@ -19,6 +19,15 @@ dependencies:
   wearable_rotary: ^2.0.4
   # 已配对手机地址持久化
   shared_preferences: ^2.3.3
+  # Rust core（扫描/入库/元数据解析，与移动端同源 libxianyu_core.so）
+  flutter_rust_bridge: 2.12.0
+  # 本地播放
+  just_audio: ^0.9.0
+  # 数据目录/路径
+  path_provider: ^2.1.0
+  path: ^1.9.0
+  # 本地音乐扫描运行时权限
+  permission_handler: ^11.3.0
 
 dev_dependencies:
   flutter_test:
