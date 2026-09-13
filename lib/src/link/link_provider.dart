@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/ambient.dart';
 import 'protocol.dart';
 import 'rfcomm_client.dart';
 
@@ -140,6 +141,10 @@ class LinkController extends StateNotifier<LinkState> {
   /// 拉起回调：收到 now_playing 且应用在后台时触发
   ///（Kotlin 侧发 fullScreenIntent 高优先级通知拉起控制页）。
   void Function(String title, String artist)? onBackgroundNowPlaying;
+
+  /// 环境模式（熄屏常显）探针：true 时暂停进度插值与位置帧应用，
+  /// 避免常显期间每秒重绘耗电（provider 工厂注入，读 ambientModeProvider）。
+  bool Function()? isAmbient;
 
   /// 初始化（main 启动时调用一次）。
   Future<void> init() async {
@@ -333,6 +338,7 @@ class LinkController extends StateNotifier<LinkState> {
     });
     _interpolate = Timer.periodic(const Duration(seconds: 1), (_) {
       if (state.phase != LinkPhase.connected || !state.isPlaying) return;
+      if (isAmbient?.call() ?? false) return; // 环境模式：暂停刷新省电
       final now = state.now;
       if (now == null) return;
       final p = state.position + 1;
@@ -377,6 +383,7 @@ class LinkController extends StateNotifier<LinkState> {
           onBackgroundNowPlaying?.call(now.title, now.artist);
         }
       case LinkMsgType.position:
+        if (isAmbient?.call() ?? false) break; // 环境模式：不应用，保持静态帧
         state = state.copyWith(
           position: (msg.payload['pos'] as num?)?.toDouble() ?? 0,
         );
@@ -416,5 +423,8 @@ class LinkController extends StateNotifier<LinkState> {
 /// 联接控制器 provider（main 启动时 init）。
 final linkControllerProvider =
     StateNotifierProvider<LinkController, LinkState>((ref) {
-  return LinkController();
+  final controller = LinkController();
+  // 注入环境模式探针：ambient 下暂停秒级进度刷新（省电 + 防烧屏）。
+  controller.isAmbient = () => ref.read(ambientModeProvider);
+  return controller;
 });

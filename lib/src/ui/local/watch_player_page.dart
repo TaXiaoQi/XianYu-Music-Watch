@@ -117,7 +117,9 @@ class _WatchPlayerPageState extends ConsumerState<WatchPlayerPage> {
                         painter: _RingPainter(progress: progress),
                         child: Padding(
                           padding: const EdgeInsets.all(12),
-                          child: ClipOval(child: _cover(current?.coverPath)),
+                          child: ClipOval(
+                              child: _cover(
+                                  current?.coverPath, current?.coverUrl)),
                         ),
                       ),
                     ),
@@ -219,7 +221,14 @@ class _WatchPlayerPageState extends ConsumerState<WatchPlayerPage> {
     );
   }
 
-  Widget _cover(String? coverPath) {
+  Widget _cover(String? coverPath, String? coverUrl) {
+    if (coverUrl != null && coverUrl.isNotEmpty) {
+      return Image.network(
+        coverUrl,
+        fit: BoxFit.cover,
+        errorBuilder: (_, _, _) => const _CoverFallback(),
+      );
+    }
     if (coverPath == null || coverPath.isEmpty || !File(coverPath).existsSync()) {
       return const _CoverFallback();
     }

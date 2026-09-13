@@ -8,9 +8,13 @@ import 'package:just_audio/just_audio.dart';
 
 import '../core/db_path.dart';
 import '../core/settings.dart';
+import '../plugin/plugin_engine.dart';
+import '../plugin/plugin_models.dart';
+import '../plugin/plugin_provider.dart';
 import '../rust/api.dart';
+import 'media_url.dart';
 
-/// 播放中的单曲信息（移动端 QueueItem 精简版：仅本地播放所需字段）。
+/// 播放中的单曲信息（移动端 QueueItem 精简版：本地 + 在线插件歌所需字段）。
 class QueueItem {
   final String path;
   final String title;
@@ -19,6 +23,16 @@ class QueueItem {
   final int durationMs;
   /// 本地歌曲封面缩略图文件路径。
   final String? coverPath;
+  /// 在线插件歌：歌曲 JSON（pluginId/format/source/musicInfo），非空则走插件解析直链。
+  final String? onlineSongJson;
+  /// 在线歌曲封面 URL。
+  final String? coverUrl;
+  /// 请求音质档（320k/flac 等，默认 320k）。
+  final String? onlineQuality;
+  /// 音源标签（wy/tx/kg 等，LX 插件歌歌词兜底用）。
+  final String? source;
+  /// 在线搜索元数据 JSON（LX 插件歌歌词兜底用，Rust LyricSongInfo 格式）。
+  final String? onlineInfoJson;
   const QueueItem({
     required this.path,
     required this.title,
@@ -26,15 +40,25 @@ class QueueItem {
     required this.album,
     this.durationMs = 0,
     this.coverPath,
+    this.onlineSongJson,
+    this.coverUrl,
+    this.onlineQuality,
+    this.source,
+    this.onlineInfoJson,
   });
 
-  QueueItem copyWith({String? coverPath}) => QueueItem(
+  QueueItem copyWith({String? coverPath, String? coverUrl}) => QueueItem(
         path: path,
         title: title,
         artist: artist,
         album: album,
         durationMs: durationMs,
         coverPath: coverPath ?? this.coverPath,
+        coverUrl: coverUrl ?? this.coverUrl,
+        onlineSongJson: onlineSongJson,
+        onlineQuality: onlineQuality,
+        source: source,
+        onlineInfoJson: onlineInfoJson,
       );
 }
 
@@ -184,7 +208,7 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
         await _player.stop();
       } catch (_) {}
       if (epoch != _playEpoch) return;
-      await _setLocalSource(item.path);
+      await _loadItemSource(item);
       if (startAtSecs > 0) {
         try {
           await seek(startAtSecs);
@@ -203,6 +227,71 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     }
     _persistSession();
   }
+
+  /// 加载曲目音源：在线插件歌走引擎解析直链，本地走文件/URI。
+  Future<Duration?> _loadItemSource(QueueItem item) async {
+    final json = item.onlineSongJson;
+    if (json != null && json.isNotEmpty) {
+      return _playPluginSong(json);
+    }
+    return _setLocalSource(item.path);
+  }
+
+  /// 在线插件歌：从插件引擎解析直链并播放（腕上端精简版，无换源回退）。
+  Future<Duration?> _playPluginSong(String json) async {
+    final songJson = jsonDecode(json) as Map<String, dynamic>;
+    final pluginId = songJson['pluginId'] as String? ?? '';
+    final format = songJson['format'] as String? ?? 'lx';
+    final sourceKey = songJson['source'] as String? ?? '';
+    final musicInfo = songJson['musicInfo'] as Map<String, dynamic>? ?? {};
+    if (pluginId.isEmpty) throw StateError('插件信息缺失');
+    final engine = await _ref.read(pluginEngineProvider.future);
+    final source = await _findPluginSource(engine, pluginId);
+    if (source == null) throw StateError('插件未安装');
+    final quality =
+        _ref.read(settingsProvider).valueOrNull?.onlineQuality ?? '320k';
+
+    ResolvedMediaUrl? resolved;
+    if (format == 'musicfree') {
+      resolved = await engine.getMusicFreeUrl(
+        source,
+        musicInfo,
+        preferred: quality,
+        fallback: 'pause',
+      );
+    } else {
+      final result =
+          await engine.getMusicUrl(source, sourceKey, musicInfo, quality);
+      final url = result?['url'] as String?;
+      if (result != null && _isPlayableUrl(url)) {
+        final h = result['headers'];
+        resolved = ResolvedMediaUrl(
+          url: url!,
+          headers: h is Map ? h.cast<String, String>() : null,
+          quality: quality,
+        );
+      }
+    }
+    if (resolved == null) throw StateError('直链解析失败');
+    // 清洗直链脏字符 + 按 CDN 域名补齐防盗链请求头（酷狗/网易云等必需）。
+    final cleaned = sanitizeMediaUrl(resolved.url);
+    if (cleaned.isEmpty) throw StateError('直链无效');
+    final headers = normalizeMediaRequestHeaders(cleaned, resolved.headers);
+    await _player.setUrl(cleaned, headers: headers);
+    return null;
+  }
+
+  Future<PluginSource?> _findPluginSource(
+      PluginEngine engine, String pluginId) async {
+    final sources = await engine.store.loadSources();
+    for (final s in sources) {
+      if (s.id == pluginId) return s;
+    }
+    return null;
+  }
+
+  static bool _isPlayableUrl(String? url) =>
+      url != null && RegExp(r'^https?://').hasMatch(url);
 
   /// 加载本地曲目音源（content:// 树文档 URI 播放不可靠，先物化本地副本）。
   Future<Duration?> _setLocalSource(String path) async {
@@ -445,6 +534,11 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
           'album': q.album,
           'durationMs': q.durationMs,
           'coverPath': q.coverPath,
+          'coverUrl': q.coverUrl,
+          'onlineSongJson': q.onlineSongJson,
+          'onlineQuality': q.onlineQuality,
+          'source': q.source,
+          'onlineInfoJson': q.onlineInfoJson,
         };
       }
 
@@ -496,6 +590,11 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
           album: meta?['album'] as String? ?? '',
           durationMs: (meta?['durationMs'] as num?)?.toInt() ?? 0,
           coverPath: meta?['coverPath'] as String?,
+          coverUrl: meta?['coverUrl'] as String?,
+          onlineSongJson: meta?['onlineSongJson'] as String?,
+          onlineQuality: meta?['onlineQuality'] as String?,
+          source: meta?['source'] as String?,
+          onlineInfoJson: meta?['onlineInfoJson'] as String?,
         ));
       }
 
@@ -510,12 +609,12 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
         playMode: mode,
       );
       try {
-        await _player.setFilePath(currentItem.path);
+        await _loadItemSource(currentItem);
         await seek(pos);
         await _player.setVolume(
             _ref.read(settingsProvider).valueOrNull?.volume ?? 1.0);
       } catch (e) {
-        debugPrint('[session] 本地曲目预加载失败: $e');
+        debugPrint('[session] 曲目预加载失败: $e');
       }
     } catch (e) {
       debugPrint('[session] 恢复播放会话异常: $e');

@@ -20,6 +20,7 @@ class AppSettings {
     this.libraryMinDurationSeconds = 0,
     this.scanFormats = kSupportedScanFormats,
     this.watchLinkageEnabled = true,
+    this.onlineQuality = '320k',
   });
 
   final double volume;
@@ -31,6 +32,9 @@ class AppSettings {
   /// 手机联动总开关（对齐移动端 watchLinkageEnabled，移动端默认开启）。
   final bool watchLinkageEnabled;
 
+  /// 在线播放请求音质档（320k/flac 等，对齐移动端 onlineQuality 默认值）。
+  final String onlineQuality;
+
   AppSettings copyWith({
     double? volume,
     int? playMode,
@@ -38,6 +42,7 @@ class AppSettings {
     int? libraryMinDurationSeconds,
     List<String>? scanFormats,
     bool? watchLinkageEnabled,
+    String? onlineQuality,
   }) {
     return AppSettings(
       volume: volume ?? this.volume,
@@ -47,6 +52,7 @@ class AppSettings {
           libraryMinDurationSeconds ?? this.libraryMinDurationSeconds,
       scanFormats: scanFormats ?? this.scanFormats,
       watchLinkageEnabled: watchLinkageEnabled ?? this.watchLinkageEnabled,
+      onlineQuality: onlineQuality ?? this.onlineQuality,
     );
   }
 }
@@ -64,6 +70,7 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
       // 与移动端同 key：后补格式与支持列表取并集，保证新格式直接生效。
       scanFormats: _mergeScanFormats(prefs.getStringList('scanFormats')),
       watchLinkageEnabled: prefs.getBool('watchLinkageEnabled') ?? true,
+      onlineQuality: prefs.getString('onlineQuality') ?? '320k',
     );
   }
 
@@ -78,6 +85,7 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
           'libraryMinDurationSeconds', next.libraryMinDurationSeconds),
       prefs.setStringList('scanFormats', next.scanFormats),
       prefs.setBool('watchLinkageEnabled', next.watchLinkageEnabled),
+      prefs.setString('onlineQuality', next.onlineQuality),
     ]);
   }
 
@@ -95,6 +103,8 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
   Future<void> setWatchLinkageEnabled(bool v) => _save(
       (state.valueOrNull ?? const AppSettings())
           .copyWith(watchLinkageEnabled: v));
+  Future<void> setOnlineQuality(String v) =>
+      _save((state.valueOrNull ?? const AppSettings()).copyWith(onlineQuality: v));
 
   /// 整体保存（自动同步合并后调用）。
   Future<void> saveAll(AppSettings next) => _save(next);

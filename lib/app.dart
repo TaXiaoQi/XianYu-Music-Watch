@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'src/core/ambient.dart';
 import 'src/link/link_provider.dart';
 import 'src/ui/controller/watch_controller_page.dart';
 import 'src/ui/local/local_library_view.dart';
@@ -25,6 +26,8 @@ class _XianYuWatchAppState extends ConsumerState<XianYuWatchApp> {
     super.initState();
     // 链路初始化（读配对地址 → 自动连接 / 退避重连 / 心跳）。
     Future.microtask(() => ref.read(linkControllerProvider.notifier).init());
+    // Wear OS 环境模式监听（进出 ambient 压暗 UI + 暂停刷新）。
+    initAmbientListener(ref);
   }
 
   @override
@@ -41,6 +44,24 @@ class _XianYuWatchAppState extends ConsumerState<XianYuWatchApp> {
           secondary: Color(0xFFFF8FA3),
           surface: Colors.black,
         ),
+      ),
+      // builder 包住 Navigator：所有路由（含推送页）在 ambient 下统一压暗。
+      builder: (context, child) => Consumer(
+        builder: (context, ref, _) {
+          if (!ref.watch(ambientModeProvider)) {
+            return child ?? const SizedBox.shrink();
+          }
+          return ColorFiltered(
+            // 全局压暗至 60%：OLED 防烧屏 + 省电，保留最低可读性。
+            colorFilter: const ColorFilter.matrix(<double>[
+              0.6, 0, 0, 0, 0, //
+              0, 0.6, 0, 0, 0, //
+              0, 0, 0.6, 0, 0, //
+              0, 0, 0, 1, 0, //
+            ]),
+            child: child ?? const SizedBox.shrink(),
+          );
+        },
       ),
       home: const LinkHome(),
     );

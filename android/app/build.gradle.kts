@@ -81,6 +81,11 @@ flutter {
     source = "../.."
 }
 
+dependencies {
+    // Wear OS 环境模式（AmbientLifecycleObserver，MainActivity 使用）。
+    implementation("androidx.wear:wear:1.3.0")
+}
+
 // 禁用 lint 关键检查 task（避免构建时从 dl.google.com 下载 lint 依赖超时）
 tasks.configureEach {
     if (name.startsWith("lintVital")) {

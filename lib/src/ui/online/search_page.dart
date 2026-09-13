@@ -1,0 +1,278 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../player/player_provider.dart';
+import '../../plugin/plugin_models.dart';
+import '../../plugin/plugin_provider.dart';
+import '../../plugin/plugin_search.dart';
+import '../local/watch_player_page.dart';
+
+/// 在线搜索页（P3）：跨已启用插件搜索 → 结果转播放队列。
+class OnlineSearchPage extends ConsumerStatefulWidget {
+  const OnlineSearchPage({super.key});
+
+  @override
+  ConsumerState<OnlineSearchPage> createState() => _OnlineSearchPageState();
+}
+
+class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
+  final _controller = TextEditingController();
+  bool _searching = false;
+  bool _installing = false;
+  String? _error;
+  List<PluginSource> _sources = [];
+  List<(PluginSource, List<PluginSearchResult>)> _results = [];
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _search() async {
+    final kw = _controller.text.trim();
+    if (kw.isEmpty) return;
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _searching = true;
+      _error = null;
+      _results = [];
+    });
+    try {
+      final engine = await ref.read(pluginEngineProvider.future);
+      final sources = await engine.store.loadSources();
+      final enabled = sources.where((s) => s.enabled).toList();
+      if (enabled.isEmpty) throw '尚未安装插件，点右上角 + 添加';
+      final service = PluginSearchService(engine, sources);
+      final results = await service.searchAll(kw, limit: 20);
+      if (!mounted) return;
+      setState(() {
+        _sources = sources;
+        _results = results;
+        if (results.isEmpty) _error = '没有匹配结果';
+      });
+    } catch (e) {
+      if (mounted) setState(() => _error = '$e');
+    } finally {
+      if (mounted) setState(() => _searching = false);
+    }
+  }
+
+  Future<void> _addPlugin() async {
+    final url = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        final c = TextEditingController();
+        return AlertDialog(
+          title: const Text('添加插件', style: TextStyle(fontSize: 15)),
+          content: TextField(
+            controller: c,
+            autofocus: true,
+            style: const TextStyle(fontSize: 13),
+            decoration: const InputDecoration(
+              hintText: '插件脚本 URL',
+              isDense: true,
+            ),
+            keyboardType: TextInputType.url,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消', style: TextStyle(fontSize: 13)),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, c.text.trim()),
+              child: const Text('安装', style: TextStyle(fontSize: 13)),
+            ),
+          ],
+        );
+      },
+    );
+    if (url == null || url.isEmpty || !mounted) return;
+    setState(() => _installing = true);
+    try {
+      final result =
+          await ref.read(pluginManagerProvider.notifier).installFromUrl(url);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            result.success
+                ? '已安装 ${result.names.join('、')}'
+                : '安装失败：${result.errors.join('；')}',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('安装失败：$e')));
+      }
+    } finally {
+      if (mounted) setState(() => _installing = false);
+    }
+  }
+
+  /// 点结果：整组结果转播放队列，从点击项起播。
+  Future<void> _play(int groupIndex, int itemIndex) async {
+    final engine = await ref.read(pluginEngineProvider.future);
+    final service = PluginSearchService(engine, _sources);
+    final items = <QueueItem>[];
+    var start = 0;
+    for (var gi = 0; gi < _results.length; gi++) {
+      final (src, group) = _results[gi];
+      if (gi == groupIndex) start = items.length + itemIndex;
+      items.addAll(group.map((r) => service.toQueueItem(src, r)));
+    }
+    await ref.read(playerProvider.notifier).playQueue(items, startIndex: start);
+    if (!mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const WatchPlayerPage()),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('在线搜索', style: TextStyle(fontSize: 15)),
+        actions: [
+          IconButton(
+            onPressed: _installing ? null : _addPlugin,
+            icon: const Icon(Icons.add_link_rounded, size: 20),
+            tooltip: '添加插件',
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _controller,
+                    textInputAction: TextInputAction.search,
+                    onSubmitted: (_) => _search(),
+                    style: const TextStyle(fontSize: 13),
+                    decoration: const InputDecoration(
+                      hintText: '搜索歌曲/歌手',
+                      isDense: true,
+                      prefixIcon: Icon(Icons.search_rounded, size: 18),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FilledButton(
+                  onPressed: _searching ? null : _search,
+                  child: Text(_searching ? '…' : '搜'),
+                ),
+              ],
+            ),
+          ),
+          Expanded(child: _buildBody()),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_searching) {
+      return const Center(
+        child: CircularProgressIndicator(strokeWidth: 3),
+      );
+    }
+    if (_error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Text(
+            _error!,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 12, color: Colors.white54),
+          ),
+        ),
+      );
+    }
+    if (_results.isEmpty) {
+      return const Center(
+        child: Text(
+          '输入关键词搜索在线音乐',
+          style: TextStyle(fontSize: 12, color: Colors.white38),
+        ),
+      );
+    }
+    final tiles = <Widget>[];
+    for (var gi = 0; gi < _results.length; gi++) {
+      final (src, group) = _results[gi];
+      tiles.add(Padding(
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 2),
+        child: Text(
+          src.name,
+          style: const TextStyle(
+            fontSize: 11,
+            color: Color(0xFFFF8FA3),
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ));
+      for (var ri = 0; ri < group.length; ri++) {
+        final r = group[ri];
+        final quality = r.types
+            .map((t) => t['type'])
+            .whereType<String>()
+            .join('/');
+        tiles.add(ListTile(
+          dense: true,
+          leading: ClipOval(
+            child: SizedBox(
+              width: 30,
+              height: 30,
+              child: (r.img != null && r.img!.isNotEmpty)
+                  ? Image.network(
+                      r.img!,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => const _ResultIcon(),
+                    )
+                  : const _ResultIcon(),
+            ),
+          ),
+          title: Text(
+            r.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 13),
+          ),
+          subtitle: Text(
+            quality.isEmpty ? r.singer : '${r.singer} · $quality',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.white.withValues(alpha: 0.5),
+            ),
+          ),
+          onTap: () => _play(gi, ri),
+        ));
+      }
+    }
+    return ListView(children: tiles);
+  }
+}
+
+class _ResultIcon extends StatelessWidget {
+  const _ResultIcon();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: const Color(0xFF1A1A1E),
+      child: Icon(
+        Icons.music_note_rounded,
+        size: 15,
+        color: Colors.white.withValues(alpha: 0.35),
+      ),
+    );
+  }
+}

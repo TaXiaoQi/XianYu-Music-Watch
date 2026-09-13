@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:wearable_rotary/wearable_rotary.dart';
 
@@ -35,6 +37,13 @@ class _WatchControllerPageState extends ConsumerState<WatchControllerPage> {
   Timer? _volumeHideTimer;
   bool _volumeVisible = false;
 
+  /// 环形 seek 状态：拖拽预览目标进度（null = 未拖拽）、长按快进快退。
+  double? _scrubTarget;
+  bool _longSeeking = false;
+  bool _longSeekForward = true;
+  Timer? _seekSendTimer;
+  Timer? _longSeekTimer;
+
   @override
   void initState() {
     super.initState();
@@ -46,6 +55,8 @@ class _WatchControllerPageState extends ConsumerState<WatchControllerPage> {
     _rotarySub?.cancel();
     _volumeSendTimer?.cancel();
     _volumeHideTimer?.cancel();
+    _seekSendTimer?.cancel();
+    _longSeekTimer?.cancel();
     super.dispose();
   }
 
@@ -71,6 +82,94 @@ class _WatchControllerPageState extends ConsumerState<WatchControllerPage> {
     });
   }
 
+  /// 环形拖拽 seek：触点角度（12 点起顺时针）映射为播放进度。
+  void _onRingPanStart(DragStartDetails d, double size) {
+    final now = ref.read(linkControllerProvider).now;
+    if (now == null || now.duration <= 0) return;
+    final pos = _angleToProgress(d.localPosition, size);
+    setState(() => _scrubTarget = pos);
+    _sendSeekThrottled(pos);
+  }
+
+  void _onRingPanUpdate(DragUpdateDetails d, double size) {
+    if (_scrubTarget == null) return;
+    final pos = _angleToProgress(d.localPosition, size);
+    setState(() => _scrubTarget = pos);
+    _sendSeekThrottled(pos);
+  }
+
+  void _onRingPanEnd() {
+    _seekSendTimer?.cancel();
+    _seekSendTimer = null;
+    final target = _scrubTarget;
+    setState(() => _scrubTarget = null);
+    if (target != null) _sendSeek(target);
+  }
+
+  /// 长按环形：右半区快进 +10s，左半区快退 -10s，按住持续跳。
+  void _onRingLongPressStart(LongPressStartDetails d, double size) {
+    final now = ref.read(linkControllerProvider).now;
+    if (now == null || now.duration <= 0) return;
+    _longSeekForward = d.localPosition.dx >= size / 2;
+    setState(() => _longSeeking = true);
+    _startLongSeek();
+  }
+
+  void _onRingLongPressMoveUpdate(LongPressMoveUpdateDetails d, double size) {
+    final forward = d.localPosition.dx >= size / 2;
+    if (forward != _longSeekForward) {
+      _longSeekForward = forward;
+      _startLongSeek();
+    }
+  }
+
+  void _onRingLongPressEnd() {
+    _longSeekTimer?.cancel();
+    _longSeekTimer = null;
+    if (mounted) setState(() => _longSeeking = false);
+  }
+
+  void _startLongSeek() {
+    _longSeekTimer?.cancel();
+    _doLongSeek();
+    _longSeekTimer = Timer.periodic(const Duration(milliseconds: 600), (_) {
+      _doLongSeek();
+    });
+  }
+
+  void _doLongSeek() {
+    final link = ref.read(linkControllerProvider);
+    final now = link.now;
+    if (now == null || now.duration <= 0) return;
+    final delta = _longSeekForward ? 10.0 : -10.0;
+    final target = (link.position + delta).clamp(0.0, now.duration);
+    ref.read(linkControllerProvider.notifier).seek(target);
+    HapticFeedback.selectionClick();
+  }
+
+  void _sendSeek(double pos) {
+    final now = ref.read(linkControllerProvider).now;
+    if (now == null || now.duration <= 0) return;
+    ref.read(linkControllerProvider.notifier).seek(pos * now.duration);
+  }
+
+  /// 拖拽过程节流下发（120ms 尾发送，避免刷爆链路）。
+  void _sendSeekThrottled(double pos) {
+    _seekSendTimer?.cancel();
+    _seekSendTimer = Timer(const Duration(milliseconds: 120), () {
+      if (_scrubTarget != null) _sendSeek(pos);
+    });
+  }
+
+  /// 触点相对环形中心的方位角 → 进度（0 在 12 点，顺时针）。
+  static double _angleToProgress(Offset p, double size) {
+    final dx = p.dx - size / 2;
+    final dy = p.dy - size / 2;
+    var a = math.atan2(dy, dx) + math.pi / 2;
+    if (a < 0) a += 2 * math.pi;
+    return (a / (2 * math.pi)).clamp(0.0, 1.0);
+  }
+
   String _fmt(double secs) {
     final s = secs.clamp(0.0, 359999).round();
     return '${s ~/ 60}:${(s % 60).toString().padLeft(2, '0')}';
@@ -94,8 +193,13 @@ class _WatchControllerPageState extends ConsumerState<WatchControllerPage> {
         DateTime.now().difference(_lastRotary) > const Duration(seconds: 1)) {
       _volume = link.volume;
     }
-    final progress =
-        (now != null && now.duration > 0) ? link.position / now.duration : 0.0;
+    // 拖拽 seek 中本地预览进度，手机上报在松手前不覆盖。
+    final displayProgress =
+        _scrubTarget ??
+        ((now != null && now.duration > 0)
+            ? link.position / now.duration
+            : 0.0);
+    final displayPos = (now?.duration ?? 0) * displayProgress;
 
     return Scaffold(
       body: Stack(
@@ -131,15 +235,23 @@ class _WatchControllerPageState extends ConsumerState<WatchControllerPage> {
                       ),
                     ],
                   ),
-                  // 封面 + 环形进度（点按 = 播放/暂停）
+                  // 封面 + 环形进度（点按 = 播放/暂停，拖拽 = seek，长按左右 = ±10s）
                   GestureDetector(
                     onTap: () =>
                         ref.read(linkControllerProvider.notifier).toggle(),
+                    onPanStart: (d) => _onRingPanStart(d, ringSize),
+                    onPanUpdate: (d) => _onRingPanUpdate(d, ringSize),
+                    onPanEnd: (_) => _onRingPanEnd(),
+                    onLongPressStart: (d) =>
+                        _onRingLongPressStart(d, ringSize),
+                    onLongPressMoveUpdate: (d) =>
+                        _onRingLongPressMoveUpdate(d, ringSize),
+                    onLongPressEnd: (_) => _onRingLongPressEnd(),
                     child: SizedBox(
                       width: ringSize,
                       height: ringSize,
                       child: CustomPaint(
-                        painter: _RingPainter(progress: progress),
+                        painter: _RingPainter(progress: displayProgress),
                         child: Padding(
                           padding: const EdgeInsets.all(12),
                           child: ClipOval(child: _cover(now)),
@@ -149,7 +261,7 @@ class _WatchControllerPageState extends ConsumerState<WatchControllerPage> {
                   ),
                   // 进度文本
                   Text(
-                    '${_fmt(link.position)} / ${_fmt(now?.duration ?? 0)}',
+                    '${_fmt(displayPos)} / ${_fmt(now?.duration ?? 0)}',
                     style: TextStyle(
                       fontSize: 11,
                       color: Colors.white.withValues(alpha: 0.5),
@@ -243,6 +355,37 @@ class _WatchControllerPageState extends ConsumerState<WatchControllerPage> {
                       '${((_volume ?? 0) * 100).round()}%',
                       style: const TextStyle(fontSize: 12),
                     ),
+                  ],
+                ),
+              ),
+            ),
+          // 长按 seek HUD（快进/快退提示）
+          if (_longSeeking)
+            Align(
+              alignment: Alignment.topCenter,
+              child: Container(
+                margin: const EdgeInsets.only(top: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (!_longSeekForward) ...[
+                      const Icon(Icons.fast_rewind_rounded, size: 15),
+                      const SizedBox(width: 5),
+                    ],
+                    Text(
+                      _longSeekForward ? '+10s' : '-10s',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    if (_longSeekForward) ...[
+                      const SizedBox(width: 5),
+                      const Icon(Icons.fast_forward_rounded, size: 15),
+                    ],
                   ],
                 ),
               ),

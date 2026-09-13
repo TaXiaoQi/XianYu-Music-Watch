@@ -6,6 +6,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../../library/library_provider.dart';
 import '../../library/scan_settings_provider.dart';
+import '../online/search_page.dart';
 import 'watch_player_page.dart';
 
 /// 独立模式本地库页：权限引导 → 扫描 → 圆屏歌曲列表 → 点歌进播放页。
@@ -68,9 +69,29 @@ class _LocalLibraryViewState extends ConsumerState<LocalLibraryView> {
     }
     return ListView.builder(
       padding: const EdgeInsets.symmetric(vertical: 8),
-      itemCount: songs.length,
+      itemCount: songs.length + 1,
       itemBuilder: (context, i) {
-        final s = songs[i];
+        if (i == 0) {
+          return ListTile(
+            dense: true,
+            leading: const Icon(Icons.travel_explore_rounded, size: 22),
+            title: const Text(
+              '在线搜索',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+            subtitle: Text(
+              '插件在线音源',
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.white.withValues(alpha: 0.5),
+              ),
+            ),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const OnlineSearchPage()),
+            ),
+          );
+        }
+        final s = songs[i - 1];
         return ListTile(
           dense: true,
           leading: ClipOval(

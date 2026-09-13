@@ -26,6 +26,8 @@ dependencies:
   # 数据目录/路径
   path_provider: ^2.1.0
   path: ^1.9.0
+  # 插件脚本 SHA-256 指纹（与移动端同栈）
+  crypto: ^3.0.3
   # 本地音乐扫描运行时权限
   permission_handler: ^11.3.0
 
