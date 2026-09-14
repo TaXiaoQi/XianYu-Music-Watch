@@ -6,7 +6,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../link/link_provider.dart';
 import '../../lyrics/lyric_model.dart';
 import '../../lyrics/lyrics_repository.dart';
+import '../../core/watch_fit.dart';
 import '../player/play_page_body.dart';
+import '../player/cover_backdrop.dart';
 import '../player/lyrics_view.dart';
 import '../player/page_dots.dart';
 import '../player/player_source.dart';
@@ -69,10 +71,20 @@ class _WatchControllerPageState extends ConsumerState<WatchControllerPage> {
   Widget build(BuildContext context) {
     final link = ref.watch(linkControllerProvider);
     final lyrics = _lyricsOf(link);
+    final now = link.now;
 
     return Scaffold(
       body: Stack(
         children: [
+          // 全屏封面模糊背景（网易云手表版）：双页共享一层，横移时背景不动。
+          Positioned.fill(
+            child: CoverBackdrop(
+              cover: CoverRef(
+                filePath: now?.coverIsFile == true ? now!.cover : null,
+                url: now?.coverIsFile == true ? null : now?.cover,
+              ),
+            ),
+          ),
           PageView(
             controller: _pageCtrl,
             onPageChanged: (i) => setState(() => _page = i),
@@ -84,6 +96,8 @@ class _WatchControllerPageState extends ConsumerState<WatchControllerPage> {
                 ),
                 showCloudBadge: link.viaCloud,
                 emptyText: '手机未在播放',
+                // 表冠门禁：仅播放页是 PageView 当前页时才调音量。
+                rotaryGuard: () => _page == 0,
               ),
               LyricsView(
                 lines: lyrics,
@@ -94,11 +108,11 @@ class _WatchControllerPageState extends ConsumerState<WatchControllerPage> {
               ),
             ],
           ),
-          // 底部页指示圆点（贴下缘居中）
+          // 底部页指示圆点（贴下缘居中，间距随屏径等比）
           Positioned(
             left: 0,
             right: 0,
-            bottom: 10,
+            bottom: 10 * context.watchScale(),
             child: Center(
               child: PageDots(count: 2, current: _page),
             ),

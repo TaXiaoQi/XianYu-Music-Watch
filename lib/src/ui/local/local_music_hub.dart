@@ -1,12 +1,18 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:wearable_rotary/wearable_rotary.dart';
 
 import '../../favorites/favorites_provider.dart';
 import '../../lyrics/lyric_model.dart';
 import '../../lyrics/lyrics_repository.dart';
 import '../../player/player_provider.dart';
 import '../home/cloud_playlists_page.dart';
+import '../../core/watch_fit.dart';
 import '../player/play_page_body.dart';
+import '../player/cover_backdrop.dart';
 import '../player/lyrics_view.dart';
 import '../player/page_dots.dart';
 import '../player/player_source.dart';
@@ -68,9 +74,19 @@ class _LocalMusicHubState extends ConsumerState<LocalMusicHub> {
 
   @override
   Widget build(BuildContext context) {
+    final st = ref.watch(playerProvider);
     return Scaffold(
       body: Stack(
         children: [
+          // 全屏封面模糊背景（网易云手表版）：三页共享一层，横移时背景不动。
+          Positioned.fill(
+            child: CoverBackdrop(
+              cover: CoverRef(
+                filePath: st.current?.coverPath,
+                url: st.current?.coverUrl,
+              ),
+            ),
+          ),
           PageView(
             controller: _pageCtrl,
             onPageChanged: (i) => setState(() => _page = i),
@@ -95,108 +111,167 @@ class _LocalMusicHubState extends ConsumerState<LocalMusicHub> {
 }
 
 /// 选择页：音乐源入口（网易云样式：彩色圆形图标 + 文字 + 箭头）。
-class _SourcePickerPage extends ConsumerWidget {
+/// 支持表冠滚动列表（每档约一个条目 + 档位振动）。
+class _SourcePickerPage extends ConsumerStatefulWidget {
   const _SourcePickerPage();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return Scaffold(
-      body: SafeArea(
-        child: SingleChildScrollView(
-          child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _entry(
-                  context: context,
-                  color: const Color(0xFFE8A33D),
-                  icon: Icons.account_circle_rounded,
-                  label: '账号',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                        builder: (_) => const AccountView()),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                _entry(
-                  context: context,
-                  color: const Color(0xFFE8694D),
-                  icon: Icons.recommend_rounded,
-                  label: '每日推荐',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                        builder: (_) => const DailyRecommendPage()),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                _entry(
-                  context: context,
-                  color: const Color(0xFFD94A8C),
-                  icon: Icons.queue_music_rounded,
-                  label: '我的歌单',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                        builder: (_) => const CloudPlaylistsPage()),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                _entry(
-                  context: context,
-                  color: const Color(0xFF4A90D9),
-                  icon: Icons.leaderboard_rounded,
-                  label: '音源榜单',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                        builder: (_) => const TopListPage()),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                _entry(
-                  context: context,
-                  color: const Color(0xFFFF4D6E),
-                  icon: Icons.library_music_rounded,
-                  label: '本地音乐',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                        builder: (_) => const LocalLibraryView()),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                _entry(
-                  context: context,
-                  color: const Color(0xFF4A90D9),
-                  icon: Icons.travel_explore_rounded,
-                  label: '在线搜索',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                        builder: (_) => const OnlineSearchPage()),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                _entry(
-                  context: context,
-                  color: const Color(0xFF9B6BD9),
-                  icon: Icons.extension_rounded,
-                  label: '插件管理',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                        builder: (_) => const PluginManagePage()),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                _entry(
-                  context: context,
-                  color: const Color(0xFF5FA97C),
-                  icon: Icons.settings_rounded,
-                  label: '设置',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                        builder: (_) => const SettingsView()),
-                  ),
-                ),
-              ],
+  ConsumerState<_SourcePickerPage> createState() => _SourcePickerPageState();
+}
+
+class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
+  final ScrollController _scroll = ScrollController();
+  StreamSubscription<RotaryEvent>? _rotarySub;
+
+  @override
+  void initState() {
+    super.initState();
+    _rotarySub = rotaryEvents.listen(_onRotary);
+  }
+
+  @override
+  void dispose() {
+    _rotarySub?.cancel();
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _onRotary(RotaryEvent event) {
+    if (!mounted || !_scroll.hasClients) return;
+    // 表冠是全局流：仅本页为当前页（PageView 第 0 页 + 无上层推送页）
+    // 时响应，否则转表冠会滚动这份隐藏列表并误振。
+    if (ref.read(localHubPageProvider) != 0) return;
+    if (ModalRoute.of(context)?.isCurrent != true) return;
+    final s = context.watchScale();
+    final pitch = 56 * s; // 一档 = 一个条目，与列表阶梯节距一致
+    final dir = event.direction == RotaryDirection.clockwise ? 1 : -1;
+    final target = (_scroll.offset + dir * pitch)
+        .clamp(0.0, _scroll.position.maxScrollExtent);
+    _scroll.animateTo(
+      target,
+      duration: const Duration(milliseconds: 120),
+      curve: Curves.easeOutCubic,
+    );
+    HapticFeedback.selectionClick(); // 表冠档位振动反馈
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // 透明：透出宿主层的全屏封面模糊背景；尺寸随屏径等比缩放。
+    final s = context.watchScale();
+    final pitch = 56 * s; // 阶梯节距：一个条目占一档
+    final specs = <(Color, IconData, String, VoidCallback)>[
+      (
+        const Color(0xFFE8A33D),
+        Icons.account_circle_rounded,
+        '账号',
+        () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const AccountView()),
             ),
-          ),
+      ),
+      (
+        const Color(0xFFE8694D),
+        Icons.recommend_rounded,
+        '每日推荐',
+        () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const DailyRecommendPage()),
+            ),
+      ),
+      (
+        const Color(0xFFD94A8C),
+        Icons.queue_music_rounded,
+        '我的歌单',
+        () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const CloudPlaylistsPage()),
+            ),
+      ),
+      (
+        const Color(0xFF4A90D9),
+        Icons.leaderboard_rounded,
+        '音源榜单',
+        () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const TopListPage()),
+            ),
+      ),
+      (
+        const Color(0xFFFF4D6E),
+        Icons.library_music_rounded,
+        '本地音乐',
+        () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const LocalLibraryView()),
+            ),
+      ),
+      (
+        const Color(0xFF4A90D9),
+        Icons.travel_explore_rounded,
+        '在线搜索',
+        () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const OnlineSearchPage()),
+            ),
+      ),
+      (
+        const Color(0xFF9B6BD9),
+        Icons.extension_rounded,
+        '插件管理',
+        () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const PluginManagePage()),
+            ),
+      ),
+      (
+        const Color(0xFF5FA97C),
+        Icons.settings_rounded,
+        '设置',
+        () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const SettingsView()),
+            ),
+      ),
+    ];
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            // 底部补白：让最后一项也能滚到顶部锚点位，阶梯收尾不缩水。
+            final bottomPad =
+                (constraints.maxHeight - pitch).clamp(0.0, double.infinity);
+            return AnimatedBuilder(
+              animation: _scroll,
+              builder: (context, _) {
+                // 阶梯锚点：视口顶部第一档中心。距锚点越远条目越小
+                // （1.0 → 邻档 0.775 → 0.55 封底），形成网易云手表
+                // 「当前项顶满、下一项居中缩小、逐级上收」的纵深列表。
+                final offset = _scroll.hasClients ? _scroll.offset : 0.0;
+                final anchor = offset + pitch * 0.5;
+                return ListView.builder(
+                  controller: _scroll,
+                  itemExtent: pitch,
+                  padding: EdgeInsets.only(bottom: bottomPad),
+                  itemCount: specs.length,
+                  itemBuilder: (context, i) {
+                    final distance = ((i + 0.5) * pitch - anchor).abs() / pitch;
+                    final scale = (1.0 - distance * 0.225).clamp(0.55, 1.0);
+                    final alpha = 0.45 + 0.55 * ((scale - 0.55) / 0.45);
+                    final (color, icon, label, onTap) = specs[i];
+                    return Center(
+                      child: Opacity(
+                        opacity: alpha,
+                        child: Transform.scale(
+                          scale: scale,
+                          child: _entry(
+                            context: context,
+                            color: color,
+                            icon: icon,
+                            label: label,
+                            onTap: onTap,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+            );
+          },
         ),
       ),
     );
@@ -209,35 +284,37 @@ class _SourcePickerPage extends ConsumerWidget {
     required String label,
     required VoidCallback onTap,
   }) {
+    // 尺寸随屏径等比适配（与播放页同一套 watchScale 基准）。
+    final s = context.watchScale();
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(28),
+      borderRadius: BorderRadius.circular(24 * s),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+        padding: EdgeInsets.symmetric(horizontal: 20 * s, vertical: 4 * s),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 40,
-              height: 40,
+              width: 36 * s,
+              height: 36 * s,
               decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-              child: Icon(icon, size: 20, color: Colors.white),
+              child: Icon(icon, size: 18 * s, color: Colors.white),
             ),
-            const SizedBox(width: 14),
+            SizedBox(width: 12 * s),
             ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 110),
+              constraints: BoxConstraints(maxWidth: 100 * s),
               child: Text(
                 label,
-                style: const TextStyle(
-                  fontSize: 15,
+                style: TextStyle(
+                  fontSize: 14 * s,
                   fontWeight: FontWeight.w600,
                 ),
               ),
             ),
-            const SizedBox(width: 6),
+            SizedBox(width: 5 * s),
             Icon(
               Icons.chevron_right_rounded,
-              size: 22,
+              size: 20 * s,
               color: Colors.white.withValues(alpha: 0.38),
             ),
           ],
@@ -269,6 +346,8 @@ class _LocalPlayPage extends ConsumerWidget {
       emptyText: '还没有在播的歌',
       emptyActionLabel: '去选歌',
       onEmptyAction: () => ref.read(localHubPageProvider.notifier).state = 0,
+      // 表冠门禁：仅播放页是 PageView 当前页时才调音量。
+      rotaryGuard: () => ref.read(localHubPageProvider) == 1,
     );
   }
 }

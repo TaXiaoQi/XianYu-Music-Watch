@@ -381,6 +381,16 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     await _ref.read(settingsProvider.notifier).setPlayMode(next);
   }
 
+  /// 直接设置播放模式（播放页「更多」面板三选一；0 顺序 / 1 单曲 / 2 随机）。
+  Future<void> setPlayMode(int mode) async {
+    final m = mode.clamp(0, 2);
+    if (m == state.playMode) return;
+    state = state.copyWith(playMode: m);
+    _shuffleHistory.clear();
+    _shuffleFuture.clear();
+    await _ref.read(settingsProvider.notifier).setPlayMode(m);
+  }
+
   /// 表冠音量：写设置即联动播放引擎（volumeProvider 链，同移动端）。
   Future<void> setVolume(double v) async {
     await _ref

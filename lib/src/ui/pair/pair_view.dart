@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/watch_fit.dart';
 import '../../link/link_provider.dart';
 import '../../link/rfcomm_client.dart';
 
@@ -54,24 +55,27 @@ class _PairViewState extends ConsumerState<PairView> {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.watchScale();
     return Scaffold(
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          // 屏径等比缩放适配。
+          padding: EdgeInsets.symmetric(horizontal: 20 * s, vertical: 8 * s),
           child: Column(
             children: [
               Text(
                 '选择手机',
                 style: TextStyle(
-                  fontSize: 16,
+                  fontSize: 16 * s,
                   fontWeight: FontWeight.w600,
                   color: Colors.white.withValues(alpha: 0.9),
                 ),
               ),
-              const SizedBox(height: 10),
+              SizedBox(height: 10 * s),
               if (_loading)
-                const Expanded(
-                  child: Center(child: CircularProgressIndicator(strokeWidth: 3)),
+                Expanded(
+                  child: Center(
+                      child: CircularProgressIndicator(strokeWidth: 3 * s)),
                 )
               else if (_needsPermission)
                 Expanded(
@@ -80,14 +84,14 @@ class _PairViewState extends ConsumerState<PairView> {
                     children: [
                       Icon(
                         Icons.bluetooth_disabled_rounded,
-                        size: 36,
+                        size: 36 * s,
                         color: Colors.white.withValues(alpha: 0.4),
                       ),
-                      const SizedBox(height: 10),
-                      const Text('需要蓝牙权限\n以连接手机',
+                      SizedBox(height: 10 * s),
+                      Text('需要蓝牙权限\n以连接手机',
                           textAlign: TextAlign.center,
-                          style: TextStyle(fontSize: 13, height: 1.4)),
-                      const SizedBox(height: 14),
+                          style: TextStyle(fontSize: 13 * s, height: 1.4)),
+                      SizedBox(height: 14 * s),
                       FilledButton(
                         onPressed: _requestPermission,
                         child: const Text('授予权限'),
@@ -103,7 +107,7 @@ class _PairViewState extends ConsumerState<PairView> {
                             '暂无已配对设备\n请先在系统设置中配对手机',
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              fontSize: 13,
+                              fontSize: 13 * s,
                               height: 1.5,
                               color: Colors.white.withValues(alpha: 0.55),
                             ),
@@ -116,20 +120,20 @@ class _PairViewState extends ConsumerState<PairView> {
                             return ListTile(
                               dense: true,
                               visualDensity: VisualDensity.compact,
-                              leading: const Icon(Icons.smartphone_rounded,
-                                  size: 20),
+                              leading: Icon(Icons.smartphone_rounded,
+                                  size: 20 * s),
                               title: Text(
                                 dev.name,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontSize: 13),
+                                style: TextStyle(fontSize: 13 * s),
                               ),
                               subtitle: Text(
                                 dev.address,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
-                                  fontSize: 10,
+                                  fontSize: 10 * s,
                                   color:
                                       Colors.white.withValues(alpha: 0.4),
                                 ),

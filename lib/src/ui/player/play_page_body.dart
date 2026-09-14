@@ -6,17 +6,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:wearable_rotary/wearable_rotary.dart';
 
+import '../../core/watch_fit.dart';
 import 'player_source.dart';
 
 /// 主题色（与 app.dart ColorScheme.primary 一致）。
 const Color kPlayerAccent = Color(0xFFFF4D6E);
 
 /// 通用播放页主体（网易云手表版形态）：顶部歌名/歌手 → 中部
-/// 上一首 | 封面环形进度（点按=播放暂停，拖拽=seek，长按左右=±10s）| 下一首
-/// → 底部 喜欢（可选）/ 音量 / 播放模式。
+/// 上一首 | 小封面红圈进度（点按=播放暂停，拖拽=seek，长按左右=±10s）|
+/// 下一首 → 底部 喜欢（可选）/ 音量 / 更多（⸬ 键：播放模式 + 倍速面板）。
 ///
 /// 数据经 [PlayerViewSource] 抽象，联动（手机）与本地两种模式共用。
 /// 表冠旋转调音量（本地即时显示，250ms 节流下发）。
+/// 尺寸按 [watchScale] 等比适配任意表径；本页背景透明，全屏封面模糊
+/// 背景由宿主层 CoverBackdrop 提供。
 class PlayPageBody extends StatefulWidget {
   const PlayPageBody({
     super.key,
@@ -25,6 +28,7 @@ class PlayPageBody extends StatefulWidget {
     this.emptyText = '未在播放',
     this.emptyActionLabel,
     this.onEmptyAction,
+    this.rotaryGuard,
   });
 
   /// 每次 build 从 provider 取最新状态构造数据源。
@@ -39,12 +43,20 @@ class PlayPageBody extends StatefulWidget {
   final String? emptyActionLabel;
   final VoidCallback? onEmptyAction;
 
+  /// 表冠事件门禁：宿主在 PageView 里时，只有本页是当前页才允许响应
+  /// （表冠是全局流，PageView 邻页/隐藏页收到会误触音量）。返回 true
+  /// 表示当前可以响应。不传 = 总是响应（独占路由的宿主）。
+  final bool Function()? rotaryGuard;
+
   @override
   State<PlayPageBody> createState() => _PlayPageBodyState();
 }
 
 class _PlayPageBodyState extends State<PlayPageBody> {
   static const _volumeStep = 0.05;
+
+  /// 倍速档位（更多面板点选，与本地播放引擎档位一致）。
+  static const _speedSteps = [0.75, 1.0, 1.25, 1.5, 2.0];
 
   StreamSubscription<RotaryEvent>? _rotarySub;
 
@@ -56,10 +68,6 @@ class _PlayPageBodyState extends State<PlayPageBody> {
   Timer? _volumeSendTimer;
   Timer? _volumeHideTimer;
   bool _volumeVisible = false;
-
-  /// 倍速切换 HUD（点倍速键后短暂显示当前档位）。
-  Timer? _speedHideTimer;
-  bool _speedVisible = false;
 
   /// 环形 seek 状态：拖拽预览目标进度（null = 未拖拽）、长按快进快退。
   double? _scrubTarget;
@@ -79,13 +87,18 @@ class _PlayPageBodyState extends State<PlayPageBody> {
     _rotarySub?.cancel();
     _volumeSendTimer?.cancel();
     _volumeHideTimer?.cancel();
-    _speedHideTimer?.cancel();
     _seekSendTimer?.cancel();
     _longSeekTimer?.cancel();
     super.dispose();
   }
 
   void _onRotary(RotaryEvent event) {
+    // 上层有推送页（设置/账号等）时不响应表冠。
+    if (ModalRoute.of(context)?.isCurrent != true) return;
+    // 宿主在 PageView 中：非当前页的表冠事件不归本页（隐藏页误触音量）。
+    final guard = widget.rotaryGuard;
+    if (guard != null && !guard()) return;
+    HapticFeedback.selectionClick(); // 表冠档位振动反馈
     final src = widget.sourceBuilder();
     final dir = event.direction == RotaryDirection.clockwise ? 1 : -1;
     final cur = _volume ?? src.volume;
@@ -114,19 +127,160 @@ class _PlayPageBodyState extends State<PlayPageBody> {
     });
   }
 
-  /// 倍速键：循环切档 + 顶部 HUD 回显新档位。
-  void _onSpeedTap() {
-    widget.sourceBuilder().cycleSpeed();
-    setState(() => _speedVisible = true);
-    _speedHideTimer?.cancel();
-    _speedHideTimer = Timer(const Duration(milliseconds: 1200), () {
-      if (mounted) setState(() => _speedVisible = false);
-    });
-  }
-
   /// 倍速档位文案：1 → 1.0x，1.5 → 1.5x，1.25 → 1.25x。
   static String _speedLabel(double s) =>
       s == s.roundToDouble() ? '${s.toStringAsFixed(1)}x' : '${s}x';
+
+  /// 播放模式文案/图标（0 顺序 / 1 单曲循环 / 2 随机）。
+  static String _modeLabel(int m) => switch (m) {
+        1 => '单曲循环',
+        2 => '随机播放',
+        _ => '列表循环',
+      };
+
+  IconData _modeIcon(int m) => switch (m) {
+        2 => Icons.shuffle_rounded,
+        1 => Icons.repeat_one_rounded,
+        _ => Icons.repeat_rounded,
+      };
+
+  /// 更多面板（底部 ⸬ 键，网易云手表版样式）：播放模式三选一 + 倍速档位
+  /// （联动模式不支持倍速时整组隐藏）。点选即生效，StatefulBuilder +
+  /// 现取数据源让面板高亮随设置结果刷新。
+  void _openMoreSheet() {
+    HapticFeedback.selectionClick();
+    final s = context.watchScale();
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF17171C),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18 * s)),
+      ),
+      builder: (sheetCtx) => StatefulBuilder(
+        builder: (sheetCtx, setSheet) {
+          final src = widget.sourceBuilder();
+          return SafeArea(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(16 * s, 12 * s, 16 * s, 10 * s),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _sheetLabel('播放模式', s),
+                  SizedBox(height: 7 * s),
+                  Wrap(
+                    spacing: 7 * s,
+                    runSpacing: 7 * s,
+                    children: [
+                      for (var m = 0; m < 3; m++)
+                        _sheetChip(
+                          s: s,
+                          active: src.playMode == m,
+                          onTap: () {
+                            src.setMode(m);
+                            HapticFeedback.selectionClick();
+                            setSheet(() {});
+                          },
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                _modeIcon(m),
+                                size: 14.5 * s,
+                                color: src.playMode == m
+                                    ? kPlayerAccent
+                                    : Colors.white.withValues(alpha: 0.7),
+                              ),
+                              SizedBox(width: 4.5 * s),
+                              Text(
+                                _modeLabel(m),
+                                style: TextStyle(
+                                  fontSize: 11.5 * s,
+                                  color: src.playMode == m
+                                      ? kPlayerAccent
+                                      : Colors.white.withValues(alpha: 0.85),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                  if (src.speed != null) ...[
+                    SizedBox(height: 13 * s),
+                    _sheetLabel('倍速', s),
+                    SizedBox(height: 7 * s),
+                    Wrap(
+                      spacing: 7 * s,
+                      runSpacing: 7 * s,
+                      children: [
+                        for (final v in _speedSteps)
+                          _sheetChip(
+                            s: s,
+                            active: (src.speed! - v).abs() < 0.01,
+                            onTap: () {
+                              src.setSpeed(v);
+                              HapticFeedback.selectionClick();
+                              setSheet(() {});
+                            },
+                            child: Text(
+                              _speedLabel(v),
+                              style: TextStyle(
+                                fontSize: 11.5 * s,
+                                fontWeight: FontWeight.w600,
+                                color: (src.speed! - v).abs() < 0.01
+                                    ? kPlayerAccent
+                                    : Colors.white.withValues(alpha: 0.85),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _sheetLabel(String text, double s) => Text(
+        text,
+        style: TextStyle(
+          fontSize: 10 * s,
+          fontWeight: FontWeight.w600,
+          color: Colors.white.withValues(alpha: 0.45),
+        ),
+      );
+
+  Widget _sheetChip({
+    required double s,
+    required bool active,
+    required VoidCallback onTap,
+    required Widget child,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: EdgeInsets.symmetric(horizontal: 11 * s, vertical: 6.5 * s),
+        decoration: BoxDecoration(
+          color: active
+              ? kPlayerAccent.withValues(alpha: 0.18)
+              : Colors.white.withValues(alpha: 0.07),
+          borderRadius: BorderRadius.circular(15 * s),
+          border: Border.all(
+            color: active ? kPlayerAccent : Colors.transparent,
+            width: 1,
+          ),
+        ),
+        child: child,
+      ),
+    );
+  }
 
   /// 环形拖拽 seek：触点角度（12 点起顺时针）映射为播放进度。
   void _onRingPanStart(DragStartDetails d, double size) {
@@ -213,17 +367,12 @@ class _PlayPageBodyState extends State<PlayPageBody> {
     return (a / (2 * math.pi)).clamp(0.0, 1.0);
   }
 
-  IconData _modeIcon(int m) => switch (m) {
-        2 => Icons.shuffle_rounded,
-        1 => Icons.repeat_one_rounded,
-        _ => Icons.repeat_rounded,
-      };
-
   @override
   Widget build(BuildContext context) {
     final src = widget.sourceBuilder();
-    final size = MediaQuery.of(context).size;
-    final ringSize = (size.shortestSide * 0.42).clamp(100.0, 160.0);
+    final s = context.watchScale();
+    // 小封面（网易云手表版）：屏径约 30%，红圈进度贴封面留窄缝。
+    final ringSize = 70 * s;
 
     // 手机推来的音量覆盖本地显示（表冠调节后 1s 内除外）。
     if (DateTime.now().difference(_lastRotary) > const Duration(seconds: 1)) {
@@ -234,11 +383,13 @@ class _PlayPageBodyState extends State<PlayPageBody> {
         ((src.duration > 0) ? (src.position / src.duration) : 0.0);
 
     return Scaffold(
+      // 透明：全屏封面模糊背景由宿主层 CoverBackdrop 提供，本页只画前景。
+      backgroundColor: Colors.transparent,
       body: Stack(
         children: [
           SafeArea(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              padding: EdgeInsets.symmetric(horizontal: 16 * s, vertical: 4 * s),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
@@ -251,28 +402,28 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                         overflow: TextOverflow.ellipsis,
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          fontSize: src.hasTrack ? 16 : 14,
-                          fontWeight: FontWeight.w600,
+                          fontSize: src.hasTrack ? 17.5 * s : 13 * s,
+                          fontWeight: FontWeight.w700,
                           color: src.hasTrack
                               ? Colors.white
                               : Colors.white.withValues(alpha: 0.5),
                         ),
                       ),
                       if (!src.hasTrack && widget.emptyActionLabel != null) ...[
-                        const SizedBox(height: 10),
+                        SizedBox(height: 8 * s),
                         FilledButton.tonal(
                           onPressed: widget.onEmptyAction,
                           style: FilledButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 16, vertical: 6),
-                            minimumSize: const Size(0, 32),
+                            padding: EdgeInsets.symmetric(
+                                horizontal: 14 * s, vertical: 6 * s),
+                            minimumSize: Size(0, 30 * s),
                           ),
                           child: Text(widget.emptyActionLabel!,
-                              style: const TextStyle(fontSize: 12)),
+                              style: TextStyle(fontSize: 12 * s)),
                         ),
                       ],
                       if (src.hasTrack) ...[
-                        const SizedBox(height: 2),
+                        SizedBox(height: 2 * s),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           mainAxisSize: MainAxisSize.min,
@@ -280,18 +431,18 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                             if (widget.showCloudBadge) ...[
                               Icon(
                                 Icons.cloud_outlined,
-                                size: 11,
+                                size: 10 * s,
                                 color: Colors.white.withValues(alpha: 0.45),
                               ),
-                              const SizedBox(width: 4),
+                              SizedBox(width: 3.5 * s),
                             ],
                             Text(
                               src.artist ?? '',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.white.withValues(alpha: 0.55),
+                                fontSize: 11 * s,
+                                color: Colors.white.withValues(alpha: 0.6),
                               ),
                             ),
                           ],
@@ -299,11 +450,12 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                       ],
                     ],
                   ),
-                  // 中部：上一首 | 封面环形 | 下一首
+                  // 中部：上一首 | 封面红圈 | 下一首
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
                       _sideBtn(
+                        s: s,
                         icon: Icons.skip_previous_rounded,
                         onTap: src.prev,
                       ),
@@ -321,28 +473,31 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                           width: ringSize,
                           height: ringSize,
                           child: CustomPaint(
-                            painter: _RingPainter(progress: displayProgress),
+                            painter: _RingPainter(
+                              progress: displayProgress,
+                              strokeWidth: 3.5 * s,
+                            ),
                             child: Padding(
-                              padding: const EdgeInsets.all(10),
+                              padding: EdgeInsets.all(2.5 * s),
                               child: Stack(
                                 alignment: Alignment.center,
                                 children: [
                                   ClipOval(child: _cover(src.cover)),
-                                  // 播放/暂停覆盖标（参考网易云：封面中央小圆标）
-                                  Container(
-                                    width: 34,
-                                    height: 34,
-                                    decoration: BoxDecoration(
-                                      color: Colors.black.withValues(alpha: 0.35),
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: Icon(
-                                      src.isPlaying
-                                          ? Icons.pause_rounded
-                                          : Icons.play_arrow_rounded,
-                                      size: 22,
-                                      color: Colors.white,
-                                    ),
+                                  // 大播放/暂停键（网易云样式：白色大图标
+                                  // 直接压在封面上，无底色圆片）。
+                                  Icon(
+                                    src.isPlaying
+                                        ? Icons.pause_rounded
+                                        : Icons.play_arrow_rounded,
+                                    size: ringSize * 0.40,
+                                    color: Colors.white,
+                                    shadows: [
+                                      Shadow(
+                                        color: Colors.black
+                                            .withValues(alpha: 0.5),
+                                        blurRadius: 10 * s,
+                                      ),
+                                    ],
                                   ),
                                 ],
                               ),
@@ -351,17 +506,19 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                         ),
                       ),
                       _sideBtn(
+                        s: s,
                         icon: Icons.skip_next_rounded,
                         onTap: src.next,
                       ),
                     ],
                   ),
-                  // 底部：喜欢（可选）/ 音量 / 播放模式
+                  // 底部：喜欢（可选）/ 音量 / 更多（播放模式+倍速）
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
                       if (src.liked != null)
                         _bottomBtn(
+                          s: s,
                           icon: src.liked!
                               ? Icons.favorite_rounded
                               : Icons.favorite_border_rounded,
@@ -372,6 +529,7 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                           tooltip: '喜欢',
                         ),
                       _bottomBtn(
+                        s: s,
                         icon: (_volume ?? src.volume) <= 0
                             ? Icons.volume_off_rounded
                             : (_volume ?? src.volume) < 0.5
@@ -380,18 +538,11 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                         onTap: _showVolumeHud,
                         tooltip: '音量（表冠调节）',
                       ),
-                      // 倍速键（本地模式显示；联动模式 speed=null 隐藏）
-                      if (src.speed != null)
-                        _bottomTextBtn(
-                          label: _speedLabel(src.speed!),
-                          active: src.speed! != 1.0,
-                          onTap: _onSpeedTap,
-                          tooltip: '倍速',
-                        ),
                       _bottomBtn(
-                        icon: _modeIcon(src.playMode),
-                        onTap: src.cycleMode,
-                        tooltip: '播放顺序',
+                        s: s,
+                        icon: Icons.apps_rounded,
+                        onTap: _openMoreSheet,
+                        tooltip: '更多（播放模式/倍速）',
                       ),
                     ],
                   ),
@@ -404,12 +555,11 @@ class _PlayPageBodyState extends State<PlayPageBody> {
             Align(
               alignment: Alignment.topCenter,
               child: Container(
-                margin: const EdgeInsets.only(top: 8),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                margin: EdgeInsets.only(top: 8 * s),
+                padding: EdgeInsets.symmetric(horizontal: 12 * s, vertical: 5 * s),
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(18 * s),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -420,37 +570,12 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                           : (_volume ?? src.volume) < 0.5
                               ? Icons.volume_down_rounded
                               : Icons.volume_up_rounded,
-                      size: 15,
+                      size: 14 * s,
                     ),
-                    const SizedBox(width: 5),
+                    SizedBox(width: 5 * s),
                     Text(
                       '${((_volume ?? src.volume) * 100).round()}%',
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          // 倍速 HUD（点倍速键后短暂显示当前档位）
-          if (_speedVisible)
-            Align(
-              alignment: Alignment.topCenter,
-              child: Container(
-                margin: const EdgeInsets.only(top: 8),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.speed_rounded, size: 15),
-                    const SizedBox(width: 5),
-                    Text(
-                      _speedLabel(src.speed ?? 1.0),
-                      style: const TextStyle(fontSize: 12),
+                      style: TextStyle(fontSize: 11.5 * s),
                     ),
                   ],
                 ),
@@ -461,27 +586,26 @@ class _PlayPageBodyState extends State<PlayPageBody> {
             Align(
               alignment: Alignment.topCenter,
               child: Container(
-                margin: const EdgeInsets.only(top: 8),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                margin: EdgeInsets.only(top: 8 * s),
+                padding: EdgeInsets.symmetric(horizontal: 12 * s, vertical: 5 * s),
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(18 * s),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     if (!_longSeekForward) ...[
-                      const Icon(Icons.fast_rewind_rounded, size: 15),
-                      const SizedBox(width: 5),
+                      Icon(Icons.fast_rewind_rounded, size: 14 * s),
+                      SizedBox(width: 5 * s),
                     ],
                     Text(
                       _longSeekForward ? '+10s' : '-10s',
-                      style: const TextStyle(fontSize: 12),
+                      style: TextStyle(fontSize: 11.5 * s),
                     ),
                     if (_longSeekForward) ...[
-                      const SizedBox(width: 5),
-                      const Icon(Icons.fast_forward_rounded, size: 15),
+                      SizedBox(width: 5 * s),
+                      Icon(Icons.fast_forward_rounded, size: 14 * s),
                     ],
                   ],
                 ),
@@ -516,18 +640,20 @@ class _PlayPageBodyState extends State<PlayPageBody> {
   }
 
   Widget _sideBtn({
+    required double s,
     required IconData icon,
     required VoidCallback onTap,
   }) {
     return IconButton(
       onPressed: onTap,
-      icon: Icon(icon, size: 28, color: Colors.white.withValues(alpha: 0.9)),
-      padding: const EdgeInsets.all(4),
-      constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+      icon: Icon(icon, size: 21 * s, color: Colors.white.withValues(alpha: 0.92)),
+      padding: EdgeInsets.all(4 * s),
+      constraints: BoxConstraints(minWidth: 38 * s, minHeight: 38 * s),
     );
   }
 
   Widget _bottomBtn({
+    required double s,
     required IconData icon,
     required VoidCallback onTap,
     Color color = Colors.white,
@@ -535,33 +661,10 @@ class _PlayPageBodyState extends State<PlayPageBody> {
   }) {
     return IconButton(
       onPressed: onTap,
-      icon: Icon(icon, size: 22, color: color),
+      icon: Icon(icon, size: 15.5 * s, color: color),
       tooltip: tooltip,
-      padding: const EdgeInsets.all(6),
-      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-    );
-  }
-
-  /// 文本按钮（倍速档位）：非 1.0 档高亮主题色，一眼看出在倍速播放。
-  Widget _bottomTextBtn({
-    required String label,
-    required VoidCallback onTap,
-    bool active = false,
-    String? tooltip,
-  }) {
-    return IconButton(
-      onPressed: onTap,
-      tooltip: tooltip,
-      padding: const EdgeInsets.all(6),
-      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-      icon: Text(
-        label,
-        style: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w700,
-          color: active ? kPlayerAccent : Colors.white.withValues(alpha: 0.85),
-        ),
-      ),
+      padding: EdgeInsets.all(5 * s),
+      constraints: BoxConstraints(minWidth: 34 * s, minHeight: 34 * s),
     );
   }
 }
@@ -572,11 +675,12 @@ class _CoverFallback extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.watchScale();
     return Container(
       color: const Color(0xFF1A1A1E),
       child: Icon(
         Icons.music_note_rounded,
-        size: 34,
+        size: 30 * s,
         color: Colors.white.withValues(alpha: 0.35),
       ),
     );
@@ -585,9 +689,10 @@ class _CoverFallback extends StatelessWidget {
 
 /// 环形进度（底环 + 进度弧，进度从 12 点方向顺时针）。
 class _RingPainter extends CustomPainter {
-  _RingPainter({required this.progress});
+  _RingPainter({required this.progress, this.strokeWidth = 4});
 
   final double progress;
+  final double strokeWidth;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -596,7 +701,7 @@ class _RingPainter extends CustomPainter {
     final rect = Rect.fromCircle(center: center, radius: radius);
     final track = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 4
+      ..strokeWidth = strokeWidth
       ..color = Colors.white.withValues(alpha: 0.14);
     canvas.drawArc(rect, 0, 2 * math.pi, false, track);
 
@@ -604,7 +709,7 @@ class _RingPainter extends CustomPainter {
     if (p > 0.001) {
       final arc = Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 4
+        ..strokeWidth = strokeWidth
         ..strokeCap = StrokeCap.round
         ..color = kPlayerAccent;
       canvas.drawArc(rect, -math.pi / 2, 2 * math.pi * p, false, arc);
@@ -613,5 +718,6 @@ class _RingPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_RingPainter oldDelegate) =>
-      oldDelegate.progress != progress;
+      oldDelegate.progress != progress ||
+      oldDelegate.strokeWidth != strokeWidth;
 }

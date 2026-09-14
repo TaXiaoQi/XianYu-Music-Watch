@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 启动闪屏（圆形屏专用，round 资源限定符自动生效）：黑底 + 居中
+     红色圆环播放标，呼应播放页封面进度环。圆屏打开即圆形观感，
+     对齐网易云手表版的圆形启动。 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@android:color/black" />
+    <item android:gravity="center" android:width="64dp" android:height="64dp">
+        <shape android:shape="oval">
+            <solid android:color="@android:color/transparent" />
+            <stroke android:width="6dp" android:color="#FF4D6E" />
+        </shape>
+    </item>
+    <item android:gravity="center" android:width="18dp" android:height="18dp">
+        <shape android:shape="oval">
+            <solid android:color="#FF4D6E" />
+        </shape>
+    </item>
+</layer-list>

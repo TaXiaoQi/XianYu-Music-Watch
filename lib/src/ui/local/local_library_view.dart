@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../core/watch_fit.dart';
 import '../../library/library_provider.dart';
 import '../../library/scan_settings_provider.dart';
 import '../online/search_page.dart';
@@ -63,26 +64,27 @@ class _LocalLibraryViewState extends ConsumerState<LocalLibraryView> {
   Widget build(BuildContext context) {
     final lib = ref.watch(libraryProvider);
     final songs = lib.songs;
+    final s = context.watchScale(); // 屏径等比缩放
 
     if (songs.isEmpty) {
       return _EmptyView(scanning: _scanning, onScan: _scan);
     }
     return ListView.builder(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: EdgeInsets.symmetric(vertical: 8 * s),
       itemCount: songs.length + 1,
       itemBuilder: (context, i) {
         if (i == 0) {
           return ListTile(
             dense: true,
-            leading: const Icon(Icons.travel_explore_rounded, size: 22),
-            title: const Text(
+            leading: Icon(Icons.travel_explore_rounded, size: 22 * s),
+            title: Text(
               '在线搜索',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+              style: TextStyle(fontSize: 13 * s, fontWeight: FontWeight.w600),
             ),
             subtitle: Text(
               '插件在线音源',
               style: TextStyle(
-                fontSize: 11,
+                fontSize: 11 * s,
                 color: Colors.white.withValues(alpha: 0.5),
               ),
             ),
@@ -91,33 +93,34 @@ class _LocalLibraryViewState extends ConsumerState<LocalLibraryView> {
             ),
           );
         }
-        final s = songs[i - 1];
+        // 局部变量改名为 song，避免遮蔽缩放系数 s。
+        final song = songs[i - 1];
         return ListTile(
           dense: true,
           leading: ClipOval(
             child: SizedBox(
-              width: 34,
-              height: 34,
-              child: s.coverThumbPath != null &&
-                      File(s.coverThumbPath!).existsSync()
-                  ? Image.file(File(s.coverThumbPath!),
+              width: 34 * s,
+              height: 34 * s,
+              child: song.coverThumbPath != null &&
+                      File(song.coverThumbPath!).existsSync()
+                  ? Image.file(File(song.coverThumbPath!),
                       fit: BoxFit.cover,
                       errorBuilder: (_, _, _) => const _SongIcon())
                   : const _SongIcon(),
             ),
           ),
           title: Text(
-            s.title,
+            song.title,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 13),
+            style: TextStyle(fontSize: 13 * s),
           ),
           subtitle: Text(
-            s.artist.isEmpty ? '未知歌手' : s.artist,
+            song.artist.isEmpty ? '未知歌手' : song.artist,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              fontSize: 11,
+              fontSize: 11 * s,
               color: Colors.white.withValues(alpha: 0.5),
             ),
           ),
@@ -142,41 +145,42 @@ class _EmptyView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.watchScale(); // 屏径等比缩放
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: EdgeInsets.all(24 * s),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
               Icons.library_music_rounded,
-              size: 40,
+              size: 40 * s,
               color: Colors.white.withValues(alpha: 0.4),
             ),
-            const SizedBox(height: 12),
-            const Text(
+            SizedBox(height: 12 * s),
+            Text(
               '本地音乐',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+              style: TextStyle(fontSize: 15 * s, fontWeight: FontWeight.w600),
             ),
-            const SizedBox(height: 4),
+            SizedBox(height: 4 * s),
             Text(
               '扫描手机/手表中的音乐文件',
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontSize: 12,
+                fontSize: 12 * s,
                 color: Colors.white.withValues(alpha: 0.55),
               ),
             ),
-            const SizedBox(height: 18),
+            SizedBox(height: 18 * s),
             FilledButton.icon(
               onPressed: scanning ? null : onScan,
               icon: scanning
-                  ? const SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+                  ? SizedBox(
+                      width: 14 * s,
+                      height: 14 * s,
+                      child: CircularProgressIndicator(strokeWidth: 2 * s),
                     )
-                  : const Icon(Icons.search_rounded, size: 18),
+                  : Icon(Icons.search_rounded, size: 18 * s),
               label: Text(scanning ? '扫描中…' : '扫描本地音乐'),
             ),
           ],
@@ -191,11 +195,12 @@ class _SongIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.watchScale(); // 屏径等比缩放
     return Container(
       color: const Color(0xFF1A1A1E),
       child: Icon(
         Icons.music_note_rounded,
-        size: 18,
+        size: 18 * s,
         color: Colors.white.withValues(alpha: 0.35),
       ),
     );

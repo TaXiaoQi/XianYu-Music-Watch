@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/watch_fit.dart';
 import '../../player/player_provider.dart';
 import '../../plugin/plugin_models.dart';
 import '../../plugin/plugin_provider.dart';
@@ -62,13 +63,14 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
     final url = await showDialog<String>(
       context: context,
       builder: (context) {
+        final s = context.watchScale(); // 屏径等比缩放
         final c = TextEditingController();
         return AlertDialog(
-          title: const Text('添加插件', style: TextStyle(fontSize: 15)),
+          title: Text('添加插件', style: TextStyle(fontSize: 15 * s)),
           content: TextField(
             controller: c,
             autofocus: true,
-            style: const TextStyle(fontSize: 13),
+            style: TextStyle(fontSize: 13 * s),
             decoration: const InputDecoration(
               hintText: '插件脚本 URL',
               isDense: true,
@@ -78,11 +80,11 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('取消', style: TextStyle(fontSize: 13)),
+              child: Text('取消', style: TextStyle(fontSize: 13 * s)),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(context, c.text.trim()),
-              child: const Text('安装', style: TextStyle(fontSize: 13)),
+              child: Text('安装', style: TextStyle(fontSize: 13 * s)),
             ),
           ],
         );
@@ -133,13 +135,14 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.watchScale(); // 屏径等比缩放
     return Scaffold(
       appBar: AppBar(
-        title: const Text('在线搜索', style: TextStyle(fontSize: 15)),
+        title: Text('在线搜索', style: TextStyle(fontSize: 15 * s)),
         actions: [
           IconButton(
             onPressed: _installing ? null : _addPlugin,
-            icon: const Icon(Icons.add_link_rounded, size: 20),
+            icon: Icon(Icons.add_link_rounded, size: 20 * s),
             tooltip: '添加插件',
           ),
         ],
@@ -147,7 +150,7 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
+            padding: EdgeInsets.fromLTRB(14 * s, 4 * s, 14 * s, 8 * s),
             child: Row(
               children: [
                 Expanded(
@@ -155,15 +158,15 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
                     controller: _controller,
                     textInputAction: TextInputAction.search,
                     onSubmitted: (_) => _search(),
-                    style: const TextStyle(fontSize: 13),
-                    decoration: const InputDecoration(
+                    style: TextStyle(fontSize: 13 * s),
+                    decoration: InputDecoration(
                       hintText: '搜索歌曲/歌手',
                       isDense: true,
-                      prefixIcon: Icon(Icons.search_rounded, size: 18),
+                      prefixIcon: Icon(Icons.search_rounded, size: 18 * s),
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
+                SizedBox(width: 8 * s),
                 FilledButton(
                   onPressed: _searching ? null : _search,
                   child: Text(_searching ? '…' : '搜'),
@@ -171,35 +174,36 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
               ],
             ),
           ),
-          Expanded(child: _buildBody()),
+          Expanded(child: _buildBody(s)),
         ],
       ),
     );
   }
 
-  Widget _buildBody() {
+  Widget _buildBody(double s) {
+    // s：屏径等比缩放系数，由 build 传入。
     if (_searching) {
-      return const Center(
-        child: CircularProgressIndicator(strokeWidth: 3),
+      return Center(
+        child: CircularProgressIndicator(strokeWidth: 3 * s),
       );
     }
     if (_error != null) {
       return Center(
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: EdgeInsets.all(16 * s),
           child: Text(
             _error!,
             textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 12, color: Colors.white54),
+            style: TextStyle(fontSize: 12 * s, color: Colors.white54),
           ),
         ),
       );
     }
     if (_results.isEmpty) {
-      return const Center(
+      return Center(
         child: Text(
           '输入关键词搜索在线音乐',
-          style: TextStyle(fontSize: 12, color: Colors.white38),
+          style: TextStyle(fontSize: 12 * s, color: Colors.white38),
         ),
       );
     }
@@ -207,12 +211,12 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
     for (var gi = 0; gi < _results.length; gi++) {
       final (src, group) = _results[gi];
       tiles.add(Padding(
-        padding: const EdgeInsets.fromLTRB(14, 10, 14, 2),
+        padding: EdgeInsets.fromLTRB(14 * s, 10 * s, 14 * s, 2 * s),
         child: Text(
           src.name,
-          style: const TextStyle(
-            fontSize: 11,
-            color: Color(0xFFFF8FA3),
+          style: TextStyle(
+            fontSize: 11 * s,
+            color: const Color(0xFFFF8FA3),
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -227,8 +231,8 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
           dense: true,
           leading: ClipOval(
             child: SizedBox(
-              width: 30,
-              height: 30,
+              width: 30 * s,
+              height: 30 * s,
               child: (r.img != null && r.img!.isNotEmpty)
                   ? Image.network(
                       r.img!,
@@ -242,14 +246,14 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
             r.name,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 13),
+            style: TextStyle(fontSize: 13 * s),
           ),
           subtitle: Text(
             quality.isEmpty ? r.singer : '${r.singer} · $quality',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              fontSize: 11,
+              fontSize: 11 * s,
               color: Colors.white.withValues(alpha: 0.5),
             ),
           ),
@@ -266,11 +270,12 @@ class _ResultIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.watchScale(); // 屏径等比缩放
     return Container(
       color: const Color(0xFF1A1A1E),
       child: Icon(
         Icons.music_note_rounded,
-        size: 15,
+        size: 15 * s,
         color: Colors.white.withValues(alpha: 0.35),
       ),
     );

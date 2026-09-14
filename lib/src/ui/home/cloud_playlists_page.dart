@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/watch_fit.dart';
 import '../../player/player_provider.dart';
 import '../../sync/playlist_store.dart';
 import '../local/local_music_hub.dart';
@@ -37,24 +38,25 @@ class _CloudPlaylistsPageState extends ConsumerState<CloudPlaylistsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.watchScale(); // 屏径等比缩放
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
-        title: const Text('我的歌单', style: TextStyle(fontSize: 15)),
+        title: Text('我的歌单', style: TextStyle(fontSize: 15 * s)),
         centerTitle: true,
       ),
       body: FutureBuilder<List<CloudPlaylist>>(
         future: _future,
         builder: (context, snap) {
           if (snap.connectionState != ConnectionState.done) {
-            return const Center(
+            return Center(
               child: SizedBox(
-                width: 22,
-                height: 22,
+                width: 22 * s,
+                height: 22 * s,
                 child: CircularProgressIndicator(
-                    strokeWidth: 2, color: Color(0xFFFF4D6E)),
+                    strokeWidth: 2 * s, color: const Color(0xFFFF4D6E)),
               ),
             );
           }
@@ -65,48 +67,48 @@ class _CloudPlaylistsPageState extends ConsumerState<CloudPlaylistsPage> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(Icons.queue_music_rounded,
-                      size: 34,
+                      size: 34 * s,
                       color: Colors.white.withValues(alpha: 0.3)),
-                  const SizedBox(height: 8),
+                  SizedBox(height: 8 * s),
                   Text('暂无云端歌单',
                       style: TextStyle(
-                          fontSize: 12,
+                          fontSize: 12 * s,
                           color: Colors.white.withValues(alpha: 0.5))),
-                  const SizedBox(height: 4),
+                  SizedBox(height: 4 * s),
                   Text('登录并同步后，手机/桌面端的歌单会显示在这里',
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                          fontSize: 10,
+                          fontSize: 10 * s,
                           color: Colors.white.withValues(alpha: 0.35))),
                 ],
               ),
             );
           }
           return ListView.builder(
-            padding: const EdgeInsets.symmetric(vertical: 6),
+            padding: EdgeInsets.symmetric(vertical: 6 * s),
             itemCount: playlists.length,
             itemBuilder: (context, i) {
               final pl = playlists[i];
               return ListTile(
                 dense: true,
                 leading: CircleAvatar(
-                  radius: 17,
+                  radius: 17 * s,
                   backgroundColor: const Color(0xFFFF4D6E)
                       .withValues(alpha: 0.18),
-                  child: const Icon(Icons.queue_music_rounded,
-                      size: 18, color: Color(0xFFFF4D6E)),
+                  child: Icon(Icons.queue_music_rounded,
+                      size: 18 * s, color: const Color(0xFFFF4D6E)),
                 ),
                 title: Text(
                   pl.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w600),
+                  style: TextStyle(
+                      fontSize: 13 * s, fontWeight: FontWeight.w600),
                 ),
                 subtitle: Text(
                   '${pl.songs.length} 首',
                   style: TextStyle(
-                      fontSize: 11,
+                      fontSize: 11 * s,
                       color: Colors.white.withValues(alpha: 0.45)),
                 ),
                 onTap: () => Navigator.of(context).push(
@@ -133,6 +135,7 @@ class _CloudPlaylistDetailPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.watchScale(); // 屏径等比缩放
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -141,20 +144,21 @@ class _CloudPlaylistDetailPage extends StatelessWidget {
         title: Text(playlist.name,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 14)),
+            style: TextStyle(fontSize: 14 * s)),
         centerTitle: true,
       ),
       body: ListView.builder(
-        padding: const EdgeInsets.symmetric(vertical: 6),
+        padding: EdgeInsets.symmetric(vertical: 6 * s),
         itemCount: playlist.songs.length,
         itemBuilder: (context, i) {
-          final s = playlist.songs[i];
+          // 局部变量改名为 song，避免遮蔽缩放系数 s。
+          final song = playlist.songs[i];
           return ListTile(
             dense: true,
             leading: Text(
               '${i + 1}',
               style: TextStyle(
-                fontSize: 12,
+                fontSize: 12 * s,
                 fontWeight: FontWeight.w700,
                 color: i < 3
                     ? const Color(0xFFFF4D6E)
@@ -162,17 +166,17 @@ class _CloudPlaylistDetailPage extends StatelessWidget {
               ),
             ),
             title: Text(
-              s.title,
+              song.title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 13),
+              style: TextStyle(fontSize: 13 * s),
             ),
             subtitle: Text(
-              s.artist.isEmpty ? '未知歌手' : s.artist,
+              song.artist.isEmpty ? '未知歌手' : song.artist,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                  fontSize: 11, color: Colors.white.withValues(alpha: 0.45)),
+                  fontSize: 11 * s, color: Colors.white.withValues(alpha: 0.45)),
             ),
             onTap: () => onPlay?.call(playlist, i),
           );

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'src/core/ambient.dart';
 import 'src/core/settings.dart';
+import 'src/core/watch_fit.dart';
 import 'src/auth/auth_provider.dart';
 import 'src/link/link_provider.dart';
 import 'src/sync/sync_provider.dart';
@@ -23,6 +24,11 @@ class XianYuWatchApp extends ConsumerStatefulWidget {
 }
 
 class _XianYuWatchAppState extends ConsumerState<XianYuWatchApp> {
+  // 左缘返回条要触发 Navigator 弹栈/根路由后台驻留，而该条叠在
+  // Navigator 之上（MaterialApp.builder 层），拿不到 Navigator
+  // 的祖先链，只能用 GlobalKey 直取。
+  final GlobalKey<NavigatorState> _navKey = GlobalKey<NavigatorState>();
+
   @override
   void initState() {
     super.initState();
@@ -53,6 +59,7 @@ class _XianYuWatchAppState extends ConsumerState<XianYuWatchApp> {
       // 多任务卡片标题取 MaterialApp.title（覆盖 manifest label），debug 带·测试。
       title: kDebugMode ? '腕上弦予·测试' : '腕上弦予',
       debugShowCheckedModeBanner: false,
+      navigatorKey: _navKey,
       theme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.dark,
@@ -63,21 +70,29 @@ class _XianYuWatchAppState extends ConsumerState<XianYuWatchApp> {
           surface: Colors.black,
         ),
       ),
-      // builder 包住 Navigator：所有路由（含推送页）在 ambient 下统一压暗。
+      // builder 包住 Navigator：所有路由（含推送页）在 ambient 下统一压暗；
+      // 并在最上层叠一条左缘返回条（系统级边缘返回在本机不可靠，见
+      // _EdgeBackStrip 注释）。
       builder: (context, child) => Consumer(
         builder: (context, ref, _) {
-          if (!ref.watch(ambientModeProvider)) {
-            return child ?? const SizedBox.shrink();
+          Widget nav = child ?? const SizedBox.shrink();
+          if (ref.watch(ambientModeProvider)) {
+            nav = ColorFiltered(
+              // 全局压暗至 60%：OLED 防烧屏 + 省电，保留最低可读性。
+              colorFilter: const ColorFilter.matrix(<double>[
+                0.6, 0, 0, 0, 0, //
+                0, 0.6, 0, 0, 0, //
+                0, 0, 0.6, 0, 0, //
+                0, 0, 0, 1, 0, //
+              ]),
+              child: nav,
+            );
           }
-          return ColorFiltered(
-            // 全局压暗至 60%：OLED 防烧屏 + 省电，保留最低可读性。
-            colorFilter: const ColorFilter.matrix(<double>[
-              0.6, 0, 0, 0, 0, //
-              0, 0.6, 0, 0, 0, //
-              0, 0, 0.6, 0, 0, //
-              0, 0, 0, 1, 0, //
-            ]),
-            child: child ?? const SizedBox.shrink(),
+          return Stack(
+            children: [
+              Positioned.fill(child: nav),
+              _EdgeBackStrip(navigatorKey: _navKey),
+            ],
           );
         },
       ),
@@ -115,8 +130,65 @@ class _LinkHomeState extends ConsumerState<LinkHome> {
 
   @override
   Widget build(BuildContext context) {
-    // 全屏音乐页（功能列表 ↔ 播放 ↔ 歌词三页横移），
-    // 设置/账号/插件管理等入口都在左侧功能列表里。
-    return const LocalMusicHub();
+    // 手表左滑返回手势（由 _EdgeBackStrip 从左缘触发）：根路由（三页横移
+    // 主页）无页面可弹时退到表盘后台驻留（应用保持存活、重开秒回、播放
+    // 不断），不走 Flutter 默认的 SystemNavigator.pop——那会直接 finish
+    // 掉 Activity，观感即「左滑退出软件」。二级页（设置/账号等）为正常
+    // 压栈路由，返回手势照常弹栈，不经此逻辑。
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) {
+          const MethodChannel('xianyu/system_nav')
+              .invokeMethod('moveTaskToBack')
+              // 极端情况：通道失败也不能让返回彻底失效，退化为正常退出。
+              .catchError((_) => SystemNavigator.pop());
+        }
+      },
+      child: const LocalMusicHub(),
+    );
+  }
+}
+
+/// 左缘返回条：叠在所有路由之上（MaterialApp.builder 层）。本机
+/// HarmonyOS 上系统级边缘返回手势不可触发（原生侧已排除全屏手势区，
+/// 左缘窄条也不响应），返回必须自绘：仅「从左缘 26dp 内起手、向右滑」
+/// 的横滑触发返回——二级页弹栈，根路由经 PopScope 后台驻留；其余横滑
+/// 照常归页面（播放页翻页等）。竖滑与点按没有对应回调，手势竞技场直接
+/// 放行，不影响列表滚动和左缘附近的按钮点击。
+class _EdgeBackStrip extends StatefulWidget {
+  const _EdgeBackStrip({required this.navigatorKey});
+
+  final GlobalKey<NavigatorState> navigatorKey;
+
+  @override
+  State<_EdgeBackStrip> createState() => _EdgeBackStripState();
+}
+
+class _EdgeBackStripState extends State<_EdgeBackStrip> {
+  double _dx = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.watchScale();
+    return Positioned(
+      left: 0,
+      top: 0,
+      bottom: 0,
+      width: 26 * s,
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onHorizontalDragStart: (_) => _dx = 0,
+        onHorizontalDragUpdate: (d) => _dx += d.delta.dx,
+        onHorizontalDragEnd: (d) {
+          final velocity = d.primaryVelocity ?? 0;
+          // 快甩（>300dp/s）或明确向右拖出 60dp 都算返回意图。
+          final isBack = velocity > 300 || _dx >= 60 * s;
+          _dx = 0;
+          if (!isBack) return;
+          widget.navigatorKey.currentState?.maybePop();
+        },
+      ),
+    );
   }
 }

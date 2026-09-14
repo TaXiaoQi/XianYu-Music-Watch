@@ -89,7 +89,10 @@ class AuthState {
 
 class AuthException implements Exception {
   final String message;
-  AuthException(this.message);
+  /// 服务端业务码（200 之外的失败码），0 表示非 HTTP 业务错误
+  /// （本地构造/网络异常）。供扫码轮询区分「服务端明确判死」与瞬时故障。
+  final int code;
+  AuthException(this.message, {this.code = 0});
   @override
   String toString() => message;
 }
@@ -225,7 +228,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
       state = const AuthState(sessionExpired: true);
     }
     if (code != 200) {
-      throw AuthException(msg.isNotEmpty ? msg : '请求失败（code $code）');
+      throw AuthException(
+        msg.isNotEmpty ? msg : '请求失败（code $code）',
+        code: code,
+      );
     }
     return (j['data'] as Map<String, dynamic>?) ?? const {};
   }
@@ -367,8 +373,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
         await _persist(token, user);
         return user;
       }
-    } on AuthException {
-      onStatus?.call('invalid');
+    } on AuthException catch (e) {
+      // 对齐桌面端语义：仅服务端明确判死（404 二维码无效/设备不匹配、
+      // 403 账号禁用）才结束轮询；限流 429、5xx、网络抖动均为瞬时故障，
+      // 保持 pending 由下个周期重试，避免误报「二维码已过期」。
+      if (e.code == 404 || e.code == 403) {
+        onStatus?.call('invalid');
+      }
     } catch (_) {
       // 网络抖动：视为继续 pending。
     }

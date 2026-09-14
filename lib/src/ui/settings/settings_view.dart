@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/settings.dart';
+import '../../core/watch_fit.dart';
 import '../../library/library_provider.dart';
 import '../../link/link_provider.dart';
 import '../controller/watch_controller_page.dart';
@@ -44,21 +45,23 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
 
   Future<void> _pickScanFormats(AppSettings s) async {
     final selected = {...s.scanFormats};
+    final sc = context.watchScale();
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('扫描格式', style: TextStyle(fontSize: 15)),
+        title: Text('扫描格式', style: TextStyle(fontSize: 15 * sc)),
+        // 233dp 圆屏上 260 固定宽必裁边，收敛到 200 并随屏径缩放。
         content: SizedBox(
-          width: 260,
+          width: 200 * sc,
           child: StatefulBuilder(
             builder: (context, setDialogState) => SingleChildScrollView(
               child: Wrap(
-                spacing: 6,
+                spacing: 6 * sc,
                 runSpacing: 0,
                 children: [
                   for (final f in kSupportedScanFormats)
                     FilterChip(
-                      label: Text(f, style: const TextStyle(fontSize: 12)),
+                      label: Text(f, style: TextStyle(fontSize: 12 * sc)),
                       selected: selected.contains(f),
                       onSelected: (v) => setDialogState(() {
                         v ? selected.add(f) : selected.remove(f);
@@ -72,11 +75,11 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('取消', style: TextStyle(fontSize: 13)),
+            child: Text('取消', style: TextStyle(fontSize: 13 * sc)),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('确定', style: TextStyle(fontSize: 13)),
+            child: Text('确定', style: TextStyle(fontSize: 13 * sc)),
           ),
         ],
       ),
@@ -90,10 +93,11 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
 
   Future<void> _pickMinDuration(AppSettings s) async {
     const options = [(0, '不过滤'), (30, '30 秒以上'), (60, '1 分钟以上'), (120, '2 分钟以上')];
+    final sc = context.watchScale();
     final v = await showDialog<int>(
       context: context,
       builder: (context) => SimpleDialog(
-        title: const Text('最短时长', style: TextStyle(fontSize: 15)),
+        title: Text('最短时长', style: TextStyle(fontSize: 15 * sc)),
         children: [
           for (final (secs, label) in options)
             SimpleDialogOption(
@@ -101,11 +105,12 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
               child: Row(
                 children: [
                   if (s.libraryMinDurationSeconds == secs)
-                    const Icon(Icons.check_rounded, size: 16, color: Color(0xFFFF4D6E))
+                    Icon(Icons.check_rounded,
+                        size: 16 * sc, color: const Color(0xFFFF4D6E))
                   else
-                    const SizedBox(width: 16),
-                  const SizedBox(width: 8),
-                  Text(label, style: const TextStyle(fontSize: 13)),
+                    SizedBox(width: 16 * sc),
+                  SizedBox(width: 8 * sc),
+                  Text(label, style: TextStyle(fontSize: 13 * sc)),
                 ],
               ),
             ),
@@ -119,10 +124,11 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
 
   Future<void> _pickQuality(AppSettings s) async {
     const options = [('320k', '标准 320kbps'), ('flac', '无损 FLAC')];
+    final sc = context.watchScale();
     final v = await showDialog<String>(
       context: context,
       builder: (context) => SimpleDialog(
-        title: const Text('在线音质', style: TextStyle(fontSize: 15)),
+        title: Text('在线音质', style: TextStyle(fontSize: 15 * sc)),
         children: [
           for (final (q, label) in options)
             SimpleDialogOption(
@@ -130,11 +136,12 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
               child: Row(
                 children: [
                   if (s.onlineQuality == q)
-                    const Icon(Icons.check_rounded, size: 16, color: Color(0xFFFF4D6E))
+                    Icon(Icons.check_rounded,
+                        size: 16 * sc, color: const Color(0xFFFF4D6E))
                   else
-                    const SizedBox(width: 16),
-                  const SizedBox(width: 8),
-                  Text(label, style: const TextStyle(fontSize: 13)),
+                    SizedBox(width: 16 * sc),
+                  SizedBox(width: 8 * sc),
+                  Text(label, style: TextStyle(fontSize: 13 * sc)),
                 ],
               ),
             ),
@@ -148,6 +155,7 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.watchScale();
     final link = ref.watch(linkControllerProvider);
     final settings =
         ref.watch(settingsProvider).valueOrNull ?? const AppSettings();
@@ -156,120 +164,121 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
     return Scaffold(
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          // 屏径等比缩放适配。
+          padding: EdgeInsets.symmetric(horizontal: 14 * s, vertical: 6 * s),
           children: [
             // 顶栏：返回 + 标题（push 页面，系统返回也可退出）。
             Row(
               children: [
                 const BackButton(),
-                const SizedBox(width: 4),
+                SizedBox(width: 4 * s),
                 Text('设置',
                     style: TextStyle(
-                        fontSize: 15,
+                        fontSize: 15 * s,
                         fontWeight: FontWeight.w700,
                         color: Colors.white.withValues(alpha: 0.9))),
               ],
             ),
-            _sectionLabel('手机联动'),
+            _sectionLabel('手机联动', s),
             SwitchListTile(
               dense: true,
               contentPadding: EdgeInsets.zero,
               value: settings.watchLinkageEnabled,
               activeThumbColor: accent,
-              title: const Text('腕上联动',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+              title: Text('腕上联动',
+                  style: TextStyle(fontSize: 13 * s, fontWeight: FontWeight.w600)),
               subtitle: Text(
                 settings.watchLinkageEnabled ? '连接手机后可远程控制播放' : '已关闭，不自动连接手机',
-                style: TextStyle(fontSize: 11, color: Colors.white.withValues(alpha: 0.5)),
+                style: TextStyle(fontSize: 11 * s, color: Colors.white.withValues(alpha: 0.5)),
               ),
               onChanged: (v) =>
                   ref.read(settingsProvider.notifier).setWatchLinkageEnabled(v),
             ),
-            _linkStatusCard(link),
-            const SizedBox(height: 6),
-            _sectionLabel('播放'),
+            _linkStatusCard(link, s),
+            SizedBox(height: 6 * s),
+            _sectionLabel('播放', s),
             SwitchListTile(
               dense: true,
               contentPadding: EdgeInsets.zero,
               value: settings.keepScreenOn,
               activeThumbColor: accent,
-              title: const Text('保持屏幕常亮',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+              title: Text('保持屏幕常亮',
+                  style: TextStyle(fontSize: 13 * s, fontWeight: FontWeight.w600)),
               subtitle: Text('播放时屏幕不自动熄灭',
-                  style: TextStyle(fontSize: 11, color: Colors.white.withValues(alpha: 0.5))),
+                  style: TextStyle(fontSize: 11 * s, color: Colors.white.withValues(alpha: 0.5))),
               onChanged: (v) =>
                   ref.read(settingsProvider.notifier).setKeepScreenOn(v),
             ),
-            const SizedBox(height: 6),
-            _sectionLabel('本地库'),
+            SizedBox(height: 6 * s),
+            _sectionLabel('本地库', s),
             ListTile(
               dense: true,
               contentPadding: EdgeInsets.zero,
               leading: _scanning
-                  ? const SizedBox(
-                      width: 18, height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.refresh_rounded, size: 20),
-              title: const Text('立即扫描',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                  ? SizedBox(
+                      width: 18 * s, height: 18 * s,
+                      child: CircularProgressIndicator(strokeWidth: 2 * s))
+                  : Icon(Icons.refresh_rounded, size: 20 * s),
+              title: Text('立即扫描',
+                  style: TextStyle(fontSize: 13 * s, fontWeight: FontWeight.w600)),
               onTap: _scanning ? null : _scanNow,
             ),
             ListTile(
               dense: true,
               contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.audio_file_rounded, size: 20),
-              title: const Text('扫描格式',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+              leading: Icon(Icons.audio_file_rounded, size: 20 * s),
+              title: Text('扫描格式',
+                  style: TextStyle(fontSize: 13 * s, fontWeight: FontWeight.w600)),
               subtitle: Text(
                 settings.scanFormats.isEmpty ? '未选择' : settings.scanFormats.join(' / '),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 11, color: Colors.white.withValues(alpha: 0.5)),
+                style: TextStyle(fontSize: 11 * s, color: Colors.white.withValues(alpha: 0.5)),
               ),
               onTap: () => _pickScanFormats(settings),
             ),
             ListTile(
               dense: true,
               contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.timer_outlined, size: 20),
-              title: const Text('最短时长',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+              leading: Icon(Icons.timer_outlined, size: 20 * s),
+              title: Text('最短时长',
+                  style: TextStyle(fontSize: 13 * s, fontWeight: FontWeight.w600)),
               subtitle: Text('过滤铃声等短音频',
-                  style: TextStyle(fontSize: 11, color: Colors.white.withValues(alpha: 0.5))),
+                  style: TextStyle(fontSize: 11 * s, color: Colors.white.withValues(alpha: 0.5))),
               trailing: Text(
                 settings.libraryMinDurationSeconds <= 0
                     ? '不过滤'
                     : '${settings.libraryMinDurationSeconds}s',
-                style: TextStyle(fontSize: 12, color: Colors.white.withValues(alpha: 0.7)),
+                style: TextStyle(fontSize: 12 * s, color: Colors.white.withValues(alpha: 0.7)),
               ),
               onTap: () => _pickMinDuration(settings),
             ),
-            const SizedBox(height: 6),
-            _sectionLabel('在线音源'),
+            SizedBox(height: 6 * s),
+            _sectionLabel('在线音源', s),
             ListTile(
               dense: true,
               contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.high_quality_rounded, size: 20),
-              title: const Text('音质偏好',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+              leading: Icon(Icons.high_quality_rounded, size: 20 * s),
+              title: Text('音质偏好',
+                  style: TextStyle(fontSize: 13 * s, fontWeight: FontWeight.w600)),
               trailing: Text(
                 settings.onlineQuality == 'flac' ? '无损' : '320k',
-                style: TextStyle(fontSize: 12, color: Colors.white.withValues(alpha: 0.7)),
+                style: TextStyle(fontSize: 12 * s, color: Colors.white.withValues(alpha: 0.7)),
               ),
               onTap: () => _pickQuality(settings),
             ),
-            const SizedBox(height: 6),
-            _sectionLabel('关于'),
-            const ListTile(
+            SizedBox(height: 6 * s),
+            _sectionLabel('关于', s),
+            ListTile(
               dense: true,
               contentPadding: EdgeInsets.zero,
-              leading: Icon(Icons.music_note_rounded, size: 20),
+              leading: Icon(Icons.music_note_rounded, size: 20 * s),
               title: Text('弦予音乐 腕上版',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                  style: TextStyle(fontSize: 13 * s, fontWeight: FontWeight.w600)),
               subtitle: Text('v0.1.0+1 · 独立播放 / 手机联动',
-                  style: TextStyle(fontSize: 11)),
+                  style: TextStyle(fontSize: 11 * s)),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12 * s),
           ],
         ),
       ),
@@ -277,13 +286,13 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
   }
 
   /// 联动状态卡：已连接（进控制页）/ 连接中 / 未连接（重连/配对）。
-  Widget _linkStatusCard(LinkState link) {
+  Widget _linkStatusCard(LinkState link, double s) {
     final accent = const Color(0xFFFF4D6E);
     final controller = ref.read(linkControllerProvider.notifier);
     final btnStyle = OutlinedButton.styleFrom(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      minimumSize: const Size(0, 32),
-      textStyle: const TextStyle(fontSize: 12),
+      padding: EdgeInsets.symmetric(horizontal: 12 * s, vertical: 4 * s),
+      minimumSize: Size(0, 32 * s),
+      textStyle: TextStyle(fontSize: 12 * s),
     );
 
     final List<Widget> children;
@@ -293,11 +302,12 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
           ListTile(
             dense: true,
             contentPadding: EdgeInsets.zero,
-            leading: const Icon(Icons.watch_rounded, size: 20, color: Colors.greenAccent),
+            leading: Icon(Icons.watch_rounded,
+                size: 20 * s, color: Colors.greenAccent),
             title: Text(link.pairedName ?? '手机',
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                style: TextStyle(fontSize: 13 * s, fontWeight: FontWeight.w600)),
             subtitle: Text('已连接 · 点击进入播放控制',
-                style: TextStyle(fontSize: 11, color: Colors.white.withValues(alpha: 0.5))),
+                style: TextStyle(fontSize: 11 * s, color: Colors.white.withValues(alpha: 0.5))),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(builder: (_) => const WatchControllerPage()),
             ),
@@ -311,13 +321,13 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                 style: btnStyle,
                 child: const Text('播放控制'),
               ),
-              const SizedBox(width: 8),
+              SizedBox(width: 8 * s),
               OutlinedButton(
                 onPressed: controller.disconnectManually,
                 style: btnStyle,
                 child: const Text('断开'),
               ),
-              const SizedBox(width: 8),
+              SizedBox(width: 8 * s),
               OutlinedButton(
                 onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(builder: (_) => const PairView()),
@@ -333,14 +343,14 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
           ListTile(
             dense: true,
             contentPadding: EdgeInsets.zero,
-            leading: const SizedBox(
-                width: 18, height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2)),
+            leading: SizedBox(
+                width: 18 * s, height: 18 * s,
+                child: CircularProgressIndicator(strokeWidth: 2 * s)),
             title: Text('正在连接 ${link.pairedName ?? ''}',
-                style: const TextStyle(fontSize: 13)),
+                style: TextStyle(fontSize: 13 * s)),
             trailing: TextButton(
               onPressed: controller.disconnectManually,
-              child: const Text('取消', style: TextStyle(fontSize: 12)),
+              child: Text('取消', style: TextStyle(fontSize: 12 * s)),
             ),
           ),
         ];
@@ -350,10 +360,10 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
             dense: true,
             contentPadding: EdgeInsets.zero,
             leading: Icon(Icons.watch_off_rounded,
-                size: 20, color: Colors.white.withValues(alpha: 0.5)),
+                size: 20 * s, color: Colors.white.withValues(alpha: 0.5)),
             title: Text(
               link.pairedAddress == null ? '未配对手机' : '未连接 ${link.pairedName ?? ''}',
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+              style: TextStyle(fontSize: 13 * s, fontWeight: FontWeight.w600),
             ),
           ),
           Row(
@@ -374,7 +384,7 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                   ),
                   child: const Text('选择设备'),
                 ),
-              const SizedBox(width: 8),
+              SizedBox(width: 8 * s),
               if (link.pairedAddress != null)
                 OutlinedButton(
                   onPressed: () => Navigator.of(context).push(
@@ -391,15 +401,15 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: children);
   }
 
-  Widget _sectionLabel(String text) {
+  Widget _sectionLabel(String text, double s) {
     return Padding(
-      padding: const EdgeInsets.only(top: 8, bottom: 2),
+      padding: EdgeInsets.only(top: 8 * s, bottom: 2 * s),
       child: Text(
         text,
         style: TextStyle(
-          fontSize: 11,
+          fontSize: 11 * s,
           fontWeight: FontWeight.w700,
-          letterSpacing: 1,
+          letterSpacing: 1 * s,
           color: Colors.white.withValues(alpha: 0.4),
         ),
       ),

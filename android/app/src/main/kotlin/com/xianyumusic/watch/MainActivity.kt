@@ -1,7 +1,10 @@
 package com.xianyumusic.watch
 
+import android.graphics.Rect
+import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
+import android.view.ViewTreeObserver
 import androidx.wear.ambient.AmbientLifecycleObserver
 import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -39,6 +42,37 @@ class MainActivity : AudioServiceActivity() {
             )
             lifecycle.addObserver(ambientObserver!!)
         }
+        excludeEdgeBackGesture()
+    }
+
+    /**
+     * 排除系统边缘返回手势区（API 29+）：表屏太小，页面横滑几乎必然从边缘
+     * 起手，会被边缘返回手势抢走直接退出应用（表现即「左滑退出软件」）。
+     * 参考网易云手表版：排除几乎全屏，仅保留左侧 20dp 窄条给系统返回——
+     * 根路由返回经 PopScope 走 moveTaskToBack 后台驻留，二级页照常弹栈。
+     * 系统对单边手势排除有 200dp 高度上限，表屏超出部分（底部极窄区）仍可能
+     * 触发返回，可接受。
+     */
+    private fun excludeEdgeBackGesture() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        val decor = window.decorView
+        val applyExclusion = Runnable {
+            val strip = (resources.displayMetrics.density * 20).toInt()
+            decor.setSystemGestureExclusionRects(
+                listOf(
+                    Rect(
+                        strip,
+                        0,
+                        decor.width.coerceAtLeast(strip + 1),
+                        decor.height.coerceAtLeast(1),
+                    ),
+                ),
+            )
+        }
+        decor.viewTreeObserver.addOnGlobalLayoutListener(
+            ViewTreeObserver.OnGlobalLayoutListener { applyExclusion.run() },
+        )
+        decor.post(applyExclusion)
     }
 
     private fun hasWearableSharedLibrary(): Boolean =
@@ -51,6 +85,20 @@ class MainActivity : AudioServiceActivity() {
         super.configureFlutterEngine(flutterEngine)
         WatchLinkClient.register(flutterEngine.dartExecutor.binaryMessenger, this)
         ambientChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "xianyu/ambient")
+        // 系统返回（手表左滑手势）：根路由无页面可弹时退到表盘后台驻留，
+        // 不走 Flutter 默认 SystemNavigator.pop 的 finish()（那会真·退出应用，
+        // 重开要冷启动）。
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "xianyu/system_nav")
+            .setMethodCallHandler { call, result ->
+                if (call.method == "moveTaskToBack") {
+                    runOnUiThread {
+                        moveTaskToBack(true)
+                        result.success(null)
+                    }
+                } else {
+                    result.notImplemented()
+                }
+            }
         // 屏幕常亮开关（设置-播放）：FLAG_KEEP_SCREEN_ON 仅作用于本窗口。
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "xianyu/keep_screen")
             .setMethodCallHandler { call, result ->

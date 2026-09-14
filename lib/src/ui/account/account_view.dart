@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import '../../core/watch_fit.dart';
 import '../../auth/auth_provider.dart';
 import '../../sync/sync_provider.dart';
 
@@ -22,6 +23,7 @@ class _AccountViewState extends ConsumerState<AccountView> {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.watchScale();
     final auth = ref.watch(authProvider);
 
     // 会话失效提示（token 被服务端判过期）。
@@ -38,22 +40,23 @@ class _AccountViewState extends ConsumerState<AccountView> {
     return Scaffold(
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 6),
+          // 屏径等比缩放适配。
+          padding: EdgeInsets.symmetric(horizontal: 22 * s, vertical: 6 * s),
           children: [
             Row(
               children: [
                 const BackButton(),
-                const SizedBox(width: 4),
+                SizedBox(width: 4 * s),
                 Text('账号',
                     style: TextStyle(
-                        fontSize: 15,
+                        fontSize: 15 * s,
                         fontWeight: FontWeight.w700,
                         color: Colors.white.withValues(alpha: 0.9))),
               ],
             ),
-            const SizedBox(height: 10),
+            SizedBox(height: 10 * s),
             if (auth.isLoggedIn)
-              _profile(auth.user!)
+              _profile(auth.user!, s)
             else ...[
               AnimatedSwitcher(
                 duration: const Duration(milliseconds: 180),
@@ -61,14 +64,13 @@ class _AccountViewState extends ConsumerState<AccountView> {
                     ? const _PasswordLoginForm(key: ValueKey('pwd'))
                     : _QrLoginPanel(key: const ValueKey('qr'), auth: auth),
               ),
-              const SizedBox(height: 8),
+              SizedBox(height: 8 * s),
               TextButton(
                 onPressed: () =>
                     setState(() => _passwordMode = !_passwordMode),
                 child: Text(
                   _passwordMode ? '使用扫码登录' : '使用密码登录',
-                  style: const TextStyle(
-                      fontSize: 12, color: Color(0xFFFF8FA3)),
+                  style: TextStyle(fontSize: 12 * s, color: Color(0xFFFF8FA3)),
                 ),
               ),
             ],
@@ -78,32 +80,32 @@ class _AccountViewState extends ConsumerState<AccountView> {
     );
   }
 
-  Widget _profile(AuthUser user) {
+  Widget _profile(AuthUser user, double s) {
     final avatar = _AvatarImage.of(user.avatar);
     return Column(
       children: [
         CircleAvatar(
-          radius: 30,
+          radius: 30 * s, // 等比适配
           backgroundColor: const Color(0xFFFF4D6E),
           backgroundImage: avatar,
           child: avatar == null
-              ? const Icon(Icons.person_rounded, size: 30, color: Colors.white)
+              ? Icon(Icons.person_rounded, size: 30 * s, color: Colors.white)
               : null,
         ),
-        const SizedBox(height: 10),
+        SizedBox(height: 10 * s),
         Text(user.nickname.isNotEmpty ? user.nickname : user.username,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-        const SizedBox(height: 2),
+            style: TextStyle(fontSize: 16 * s, fontWeight: FontWeight.w700)),
+        SizedBox(height: 2 * s),
         Text('弦予号 ${user.ciyuanxiId ?? user.username}',
             style: TextStyle(
-                fontSize: 11, color: Colors.white.withValues(alpha: 0.55))),
+                fontSize: 11 * s, color: Colors.white.withValues(alpha: 0.55))),
         if (user.email.isNotEmpty)
           Text(user.email,
               style: TextStyle(
-                  fontSize: 11, color: Colors.white.withValues(alpha: 0.4))),
-        const SizedBox(height: 16),
+                  fontSize: 11 * s, color: Colors.white.withValues(alpha: 0.4))),
+        SizedBox(height: 16 * s),
         const _SyncCard(),
-        const SizedBox(height: 14),
+        SizedBox(height: 14 * s),
         OutlinedButton.icon(
           onPressed: () async {
             await ref.read(authProvider.notifier).logout();
@@ -116,16 +118,16 @@ class _AccountViewState extends ConsumerState<AccountView> {
           style: OutlinedButton.styleFrom(
             foregroundColor: const Color(0xFFFF4D6E),
             side: const BorderSide(color: Color(0xFFFF4D6E)),
-            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 8),
+            padding: EdgeInsets.symmetric(horizontal: 22 * s, vertical: 8 * s),
           ),
-          icon: const Icon(Icons.logout_rounded, size: 16),
-          label: const Text('退出登录', style: TextStyle(fontSize: 13)),
+          icon: Icon(Icons.logout_rounded, size: 16 * s),
+          label: Text('退出登录', style: TextStyle(fontSize: 13 * s)),
         ),
         TextButton(
           onPressed: _showDeleteAccountGuide,
           child: Text('注销账号',
               style: TextStyle(
-                  fontSize: 11, color: Colors.white.withValues(alpha: 0.45))),
+                  fontSize: 11 * s, color: Colors.white.withValues(alpha: 0.45))),
         ),
       ],
     );
@@ -133,17 +135,18 @@ class _AccountViewState extends ConsumerState<AccountView> {
 
   /// 注销引导：需要密码+邮箱验证码双重确认，腕上端输入不便，指到手机/桌面端。
   void _showDeleteAccountGuide() {
+    final s = context.watchScale();
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1C1C1E),
         shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        title: const Text('注销账号',
-            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
-        content: const Text(
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(14 * s)),
+        title: Text('注销账号',
+            style: TextStyle(fontSize: 15 * s, fontWeight: FontWeight.w700)),
+        content: Text(
           '注销需密码和邮箱验证码双重确认，请到手机端或桌面端操作：\n\n手机端 · 账号页 → 注销账号\n桌面端 · 账号设置 → 注销账号',
-          style: TextStyle(fontSize: 12, height: 1.5),
+          style: TextStyle(fontSize: 12 * s, height: 1.5),
         ),
         actions: [
           TextButton(
@@ -163,33 +166,34 @@ class _SyncCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final s = context.watchScale();
     final sync = ref.watch(syncProvider);
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+      padding: EdgeInsets.fromLTRB(12 * s, 8 * s, 12 * s, 12 * s),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(12 * s),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.cloud_sync_rounded,
-                  size: 15, color: Color(0xFFFF8FA3)),
-              const SizedBox(width: 6),
-              const Text('云同步',
-                  style:
-                      TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+              Icon(Icons.cloud_sync_rounded,
+                  size: 15 * s, color: const Color(0xFFFF8FA3)),
+              SizedBox(width: 6 * s),
+              Text('云同步',
+                  style: TextStyle(
+                      fontSize: 13 * s, fontWeight: FontWeight.w600)),
               const Spacer(),
               Text('自动同步',
                   style: TextStyle(
-                      fontSize: 11,
+                      fontSize: 11 * s,
                       color: Colors.white.withValues(alpha: 0.55))),
               SizedBox(
-                height: 32,
-                width: 52,
+                height: 32 * s,
+                width: 52 * s,
                 child: FittedBox(
                   fit: BoxFit.scaleDown,
                   child: Switch(
@@ -205,16 +209,16 @@ class _SyncCard extends ConsumerWidget {
           Row(
             children: [
               if (sync.syncing) ...[
-                const SizedBox(
-                  width: 12,
-                  height: 12,
+                SizedBox(
+                  width: 12 * s,
+                  height: 12 * s,
                   child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Color(0xFFFF8FA3)),
+                      strokeWidth: 2 * s, color: const Color(0xFFFF8FA3)),
                 ),
-                const SizedBox(width: 6),
-                const Text('同步中…',
-                    style:
-                        TextStyle(fontSize: 11, color: Color(0xFFFF8FA3))),
+                SizedBox(width: 6 * s),
+                Text('同步中…',
+                    style: TextStyle(
+                        fontSize: 11 * s, color: const Color(0xFFFF8FA3))),
               ] else
                 Expanded(
                   child: Text(
@@ -222,34 +226,34 @@ class _SyncCard extends ConsumerWidget {
                         ? '尚未同步'
                         : '上次同步 ${_fmtTime(sync.lastSyncAt!)}',
                     style: TextStyle(
-                        fontSize: 11,
+                        fontSize: 11 * s,
                         color: Colors.white.withValues(alpha: 0.55)),
                   ),
                 ),
             ],
           ),
           if (sync.error != null) ...[
-            const SizedBox(height: 4),
+            SizedBox(height: 4 * s),
             Text(sync.error!,
                 maxLines: 3,
                 overflow: TextOverflow.ellipsis,
                 style:
-                    const TextStyle(fontSize: 10, color: Color(0xFFFF6B81))),
+                    TextStyle(fontSize: 10 * s, color: const Color(0xFFFF6B81))),
           ] else if (sync.lastSummary.isNotEmpty) ...[
-            const SizedBox(height: 4),
+            SizedBox(height: 4 * s),
             Text(sync.lastSummary,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                    fontSize: 10,
+                    fontSize: 10 * s,
                     color: Colors.white.withValues(alpha: 0.4))),
           ],
-          const SizedBox(height: 10),
+          SizedBox(height: 10 * s),
           Row(
             children: [
               Expanded(
                 child: SizedBox(
-                  height: 34,
+                  height: 34 * s,
                   child: FilledButton.tonalIcon(
                     onPressed: sync.syncing
                         ? null
@@ -257,18 +261,18 @@ class _SyncCard extends ConsumerWidget {
                     style: FilledButton.styleFrom(
                       backgroundColor: Colors.white.withValues(alpha: 0.10),
                       foregroundColor: const Color(0xFFFF8FA3),
-                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      padding: EdgeInsets.symmetric(horizontal: 6 * s),
                     ),
-                    icon: const Icon(Icons.cloud_download_rounded, size: 15),
+                    icon: Icon(Icons.cloud_download_rounded, size: 15 * s),
                     label:
-                        const Text('手动下载', style: TextStyle(fontSize: 11)),
+                        Text('手动下载', style: TextStyle(fontSize: 11 * s)),
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
+              SizedBox(width: 8 * s),
               Expanded(
                 child: SizedBox(
-                  height: 34,
+                  height: 34 * s,
                   child: FilledButton.tonalIcon(
                     onPressed: sync.syncing
                         ? null
@@ -276,20 +280,20 @@ class _SyncCard extends ConsumerWidget {
                     style: FilledButton.styleFrom(
                       backgroundColor: Colors.white.withValues(alpha: 0.10),
                       foregroundColor: const Color(0xFFFF8FA3),
-                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      padding: EdgeInsets.symmetric(horizontal: 6 * s),
                     ),
-                    icon: const Icon(Icons.cloud_upload_rounded, size: 15),
+                    icon: Icon(Icons.cloud_upload_rounded, size: 15 * s),
                     label:
-                        const Text('手动上传', style: TextStyle(fontSize: 11)),
+                        Text('手动上传', style: TextStyle(fontSize: 11 * s)),
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 6),
+          SizedBox(height: 6 * s),
           Text('自动同步：登录后全量一次，之后每小时上传一次',
               style: TextStyle(
-                  fontSize: 9.5,
+                  fontSize: 9.5 * s,
                   color: Colors.white.withValues(alpha: 0.35))),
         ],
       ),
@@ -441,58 +445,59 @@ class _PasswordLoginFormState extends ConsumerState<_PasswordLoginForm> {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.watchScale();
     final auth = ref.watch(authProvider);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         TextField(
           controller: _idCtrl,
-          style: const TextStyle(fontSize: 13),
-          decoration: const InputDecoration(
+          style: TextStyle(fontSize: 13 * s),
+          decoration: InputDecoration(
             hintText: '弦予号',
             isDense: true,
-            prefixIcon: Icon(Icons.badge_rounded, size: 18),
+            prefixIcon: Icon(Icons.badge_rounded, size: 18 * s),
           ),
           textInputAction: TextInputAction.next,
         ),
-        const SizedBox(height: 10),
+        SizedBox(height: 10 * s),
         TextField(
           controller: _pwdCtrl,
           obscureText: true,
-          style: const TextStyle(fontSize: 13),
-          decoration: const InputDecoration(
+          style: TextStyle(fontSize: 13 * s),
+          decoration: InputDecoration(
             hintText: '密码',
             isDense: true,
-            prefixIcon: Icon(Icons.lock_rounded, size: 18),
+            prefixIcon: Icon(Icons.lock_rounded, size: 18 * s),
           ),
           textInputAction: TextInputAction.done,
         ),
-        const SizedBox(height: 10),
+        SizedBox(height: 10 * s),
         // 人机验证区。
         if (_configLoading)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 10),
+          Padding(
+            padding: EdgeInsets.symmetric(vertical: 10 * s),
             child: Center(
               child: SizedBox(
-                width: 16,
-                height: 16,
+                width: 16 * s,
+                height: 16 * s,
                 child: CircularProgressIndicator(
-                    strokeWidth: 2, color: Color(0xFFFF4D6E)),
+                    strokeWidth: 2 * s, color: const Color(0xFFFF4D6E)),
               ),
             ),
           )
         else if (_providerMode) ...[
           Container(
-            padding: const EdgeInsets.all(10),
+            padding: EdgeInsets.all(10 * s),
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.06),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(10 * s),
             ),
             child: Text(
               '服务端启用了网页人机验证，腕上端不支持。\n请返回使用扫码登录。',
               textAlign: TextAlign.center,
               style: TextStyle(
-                  fontSize: 11,
+                  fontSize: 11 * s,
                   height: 1.4,
                   color: Colors.white.withValues(alpha: 0.7)),
             ),
@@ -503,24 +508,24 @@ class _PasswordLoginFormState extends ConsumerState<_PasswordLoginForm> {
               Expanded(
                 child: Text(
                   _captcha?.question ?? '验证题加载失败',
-                  style: const TextStyle(
-                      fontSize: 14,
+                  style: TextStyle(
+                      fontSize: 14 * s,
                       fontWeight: FontWeight.w600,
-                      color: Color(0xFFFF8FA3)),
+                      color: const Color(0xFFFF8FA3)),
                 ),
               ),
               IconButton(
                 onPressed: _loadCaptcha,
-                icon: const Icon(Icons.refresh_rounded, size: 18),
+                icon: Icon(Icons.refresh_rounded, size: 18 * s),
                 tooltip: '换一题',
               ),
               SizedBox(
-                width: 96,
-                height: 38,
+                width: 96 * s,
+                height: 38 * s,
                 child: TextField(
                   controller: _answerCtrl,
                   keyboardType: TextInputType.number,
-                  style: const TextStyle(fontSize: 14),
+                  style: TextStyle(fontSize: 14 * s),
                   textAlign: TextAlign.center,
                   decoration: const InputDecoration(
                     hintText: '答案',
@@ -533,40 +538,42 @@ class _PasswordLoginFormState extends ConsumerState<_PasswordLoginForm> {
           ),
         ],
         if (_captchaError != null) ...[
-          const SizedBox(height: 6),
+          SizedBox(height: 6 * s),
           Text(_captchaError!,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 11, color: Color(0xFFFF6B81))),
+              style: TextStyle(
+                  fontSize: 11 * s, color: const Color(0xFFFF6B81))),
         ],
         if (auth.error != null) ...[
-          const SizedBox(height: 8),
+          SizedBox(height: 8 * s),
           Text(auth.error!,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 11, color: Color(0xFFFF6B81))),
+              style: TextStyle(
+                  fontSize: 11 * s, color: const Color(0xFFFF6B81))),
         ],
-        const SizedBox(height: 14),
+        SizedBox(height: 14 * s),
         FilledButton(
           onPressed: auth.loading || _configLoading || _providerMode
               ? null
               : _submit,
           style: FilledButton.styleFrom(
             backgroundColor: const Color(0xFFFF4D6E),
-            minimumSize: const Size(0, 40),
+            minimumSize: Size(0, 40 * s),
           ),
           child: auth.loading
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
+              ? SizedBox(
+                  width: 18 * s,
+                  height: 18 * s,
                   child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Colors.white),
+                      strokeWidth: 2 * s, color: Colors.white),
                 )
-              : const Text('登录', style: TextStyle(fontSize: 14)),
+              : Text('登录', style: TextStyle(fontSize: 14 * s)),
         ),
-        const SizedBox(height: 8),
+        SizedBox(height: 8 * s),
         Text('没有账号？请在手机端注册',
             textAlign: TextAlign.center,
             style: TextStyle(
-                fontSize: 10, color: Colors.white.withValues(alpha: 0.35))),
+                fontSize: 10 * s, color: Colors.white.withValues(alpha: 0.35))),
       ],
     );
   }
@@ -658,6 +665,8 @@ class _QrLoginPanelState extends ConsumerState<_QrLoginPanel> {
 
   @override
   Widget build(BuildContext context) {
+    // 二维码随屏径等比缩放：固定 190dp 在 233dp 圆屏上占比 81% 会顶边。
+    final s = context.watchScale();
     final hint = switch (_status) {
       'loading' => '二维码生成中…',
       'pending' => '打开手机端 弦予音乐 扫码',
@@ -669,63 +678,67 @@ class _QrLoginPanelState extends ConsumerState<_QrLoginPanel> {
       children: [
         // 二维码卡片（白底保证扫码对比度）。
         Container(
-          width: 190,
-          height: 190,
-          padding: const EdgeInsets.all(10),
+          width: 148 * s,
+          height: 148 * s,
+          padding: EdgeInsets.all(8 * s),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(12 * s),
           ),
           child: Center(
             child: switch (_status) {
-              'loading' =>
-                const CircularProgressIndicator(color: Color(0xFFFF4D6E)),
+              'loading' => CircularProgressIndicator(
+                  color: const Color(0xFFFF4D6E),
+                  strokeWidth: 2.5 * s,
+                ),
               'expired' || 'error' => Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(Icons.qr_code_2_rounded,
-                        size: 40, color: Colors.black.withValues(alpha: 0.35)),
-                    const SizedBox(height: 6),
+                        size: 30 * s,
+                        color: Colors.black.withValues(alpha: 0.35)),
+                    SizedBox(height: 5 * s),
                     FilledButton.tonal(
                       onPressed: _start,
                       style: FilledButton.styleFrom(
                         backgroundColor: const Color(0xFFFF4D6E),
                         foregroundColor: Colors.white,
-                        minimumSize: const Size(0, 32),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 4),
+                        minimumSize: Size(0, 28 * s),
+                        padding: EdgeInsets.symmetric(
+                            horizontal: 14 * s, vertical: 4 * s),
                       ),
-                      child: const Text('刷新二维码',
-                          style: TextStyle(fontSize: 12)),
+                      child: Text('刷新二维码',
+                          style: TextStyle(fontSize: 11 * s)),
                     ),
                   ],
                 ),
               _ => QrImageView(
                   data: 'xianyumusic://tvlogin/$_code',
                   version: QrVersions.auto,
-                  size: 168,
+                  size: 132 * s,
                   errorCorrectionLevel: QrErrorCorrectLevel.M,
                   backgroundColor: Colors.white,
                 ),
             },
           ),
         ),
-        const SizedBox(height: 10),
+        SizedBox(height: 8 * s),
         Text(
           hint,
           textAlign: TextAlign.center,
           style: TextStyle(
-            fontSize: 12,
+            fontSize: 11.5 * s,
             color: _status == 'scanned'
                 ? const Color(0xFF7EE38B)
                 : Colors.white.withValues(alpha: 0.6),
           ),
         ),
         if (_status == 'error' && _error.isNotEmpty) ...[
-          const SizedBox(height: 4),
+          SizedBox(height: 3.5 * s),
           Text(_error,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 10, color: Color(0xFFFF6B81))),
+              style: TextStyle(
+                  fontSize: 9.5 * s, color: const Color(0xFFFF6B81))),
         ],
       ],
     );

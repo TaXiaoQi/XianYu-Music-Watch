@@ -88,14 +88,18 @@
 **v8 包 — 64 位表（Wear OS 3+：三星 GW4/GW5/GW6、小米 S 系列、OPPO Watch 等）**
 
 ```powershell
-$env:XIANMU_RUST_ABI='v8'; flutter build apk --release --target-platform android-arm64
+flutter build apk --v8
 ```
 
 **v7 包 — 32 位国表（华为 GLL-AL00 等 armeabi-v7a 表）**
 
 ```powershell
-$env:XIANMU_RUST_ABI='v7'; flutter build apk --release --target-platform android-arm
+flutter build apk --v7
 ```
+
+> `--v7` / `--v8` 由本机 PowerShell profile 的 flutter 包装函数支持：自动注入
+> `XIANMU_RUST_ABI`、补 `--release` 与对应 `--target-platform`，等价于完整写法
+> `$env:XIANMU_RUST_ABI='v8'; flutter build apk --release --target-platform android-arm64`。
 
 **全量双 ABI 包（不挑表，单包兼容 32/64 位，体积更大）**
 

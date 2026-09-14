@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/watch_fit.dart';
 import '../../plugin/plugin_catalog.dart';
 import '../../plugin/plugin_models.dart';
 import '../../plugin/plugin_provider.dart';
@@ -76,37 +77,38 @@ class _TopListPageState extends ConsumerState<TopListPage> {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.watchScale(); // 屏径等比缩放
     return Scaffold(
       body: SafeArea(
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              padding: EdgeInsets.symmetric(horizontal: 4 * s, vertical: 2 * s),
               child: Row(
                 children: [
                   const BackButton(),
-                  const SizedBox(width: 2),
+                  SizedBox(width: 2 * s),
                   Text('音源榜单',
                       style: TextStyle(
-                          fontSize: 15,
+                          fontSize: 15 * s,
                           fontWeight: FontWeight.w700,
                           color: Colors.white.withValues(alpha: 0.9))),
                   const Spacer(),
                   IconButton(
                     tooltip: '刷新',
                     onPressed: _loading ? null : _load,
-                    icon: const Icon(Icons.refresh_rounded, size: 20),
+                    icon: Icon(Icons.refresh_rounded, size: 20 * s),
                   ),
                 ],
               ),
             ),
             Expanded(
               child: _loading
-                  ? const Center(
+                  ? Center(
                       child: SizedBox(
-                        width: 26,
-                        height: 26,
-                        child: CircularProgressIndicator(strokeWidth: 2.4),
+                        width: 26 * s,
+                        height: 26 * s,
+                        child: CircularProgressIndicator(strokeWidth: 2.4 * s),
                       ),
                     )
                   : _error != null
@@ -115,18 +117,18 @@ class _TopListPageState extends ConsumerState<TopListPage> {
                             _error!,
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                                fontSize: 12,
+                                fontSize: 12 * s,
                                 height: 1.7,
                                 color:
                                     Colors.white.withValues(alpha: 0.5)),
                           ),
                         )
                       : ListView.separated(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 2),
+                          padding: EdgeInsets.symmetric(
+                              horizontal: 10 * s, vertical: 2 * s),
                           itemCount: _entries.length,
                           separatorBuilder: (_, _) => Divider(
-                              height: 1,
+                              height: 1 * s,
                               color:
                                   Colors.white.withValues(alpha: 0.06)),
                           itemBuilder: (context, i) {
@@ -134,25 +136,25 @@ class _TopListPageState extends ConsumerState<TopListPage> {
                             return ListTile(
                               dense: true,
                               contentPadding:
-                                  const EdgeInsets.symmetric(horizontal: 4),
+                                  EdgeInsets.symmetric(horizontal: 4 * s),
                               leading: _SheetCover(url: it.coverUrl),
                               title: Text(
                                 it.title,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontSize: 13),
+                                style: TextStyle(fontSize: 13 * s),
                               ),
                               subtitle: Text(
                                 src.name,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
-                                    fontSize: 10,
+                                    fontSize: 10 * s,
                                     color: Colors.white
                                         .withValues(alpha: 0.45)),
                               ),
                               trailing: Icon(Icons.chevron_right_rounded,
-                                  size: 18,
+                                  size: 18 * s,
                                   color: Colors.white
                                       .withValues(alpha: 0.35)),
                               onTap: () => Navigator.of(context).push(
@@ -235,29 +237,30 @@ class _TopListDetailPageState extends ConsumerState<TopListDetailPage> {
   @override
   Widget build(BuildContext context) {
     final cover = widget.item.coverUrl;
+    final s = context.watchScale(); // 屏径等比缩放
     return Scaffold(
       body: SafeArea(
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              padding: EdgeInsets.symmetric(horizontal: 4 * s, vertical: 2 * s),
               child: Row(
                 children: [
                   const BackButton(),
-                  const SizedBox(width: 8),
+                  SizedBox(width: 8 * s),
                   SizedBox(
-                    width: 34,
-                    height: 34,
+                    width: 34 * s,
+                    height: 34 * s,
                     child: ClipOval(child: _SheetCover(url: cover)),
                   ),
-                  const SizedBox(width: 8),
+                  SizedBox(width: 8 * s),
                   Expanded(
                     child: Text(
                       widget.item.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          fontSize: 14, fontWeight: FontWeight.w600),
+                      style: TextStyle(
+                          fontSize: 14 * s, fontWeight: FontWeight.w600),
                     ),
                   ),
                 ],
@@ -265,11 +268,11 @@ class _TopListDetailPageState extends ConsumerState<TopListDetailPage> {
             ),
             Expanded(
               child: _loading
-                  ? const Center(
+                  ? Center(
                       child: SizedBox(
-                        width: 26,
-                        height: 26,
-                        child: CircularProgressIndicator(strokeWidth: 2.4),
+                        width: 26 * s,
+                        height: 26 * s,
+                        child: CircularProgressIndicator(strokeWidth: 2.4 * s),
                       ),
                     )
                   : _error != null
@@ -278,30 +281,30 @@ class _TopListDetailPageState extends ConsumerState<TopListDetailPage> {
                             _error!,
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                                fontSize: 12,
+                                fontSize: 12 * s,
                                 color: Colors.white.withValues(alpha: 0.5)),
                           ),
                         )
                       : ListView.separated(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 2),
+                          padding: EdgeInsets.symmetric(
+                              horizontal: 10 * s, vertical: 2 * s),
                           itemCount: _songs.length,
                           separatorBuilder: (_, _) => Divider(
-                              height: 1,
+                              height: 1 * s,
                               color: Colors.white.withValues(alpha: 0.06)),
                           itemBuilder: (context, i) {
                             final r = _songs[i];
                             return ListTile(
                               dense: true,
                               contentPadding:
-                                  const EdgeInsets.symmetric(horizontal: 4),
+                                  EdgeInsets.symmetric(horizontal: 4 * s),
                               leading: SizedBox(
-                                width: 20,
+                                width: 20 * s,
                                 child: Text(
                                   '${i + 1}',
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
-                                      fontSize: 12,
+                                      fontSize: 12 * s,
                                       fontWeight: FontWeight.w700,
                                       color: i < 3
                                           ? const Color(0xFFFF6B81)
@@ -313,14 +316,14 @@ class _TopListDetailPageState extends ConsumerState<TopListDetailPage> {
                                 r.name,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontSize: 13),
+                                style: TextStyle(fontSize: 13 * s),
                               ),
                               subtitle: Text(
                                 r.singer,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
-                                    fontSize: 10,
+                                    fontSize: 10 * s,
                                     color: Colors.white
                                         .withValues(alpha: 0.45)),
                               ),
@@ -343,6 +346,7 @@ class _SheetCover extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.watchScale(); // 屏径等比缩放
     final u = url;
     final w = (u != null && u.isNotEmpty)
         ? (u.startsWith('http')
@@ -352,7 +356,7 @@ class _SheetCover extends StatelessWidget {
             : Image.file(File(u),
                 fit: BoxFit.cover, errorBuilder: (_, _, _) => const _SheetIcon()))
         : const _SheetIcon();
-    return SizedBox(width: 36, height: 36, child: w);
+    return SizedBox(width: 36 * s, height: 36 * s, child: w);
   }
 }
 
@@ -361,10 +365,11 @@ class _SheetIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.watchScale(); // 屏径等比缩放
     return Container(
       color: Colors.white.withValues(alpha: 0.08),
       child: Icon(Icons.leaderboard_rounded,
-          size: 18, color: Colors.white.withValues(alpha: 0.5)),
+          size: 18 * s, color: Colors.white.withValues(alpha: 0.5)),
     );
   }
 }

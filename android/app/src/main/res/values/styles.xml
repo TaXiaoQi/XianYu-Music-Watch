@@ -1,10 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Theme applied to the Android Window while the process is starting when the OS's Dark Mode setting is off -->
-    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+    <!-- 深色主题：应用本体为深色，亮色主题会在启动瞬间闪白方块（圆表上
+         尤其突兀）。启动图 drawable(黑)/drawable-round(黑底圆环) 按屏幕
+         形状自动分流。 -->
+    <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
         <!-- Show a splash screen on the activity. Automatically removed when
              the Flutter engine draws its first frame -->
         <item name="android:windowBackground">@drawable/launch_background</item>
+        <!-- 关闭 Wear 式「滑动关闭应用」：华为手表 W3 对安卓应用注入的左滑
+             关闭兼容层会无视应用内部手势直接 finish 掉 Activity（左滑退出
+             而非页面切换）。关掉后左滑交给应用内 PageView 正常换页，退出
+             走表冠按键/系统返回。 -->
+        <item name="android:windowSwipeToDismiss">false</item>
     </style>
     <!-- Theme applied to the Android Window as soon as the process has started.
          This theme determines the color of the Android Window while your
@@ -12,7 +20,9 @@
          running.
 
          This Theme is only used starting with V2 of Flutter's Android embedding. -->
-    <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
-        <item name="android:windowBackground">?android:colorBackground</item>
+    <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
+        <item name="android:windowBackground">@android:color/black</item>
+        <!-- 运行期实际生效的主题：必须同样关闭 Wear 式滑动关闭手势。 -->
+        <item name="android:windowSwipeToDismiss">false</item>
     </style>
 </resources>

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/watch_fit.dart';
 import '../../home/daily_recommend.dart';
 import '../account/account_view.dart';
 import '../local/local_music_hub.dart';
@@ -16,6 +17,7 @@ class DailyRecommendPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(dailyRecommendProvider);
+    final s = context.watchScale(); // 屏径等比缩放
 
     return Scaffold(
       body: SafeArea(
@@ -23,14 +25,14 @@ class DailyRecommendPage extends ConsumerWidget {
           children: [
             // 顶栏：返回 + 标题 + 换一批。
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              padding: EdgeInsets.symmetric(horizontal: 4 * s, vertical: 2 * s),
               child: Row(
                 children: [
                   const BackButton(),
-                  const SizedBox(width: 2),
+                  SizedBox(width: 2 * s),
                   Text('每日推荐',
                       style: TextStyle(
-                          fontSize: 15,
+                          fontSize: 15 * s,
                           fontWeight: FontWeight.w700,
                           color: Colors.white.withValues(alpha: 0.9))),
                   const Spacer(),
@@ -38,18 +40,18 @@ class DailyRecommendPage extends ConsumerWidget {
                     tooltip: '换一批',
                     onPressed: () =>
                         ref.read(dailyRecommendProvider.notifier).refresh(),
-                    icon: const Icon(Icons.casino_rounded, size: 20),
+                    icon: Icon(Icons.casino_rounded, size: 20 * s),
                   ),
                 ],
               ),
             ),
             Expanded(
               child: async.when(
-                loading: () => const Center(
+                loading: () => Center(
                   child: SizedBox(
-                    width: 26,
-                    height: 26,
-                    child: CircularProgressIndicator(strokeWidth: 2.4),
+                    width: 26 * s,
+                    height: 26 * s,
+                    child: CircularProgressIndicator(strokeWidth: 2.4 * s),
                   ),
                 ),
                 error: (e, _) => _EmptyView(
@@ -100,19 +102,20 @@ class _RecommendList extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final s = context.watchScale(); // 屏径等比缩放
     return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+      padding: EdgeInsets.symmetric(horizontal: 10 * s, vertical: 2 * s),
       itemCount: items.length,
       itemBuilder: (context, i) {
         final it = items[i];
         final cover = it.coverUrl;
         return ListTile(
           dense: true,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+          contentPadding: EdgeInsets.symmetric(horizontal: 4 * s),
           leading: ClipOval(
             child: SizedBox(
-              width: 36,
-              height: 36,
+              width: 36 * s,
+              height: 36 * s,
               child: (cover != null && cover.isNotEmpty)
                   ? (cover.startsWith('http')
                       ? Image.network(cover,
@@ -128,14 +131,14 @@ class _RecommendList extends ConsumerWidget {
             it.title,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 13),
+            style: TextStyle(fontSize: 13 * s),
           ),
           subtitle: Text(
             it.reason.isNotEmpty ? '${it.artist} · ${it.reason}' : it.artist,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-                fontSize: 10, color: Colors.white.withValues(alpha: 0.45)),
+                fontSize: 10 * s, color: Colors.white.withValues(alpha: 0.45)),
           ),
           onTap: () async {
             await ref.read(dailyRecommendProvider.notifier).play(i);
@@ -155,10 +158,11 @@ class _SongIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.watchScale(); // 屏径等比缩放
     return Container(
       color: Colors.white.withValues(alpha: 0.08),
       child: Icon(Icons.music_note_rounded,
-          size: 18, color: Colors.white.withValues(alpha: 0.5)),
+          size: 18 * s, color: Colors.white.withValues(alpha: 0.5)),
     );
   }
 }
@@ -178,32 +182,33 @@ class _EmptyView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.watchScale(); // 屏径等比缩放
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 40, color: Colors.white.withValues(alpha: 0.35)),
-          const SizedBox(height: 10),
+          Icon(icon, size: 40 * s, color: Colors.white.withValues(alpha: 0.35)),
+          SizedBox(height: 10 * s),
           Text(
             text,
             textAlign: TextAlign.center,
             style: TextStyle(
-                fontSize: 12,
+                fontSize: 12 * s,
                 height: 1.7,
                 color: Colors.white.withValues(alpha: 0.55)),
           ),
           if (actionLabel != null) ...[
-            const SizedBox(height: 14),
+            SizedBox(height: 14 * s),
             FilledButton(
               onPressed: onAction,
               style: FilledButton.styleFrom(
                 backgroundColor: const Color(0xFFFF4D6E),
-                minimumSize: const Size(0, 36),
+                minimumSize: Size(0, 36 * s),
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+                    EdgeInsets.symmetric(horizontal: 20 * s, vertical: 6 * s),
               ),
               child: Text(actionLabel!,
-                  style: const TextStyle(fontSize: 13)),
+                  style: TextStyle(fontSize: 13 * s)),
             ),
           ],
         ],

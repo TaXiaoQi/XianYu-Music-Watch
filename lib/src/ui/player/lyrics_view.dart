@@ -2,13 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/ambient.dart';
+import '../../core/watch_fit.dart';
 import '../../lyrics/lyric_model.dart';
 import 'play_page_body.dart' show kPlayerAccent;
 
 /// 歌词页视图（网易云手表版形态）：全屏滚动歌词，当前行主题色高亮 +
-/// 自动居中滚动；点按歌词行 seek。环境模式下冻结动画（OLED 防烧屏）。
+/// 自动居中滚动 + 上下缘淡出；点按歌词行 seek。环境模式下冻结动画
+/// （OLED 防烧屏）。
 ///
-/// 行高固定（单行主词 + 可选单行翻译），保证居中滚动可按行号直算。
+/// 行高固定（单行主词 + 可选单行翻译）且随 [watchScale] 等比适配，
+/// 保证居中滚动可按行号直算。
 class LyricsView extends ConsumerStatefulWidget {
   const LyricsView({
     super.key,
@@ -33,7 +36,8 @@ class LyricsView extends ConsumerStatefulWidget {
 }
 
 class _LyricsViewState extends ConsumerState<LyricsView> {
-  static const _rowExtent = 52.0;
+  /// 行高（build 里按屏径等比更新；居中滚动按行号直算依赖此值）。
+  double _rowExtent = 32;
 
   final ScrollController _scroll = ScrollController();
   TimingNavigator? _navigator;
@@ -96,6 +100,9 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.watchScale();
+    _rowExtent = 32 * s;
+
     // 环境模式参与重建：ambient 冻结时静态渲染当前帧即可。
     ref.watch(ambientModeProvider);
     // 每帧对齐进度（findIndex 为 O(log N) + 步进，单帧开销可忽略）。
@@ -108,63 +115,78 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
         child: Text(
           widget.emptyText,
           style: TextStyle(
-            fontSize: 13,
+            fontSize: 12 * s,
             color: Colors.white.withValues(alpha: 0.4),
           ),
         ),
       );
     }
 
-    return ListView.builder(
-      controller: _scroll,
-      itemExtent: _rowExtent,
-      padding: EdgeInsets.symmetric(
-        vertical: MediaQuery.of(context).size.height * 0.3,
-        horizontal: 18,
-      ),
-      itemCount: _lines.length,
-      itemBuilder: (context, i) {
-        final line = _lines[i];
-        final current = i == _currentIndex;
-        final baseColor = current
-            ? kPlayerAccent
-            : Colors.white.withValues(alpha: 0.38);
-        return GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: widget.onSeek == null
-              ? null
-              : () => widget.onSeek!(line.timeMs / 1000),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                line.text,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: current ? 15 : 13,
-                  fontWeight: current ? FontWeight.w600 : FontWeight.w400,
-                  color: baseColor,
-                ),
-              ),
-              if (line.translation != null && line.translation!.isNotEmpty)
+    return ShaderMask(
+      // 上下缘淡出（网易云歌词页样式）：边缘行渐隐，视觉聚焦当前行。
+      shaderCallback: (rect) => const LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        stops: [0.0, 0.10, 0.90, 1.0],
+        colors: [
+          Colors.transparent,
+          Colors.white,
+          Colors.white,
+          Colors.transparent,
+        ],
+      ).createShader(rect),
+      blendMode: BlendMode.dstIn,
+      child: ListView.builder(
+        controller: _scroll,
+        itemExtent: _rowExtent,
+        padding: EdgeInsets.symmetric(
+          vertical: MediaQuery.of(context).size.height * 0.3,
+          horizontal: 16 * s,
+        ),
+        itemCount: _lines.length,
+        itemBuilder: (context, i) {
+          final line = _lines[i];
+          final current = i == _currentIndex;
+          final baseColor = current
+              ? kPlayerAccent
+              : Colors.white.withValues(alpha: 0.55);
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: widget.onSeek == null
+                ? null
+                : () => widget.onSeek!(line.timeMs / 1000),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
                 Text(
-                  line.translation!,
+                  line.text,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    fontSize: current ? 11 : 10,
-                    color: current
-                        ? kPlayerAccent.withValues(alpha: 0.75)
-                        : Colors.white.withValues(alpha: 0.25),
+                    fontSize: current ? 13.5 * s : 10.5 * s,
+                    fontWeight: current ? FontWeight.w600 : FontWeight.w400,
+                    color: baseColor,
                   ),
                 ),
-            ],
-          ),
-        );
-      },
+                if (line.translation != null && line.translation!.isNotEmpty)
+                  Text(
+                    line.translation!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: current ? 10 * s : 8.5 * s,
+                      color: current
+                          ? kPlayerAccent.withValues(alpha: 0.75)
+                          : Colors.white.withValues(alpha: 0.32),
+                    ),
+                  ),
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 }

@@ -55,6 +55,12 @@ abstract class PlayerViewSource {
 
   /// 循环切换倍速（仅 speed 非 null 时会被调用）。
   void cycleSpeed();
+
+  /// 直接设置播放模式（0 顺序 / 1 单曲循环 / 2 随机；更多面板三选一）。
+  void setMode(int m);
+
+  /// 直接设置倍速（仅 speed 非 null 时会被调用）。
+  void setSpeed(double s);
 }
 
 /// 联动模式数据源：命令转发手机（蓝牙优先/云兜底由 link 层路由）。
@@ -125,6 +131,19 @@ class LinkPlayerSource implements PlayerViewSource {
   void cycleSpeed() {} // 联动模式不支持倍速
 
   @override
+  void setMode(int m) {
+    // 联动协议仅支持循环切换：按当前模式差值一次性补发对应步数
+    // （playMode 回包异步到达，不能边发边读，否则会多发）。
+    final steps = (m - playMode) % 3;
+    for (var i = 0; i < steps; i++) {
+      _ctrl.cycleMode();
+    }
+  }
+
+  @override
+  void setSpeed(double s) {} // 联动模式不支持倍速
+
+  @override
   void setVolume(double v) => _ctrl.setVolume(v);
 }
 
@@ -192,6 +211,12 @@ class LocalPlayerSource implements PlayerViewSource {
 
   @override
   void cycleSpeed() => _ctrl.cycleSpeed();
+
+  @override
+  void setMode(int m) => _ctrl.setPlayMode(m);
+
+  @override
+  void setSpeed(double s) => _ctrl.setSpeed(s);
 
   @override
   void setVolume(double v) => _ctrl.setVolume(v);

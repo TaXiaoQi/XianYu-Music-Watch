@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/watch_fit.dart';
 import '../../plugin/plugin_models.dart';
 import '../../plugin/plugin_provider.dart';
 import '../../plugin/plugin_subscriptions.dart';
@@ -108,13 +109,14 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
     final url = await showDialog<String>(
       context: context,
       builder: (context) {
+        final s = context.watchScale(); // 屏径等比缩放
         final c = TextEditingController();
         return AlertDialog(
-          title: const Text('添加插件', style: TextStyle(fontSize: 15)),
+          title: Text('添加插件', style: TextStyle(fontSize: 15 * s)),
           content: TextField(
             controller: c,
             autofocus: true,
-            style: const TextStyle(fontSize: 13),
+            style: TextStyle(fontSize: 13 * s),
             decoration: const InputDecoration(
               hintText: '插件脚本/订阅 URL',
               isDense: true,
@@ -124,11 +126,11 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('取消', style: TextStyle(fontSize: 13)),
+              child: Text('取消', style: TextStyle(fontSize: 13 * s)),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(context, c.text.trim()),
-              child: const Text('安装', style: TextStyle(fontSize: 13)),
+              child: Text('安装', style: TextStyle(fontSize: 13 * s)),
             ),
           ],
         );
@@ -159,6 +161,7 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.watchScale(); // 屏径等比缩放
     final list = ref.watch(pluginManagerProvider);
     final sources = list.sources;
     final updateCount = sources.where((s) => s.updateAvailable).length;
@@ -169,14 +172,14 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
           children: [
             // 顶栏：返回 + 标题 + 检测更新 + 添加。
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              padding: EdgeInsets.symmetric(horizontal: 4 * s, vertical: 2 * s),
               child: Row(
                 children: [
                   const BackButton(),
-                  const SizedBox(width: 2),
+                  SizedBox(width: 2 * s),
                   Text('插件管理',
                       style: TextStyle(
-                          fontSize: 15,
+                          fontSize: 15 * s,
                           fontWeight: FontWeight.w700,
                           color: Colors.white.withValues(alpha: 0.9))),
                   const Spacer(),
@@ -184,23 +187,25 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
                     tooltip: '检测全部更新',
                     onPressed: _checking ? null : _checkAllUpdates,
                     icon: _checking
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Icon(Icons.sync_rounded, size: 20),
+                        ? SizedBox(
+                            width: 16 * s,
+                            height: 16 * s,
+                            child:
+                                CircularProgressIndicator(strokeWidth: 2 * s))
+                        : Icon(Icons.sync_rounded, size: 20 * s),
                   ),
                   IconButton(
                     tooltip: '添加插件',
                     onPressed: _addPlugin,
-                    icon: const Icon(Icons.add_circle_outline_rounded, size: 22),
+                    icon: Icon(Icons.add_circle_outline_rounded, size: 22 * s),
                   ),
                 ],
               ),
             ),
             if (updateCount > 0)
               Padding(
-                padding: const EdgeInsets.only(left: 16, right: 16, bottom: 4),
+                padding:
+                    EdgeInsets.only(left: 16 * s, right: 16 * s, bottom: 4 * s),
                 child: SizedBox(
                   width: double.infinity,
                   child: FilledButton.tonal(
@@ -208,11 +213,11 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
                     style: FilledButton.styleFrom(
                       backgroundColor: const Color(0xFFFF4D6E),
                       foregroundColor: Colors.white,
-                      minimumSize: const Size(0, 34),
-                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      minimumSize: Size(0, 34 * s),
+                      padding: EdgeInsets.symmetric(vertical: 6 * s),
                     ),
                     child: Text('一键更新 $updateCount 个插件',
-                        style: const TextStyle(fontSize: 12)),
+                        style: TextStyle(fontSize: 12 * s)),
                   ),
                 ),
               ),
@@ -223,20 +228,21 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
                         '暂无插件\n点右上角 + 添加在线音源',
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                            fontSize: 12,
+                            fontSize: 12 * s,
                             height: 1.8,
                             color: Colors.white.withValues(alpha: 0.4)),
                       ),
                     )
                   : ListView.separated(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 2),
+                      padding: EdgeInsets.symmetric(
+                          horizontal: 12 * s, vertical: 2 * s),
                       itemCount: sources.length,
-                      separatorBuilder: (_, _) =>
-                          Divider(height: 1, color: Colors.white.withValues(alpha: 0.06)),
+                      separatorBuilder: (_, _) => Divider(
+                          height: 1 * s,
+                          color: Colors.white.withValues(alpha: 0.06)),
                       itemBuilder: (context, i) {
-                        final s = sources[i];
-                        return _pluginTile(s);
+                        final src = sources[i];
+                        return _pluginTile(src, s: s);
                       },
                     ),
             ),
@@ -246,39 +252,42 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
     );
   }
 
-  Widget _pluginTile(PluginSource s) {
-    final hasUpdate = s.updateAvailable;
+  Widget _pluginTile(PluginSource src, {required double s}) {
+    // s：屏径等比缩放系数，由调用处传入。
+    final hasUpdate = src.updateAvailable;
     return ListTile(
       dense: true,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+      contentPadding: EdgeInsets.symmetric(horizontal: 4 * s),
       leading: Container(
-        width: 36,
-        height: 36,
+        width: 36 * s,
+        height: 36 * s,
         alignment: Alignment.center,
         decoration: const BoxDecoration(
           color: Color(0xFF4A90D9),
           shape: BoxShape.circle,
         ),
         child: Text(
-          s.name.isEmpty ? '?' : s.name.characters.first.toUpperCase(),
-          style: const TextStyle(
-              fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white),
+          src.name.isEmpty ? '?' : src.name.characters.first.toUpperCase(),
+          style: TextStyle(
+              fontSize: 15 * s,
+              fontWeight: FontWeight.w700,
+              color: Colors.white),
         ),
       ),
       title: Text(
-        s.name,
+        src.name,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
-          fontSize: 13,
+          fontSize: 13 * s,
           fontWeight: FontWeight.w600,
           color: hasUpdate ? const Color(0xFFFF6B81) : Colors.white,
         ),
       ),
       subtitle: Text(
-        hasUpdate ? '有更新 v${s.version} → 检测到新版本' : 'v${s.version}',
+        hasUpdate ? '有更新 v${src.version} → 检测到新版本' : 'v${src.version}',
         style: TextStyle(
-          fontSize: 11,
+          fontSize: 11 * s,
           color: hasUpdate
               ? const Color(0xFFFF6B81)
               : Colors.white.withValues(alpha: 0.45),
@@ -288,34 +297,34 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (hasUpdate)
-            _updating.contains(s.id)
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2))
+            _updating.contains(src.id)
+                ? SizedBox(
+                    width: 16 * s,
+                    height: 16 * s,
+                    child: CircularProgressIndicator(strokeWidth: 2 * s))
                 : TextButton(
-                    onPressed: () => _updateOne(s),
+                    onPressed: () => _updateOne(src),
                     style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      minimumSize: const Size(0, 30),
+                      padding: EdgeInsets.symmetric(horizontal: 8 * s),
+                      minimumSize: Size(0, 30 * s),
                     ),
-                    child: const Text('更新',
+                    child: Text('更新',
                         style: TextStyle(
-                            fontSize: 12, color: Color(0xFFFF6B81))),
+                            fontSize: 12 * s, color: const Color(0xFFFF6B81))),
                   ),
           Switch(
-            value: s.enabled,
+            value: src.enabled,
             activeThumbColor: const Color(0xFFFF4D6E),
             materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
             onChanged: (v) =>
-                ref.read(pluginManagerProvider.notifier).toggleEnabled(s.id),
+                ref.read(pluginManagerProvider.notifier).toggleEnabled(src.id),
           ),
           IconButton(
             tooltip: '删除',
             icon: Icon(Icons.delete_outline_rounded,
-                size: 18, color: Colors.white.withValues(alpha: 0.5)),
+                size: 18 * s, color: Colors.white.withValues(alpha: 0.5)),
             onPressed: () =>
-                ref.read(pluginManagerProvider.notifier).remove(s.id),
+                ref.read(pluginManagerProvider.notifier).remove(src.id),
           ),
         ],
       ),
