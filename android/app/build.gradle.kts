@@ -155,8 +155,9 @@ tasks.matching { it.name == "preBuild" }.configureEach {
 }
 
 // 正式包自动归档：assembleRelease 完成后把 release APK（arm64+armv7 双 ABI）
-// 复制到 releases/android/弦予音乐_<版本>_android-release.apk，让裸
-// `flutter build apk --release` 一条命令出正式包并归档（与移动端同款钩子）。
+// 复制到 releases/android/弦予音乐v<版本>-Watch.apk（预发布版本名自带
+// -betaN 后缀），让裸 `flutter build apk --release` 一条命令出正式包并归档
+// （与移动端同款钩子）。
 tasks.register("archiveReleaseApk") {
     group = "build"
     doLast {
@@ -166,7 +167,7 @@ tasks.register("archiveReleaseApk") {
         val projectRoot = rootProject.projectDir.parentFile
         val releasesAndroidDir = File(File(projectRoot, "releases"), "android")
         releasesAndroidDir.mkdirs()
-        val dest = File(releasesAndroidDir, "弦予音乐_${version}_android-release.apk")
+        val dest = File(releasesAndroidDir, "弦予音乐v$version-Watch.apk")
         apk.copyTo(dest, overwrite = true)
         logger.lifecycle("已归档正式安装包: ${dest.absolutePath} (${"%.1f".format(dest.length() / 1024.0 / 1024.0)} MB)")
     }

@@ -108,7 +108,7 @@ flutter build apk --release
 - Rust 自动编译 + Dart AOT 混淆 + R8 收缩 + `.so` 包内压缩
 - `--target-platform` 决定 Dart AOT 与引擎架构；gradle 侧读取该属性自动裁剪 `abiFilters`（`disable-abi-filtering` 拦掉了 Flutter 插件的自动过滤，工程内自行补齐，见 `app/build.gradle.kts`）
 - `XIANMU_RUST_ABI=v8/v7` 只编对应架构的 Rust `.so`，缺省双 ABI 全编；未选中 ABI 的既有产物保留不重编
-- 产物自动归档到 `releases/android/弦予音乐_<版本>_android-release.apk`（Gradle `archiveReleaseApk` 钩子）
+- 产物自动归档到 `releases/android/弦予音乐v<版本>-Watch.apk`（Gradle `archiveReleaseApk` 钩子；预发布版本名自带 -betaN 后缀）
 - 正式签名已配独立 keystore（alias `xianyu_watch`，材料 gitignore）；`key.properties` 缺失时回退 debug 签名，保证 CI 可构建
 
 > 开发调试 `flutter run` 不需要这些参数：Flutter 按连接设备的 ABI 自动选择（32 位表自动 `android-arm`），Rust 钩子默认双 ABI 编译、缓存增量生效。
