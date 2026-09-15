@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 启动闪屏（方形屏兜底）：纯黑。应用本体为深色，避免亮色方块在
-     手表屏上闪现；圆形屏由 drawable-round 提供圆环品牌图。 -->
+<!-- 启动闪屏（方形屏兜底）：黑底 + 居中品牌 logo（白色反白变体，
+     与手机端夜间启动图同源）。应用本体为深色，全程暗色无跳变；
+     圆形屏由 drawable-round 提供同款启动图。 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@android:color/black" />
+    <item android:gravity="center" android:width="112dp" android:height="112dp">
+        <bitmap
+            android:src="@drawable/splash_logo"
+            android:gravity="center" />
+    </item>
 </layer-list>

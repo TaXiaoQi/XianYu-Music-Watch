@@ -371,8 +371,8 @@ class _PlayPageBodyState extends State<PlayPageBody> {
   Widget build(BuildContext context) {
     final src = widget.sourceBuilder();
     final s = context.watchScale();
-    // 小封面（网易云手表版）：屏径约 30%，红圈进度贴封面留窄缝。
-    final ringSize = 70 * s;
+    // 小封面（网易云手表版）：屏径约 1/3，红圈进度贴封面留窄缝。
+    final ringSize = 78 * s;
 
     // 手机推来的音量覆盖本地显示（表冠调节后 1s 内除外）。
     if (DateTime.now().difference(_lastRotary) > const Duration(seconds: 1)) {
@@ -475,7 +475,7 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                           child: CustomPaint(
                             painter: _RingPainter(
                               progress: displayProgress,
-                              strokeWidth: 3.5 * s,
+                              strokeWidth: 4 * s,
                             ),
                             child: Padding(
                               padding: EdgeInsets.all(2.5 * s),
@@ -646,9 +646,9 @@ class _PlayPageBodyState extends State<PlayPageBody> {
   }) {
     return IconButton(
       onPressed: onTap,
-      icon: Icon(icon, size: 21 * s, color: Colors.white.withValues(alpha: 0.92)),
+      icon: Icon(icon, size: 25 * s, color: Colors.white.withValues(alpha: 0.92)),
       padding: EdgeInsets.all(4 * s),
-      constraints: BoxConstraints(minWidth: 38 * s, minHeight: 38 * s),
+      constraints: BoxConstraints(minWidth: 44 * s, minHeight: 44 * s),
     );
   }
 
@@ -661,10 +661,10 @@ class _PlayPageBodyState extends State<PlayPageBody> {
   }) {
     return IconButton(
       onPressed: onTap,
-      icon: Icon(icon, size: 15.5 * s, color: color),
+      icon: Icon(icon, size: 18.5 * s, color: color),
       tooltip: tooltip,
-      padding: EdgeInsets.all(5 * s),
-      constraints: BoxConstraints(minWidth: 34 * s, minHeight: 34 * s),
+      padding: EdgeInsets.all(6 * s),
+      constraints: BoxConstraints(minWidth: 40 * s, minHeight: 40 * s),
     );
   }
 }

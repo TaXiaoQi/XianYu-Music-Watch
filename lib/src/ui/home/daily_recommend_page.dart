@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/watch_fit.dart';
 import '../../home/daily_recommend.dart';
 import '../account/account_view.dart';
+import '../common/stepped_list.dart';
 import '../local/local_music_hub.dart';
 import '../online/plugin_manage_page.dart';
 
@@ -103,19 +104,17 @@ class _RecommendList extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final s = context.watchScale(); // 屏径等比缩放
-    return ListView.builder(
-      padding: EdgeInsets.symmetric(horizontal: 10 * s, vertical: 2 * s),
+    // 功能页同款圆屏阶梯列表：一屏约三行，焦点行最大铺满中部。
+    return SteppedListView(
       itemCount: items.length,
       itemBuilder: (context, i) {
         final it = items[i];
         final cover = it.coverUrl;
-        return ListTile(
-          dense: true,
-          contentPadding: EdgeInsets.symmetric(horizontal: 4 * s),
+        return SteppedTile(
           leading: ClipOval(
             child: SizedBox(
-              width: 36 * s,
-              height: 36 * s,
+              width: 44 * s,
+              height: 44 * s,
               child: (cover != null && cover.isNotEmpty)
                   ? (cover.startsWith('http')
                       ? Image.network(cover,
@@ -127,19 +126,9 @@ class _RecommendList extends ConsumerWidget {
                   : const _SongIcon(),
             ),
           ),
-          title: Text(
-            it.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 13 * s),
-          ),
-          subtitle: Text(
-            it.reason.isNotEmpty ? '${it.artist} · ${it.reason}' : it.artist,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-                fontSize: 10 * s, color: Colors.white.withValues(alpha: 0.45)),
-          ),
+          title: it.title,
+          subtitle:
+              it.reason.isNotEmpty ? '${it.artist} · ${it.reason}' : it.artist,
           onTap: () async {
             await ref.read(dailyRecommendProvider.notifier).play(i);
             if (!context.mounted) return;

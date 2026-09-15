@@ -712,6 +712,26 @@ class _QrLoginPanelState extends ConsumerState<_QrLoginPanel> {
                     ),
                   ],
                 ),
+              // 已扫码：二维码卡片整体切换为确认态（对齐桌面端「已扫描」遮罩），
+              // 手机确认后轮询拿凭证直接进登录态。
+              'scanned' => Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.task_alt_rounded,
+                        size: 34 * s, color: const Color(0xFF34C759)),
+                    SizedBox(height: 6 * s),
+                    Text('已扫描',
+                        style: TextStyle(
+                            fontSize: 14 * s,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.black.withValues(alpha: 0.85))),
+                    SizedBox(height: 3 * s),
+                    Text('等待手机端确认登录',
+                        style: TextStyle(
+                            fontSize: 10.5 * s,
+                            color: Colors.black.withValues(alpha: 0.45))),
+                  ],
+                ),
               _ => QrImageView(
                   data: 'xianyumusic://tvlogin/$_code',
                   version: QrVersions.auto,

@@ -6,6 +6,7 @@ import '../../plugin/plugin_models.dart';
 import '../../plugin/plugin_provider.dart';
 import '../../plugin/plugin_subscriptions.dart';
 import '../../plugin/plugin_updates.dart';
+import '../common/stepped_list.dart';
 
 /// 插件管理页：已安装列表（启用开关/删除）+ 检测全部更新（有更新标红，
 /// 对齐桌面端/移动端 updatePluginSource 标记逻辑）+ 单插件更新/全部更新。
@@ -233,17 +234,10 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
                             color: Colors.white.withValues(alpha: 0.4)),
                       ),
                     )
-                  : ListView.separated(
-                      padding: EdgeInsets.symmetric(
-                          horizontal: 12 * s, vertical: 2 * s),
+                  : SteppedListView(
                       itemCount: sources.length,
-                      separatorBuilder: (_, _) => Divider(
-                          height: 1 * s,
-                          color: Colors.white.withValues(alpha: 0.06)),
-                      itemBuilder: (context, i) {
-                        final src = sources[i];
-                        return _pluginTile(src, s: s);
-                      },
+                      // 局部变量改名为 src，避免遮蔽缩放系数 s。
+                      itemBuilder: (context, i) => _pluginTile(sources[i], s: s),
                     ),
             ),
           ],
@@ -255,12 +249,13 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
   Widget _pluginTile(PluginSource src, {required double s}) {
     // s：屏径等比缩放系数，由调用处传入。
     final hasUpdate = src.updateAvailable;
-    return ListTile(
-      dense: true,
-      contentPadding: EdgeInsets.symmetric(horizontal: 4 * s),
+    return SteppedPill(
+      child: ListTile(
+        dense: true,
+        contentPadding: EdgeInsets.symmetric(horizontal: 14 * s),
       leading: Container(
-        width: 36 * s,
-        height: 36 * s,
+        width: 44 * s,
+        height: 44 * s,
         alignment: Alignment.center,
         decoration: const BoxDecoration(
           color: Color(0xFF4A90D9),
@@ -269,7 +264,7 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
         child: Text(
           src.name.isEmpty ? '?' : src.name.characters.first.toUpperCase(),
           style: TextStyle(
-              fontSize: 15 * s,
+              fontSize: 18 * s,
               fontWeight: FontWeight.w700,
               color: Colors.white),
         ),
@@ -279,15 +274,17 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
-          fontSize: 13 * s,
+          fontSize: 15 * s,
           fontWeight: FontWeight.w600,
           color: hasUpdate ? const Color(0xFFFF6B81) : Colors.white,
         ),
       ),
       subtitle: Text(
         hasUpdate ? '有更新 v${src.version} → 检测到新版本' : 'v${src.version}',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
         style: TextStyle(
-          fontSize: 11 * s,
+          fontSize: 11.5 * s,
           color: hasUpdate
               ? const Color(0xFFFF6B81)
               : Colors.white.withValues(alpha: 0.45),
@@ -305,7 +302,7 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
                 : TextButton(
                     onPressed: () => _updateOne(src),
                     style: TextButton.styleFrom(
-                      padding: EdgeInsets.symmetric(horizontal: 8 * s),
+                      padding: EdgeInsets.symmetric(horizontal: 6 * s),
                       minimumSize: Size(0, 30 * s),
                     ),
                     child: Text('更新',
@@ -322,11 +319,12 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
           IconButton(
             tooltip: '删除',
             icon: Icon(Icons.delete_outline_rounded,
-                size: 18 * s, color: Colors.white.withValues(alpha: 0.5)),
+                size: 20 * s, color: Colors.white.withValues(alpha: 0.5)),
             onPressed: () =>
                 ref.read(pluginManagerProvider.notifier).remove(src.id),
           ),
         ],
+      ),
       ),
     );
   }

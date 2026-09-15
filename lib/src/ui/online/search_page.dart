@@ -6,6 +6,7 @@ import '../../player/player_provider.dart';
 import '../../plugin/plugin_models.dart';
 import '../../plugin/plugin_provider.dart';
 import '../../plugin/plugin_search.dart';
+import '../common/stepped_list.dart';
 import '../local/local_music_hub.dart';
 
 /// 在线搜索页（P3）：跨已启用插件搜索 → 结果转播放队列。
@@ -210,14 +211,18 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
     final tiles = <Widget>[];
     for (var gi = 0; gi < _results.length; gi++) {
       final (src, group) = _results[gi];
-      tiles.add(Padding(
-        padding: EdgeInsets.fromLTRB(14 * s, 10 * s, 14 * s, 2 * s),
-        child: Text(
-          src.name,
-          style: TextStyle(
-            fontSize: 11 * s,
-            color: const Color(0xFFFF8FA3),
-            fontWeight: FontWeight.w600,
+      // 插件分组头：作为阶梯列表里的一档（行高由 itemExtent 紧约束撑满）。
+      tiles.add(Align(
+        alignment: Alignment.centerLeft,
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 14 * s),
+          child: Text(
+            src.name,
+            style: TextStyle(
+              fontSize: 12 * s,
+              color: const Color(0xFFFF8FA3),
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       ));
@@ -227,12 +232,11 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
             .map((t) => t['type'])
             .whereType<String>()
             .join('/');
-        tiles.add(ListTile(
-          dense: true,
+        tiles.add(SteppedTile(
           leading: ClipOval(
             child: SizedBox(
-              width: 30 * s,
-              height: 30 * s,
+              width: 44 * s,
+              height: 44 * s,
               child: (r.img != null && r.img!.isNotEmpty)
                   ? Image.network(
                       r.img!,
@@ -242,26 +246,14 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
                   : const _ResultIcon(),
             ),
           ),
-          title: Text(
-            r.name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 13 * s),
-          ),
-          subtitle: Text(
-            quality.isEmpty ? r.singer : '${r.singer} · $quality',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 11 * s,
-              color: Colors.white.withValues(alpha: 0.5),
-            ),
-          ),
+          title: r.name,
+          subtitle: quality.isEmpty ? r.singer : '${r.singer} · $quality',
           onTap: () => _play(gi, ri),
         ));
       }
     }
-    return ListView(children: tiles);
+    // 功能页同款圆屏阶梯列表：一屏约三行，焦点行最大铺满中部。
+    return SteppedListView(itemCount: tiles.length, itemBuilder: (_, i) => tiles[i]);
   }
 }
 
@@ -275,7 +267,7 @@ class _ResultIcon extends StatelessWidget {
       color: const Color(0xFF1A1A1E),
       child: Icon(
         Icons.music_note_rounded,
-        size: 15 * s,
+        size: 22 * s,
         color: Colors.white.withValues(alpha: 0.35),
       ),
     );

@@ -7,6 +7,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../core/watch_fit.dart';
 import '../../library/library_provider.dart';
 import '../../library/scan_settings_provider.dart';
+import '../common/stepped_list.dart';
 import '../online/search_page.dart';
 import 'local_music_hub.dart';
 
@@ -69,25 +70,19 @@ class _LocalLibraryViewState extends ConsumerState<LocalLibraryView> {
     if (songs.isEmpty) {
       return _EmptyView(scanning: _scanning, onScan: _scan);
     }
-    return ListView.builder(
-      padding: EdgeInsets.symmetric(vertical: 8 * s),
+    // 功能页同款圆屏阶梯列表：一屏约三行，焦点行最大铺满中部。
+    return SteppedListView(
       itemCount: songs.length + 1,
       itemBuilder: (context, i) {
         if (i == 0) {
-          return ListTile(
-            dense: true,
-            leading: Icon(Icons.travel_explore_rounded, size: 22 * s),
-            title: Text(
-              '在线搜索',
-              style: TextStyle(fontSize: 13 * s, fontWeight: FontWeight.w600),
+          return SteppedTile(
+            leading: SteppedLeadCircle(
+              color: const Color(0xFF4A90D9),
+              child: Icon(Icons.travel_explore_rounded,
+                  size: 22 * s, color: Colors.white),
             ),
-            subtitle: Text(
-              '插件在线音源',
-              style: TextStyle(
-                fontSize: 11 * s,
-                color: Colors.white.withValues(alpha: 0.5),
-              ),
-            ),
+            title: '在线搜索',
+            subtitle: '插件在线音源',
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(builder: (_) => const OnlineSearchPage()),
             ),
@@ -95,12 +90,11 @@ class _LocalLibraryViewState extends ConsumerState<LocalLibraryView> {
         }
         // 局部变量改名为 song，避免遮蔽缩放系数 s。
         final song = songs[i - 1];
-        return ListTile(
-          dense: true,
+        return SteppedTile(
           leading: ClipOval(
             child: SizedBox(
-              width: 34 * s,
-              height: 34 * s,
+              width: 44 * s,
+              height: 44 * s,
               child: song.coverThumbPath != null &&
                       File(song.coverThumbPath!).existsSync()
                   ? Image.file(File(song.coverThumbPath!),
@@ -109,21 +103,8 @@ class _LocalLibraryViewState extends ConsumerState<LocalLibraryView> {
                   : const _SongIcon(),
             ),
           ),
-          title: Text(
-            song.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 13 * s),
-          ),
-          subtitle: Text(
-            song.artist.isEmpty ? '未知歌手' : song.artist,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 11 * s,
-              color: Colors.white.withValues(alpha: 0.5),
-            ),
-          ),
+          title: song.title,
+          subtitle: song.artist.isEmpty ? '未知歌手' : song.artist,
           onTap: () async {
             await ref.read(libraryProvider.notifier).playFrom(i);
             if (!context.mounted) return;
@@ -200,7 +181,7 @@ class _SongIcon extends StatelessWidget {
       color: const Color(0xFF1A1A1E),
       child: Icon(
         Icons.music_note_rounded,
-        size: 18 * s,
+        size: 22 * s,
         color: Colors.white.withValues(alpha: 0.35),
       ),
     );

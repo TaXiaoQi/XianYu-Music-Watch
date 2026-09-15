@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/watch_fit.dart';
 import '../../player/player_provider.dart';
 import '../../sync/playlist_store.dart';
+import '../common/stepped_list.dart';
 import '../local/local_music_hub.dart';
 
 /// 我的歌单（云端同步下载，只读消费）：歌单列表 → 歌曲列表，
@@ -84,33 +85,18 @@ class _CloudPlaylistsPageState extends ConsumerState<CloudPlaylistsPage> {
               ),
             );
           }
-          return ListView.builder(
-            padding: EdgeInsets.symmetric(vertical: 6 * s),
+          return SteppedListView(
             itemCount: playlists.length,
             itemBuilder: (context, i) {
               final pl = playlists[i];
-              return ListTile(
-                dense: true,
-                leading: CircleAvatar(
-                  radius: 17 * s,
-                  backgroundColor: const Color(0xFFFF4D6E)
-                      .withValues(alpha: 0.18),
+              return SteppedTile(
+                leading: SteppedLeadCircle(
+                  color: const Color(0xFFFF4D6E).withValues(alpha: 0.18),
                   child: Icon(Icons.queue_music_rounded,
-                      size: 18 * s, color: const Color(0xFFFF4D6E)),
+                      size: 22 * s, color: const Color(0xFFFF4D6E)),
                 ),
-                title: Text(
-                  pl.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                      fontSize: 13 * s, fontWeight: FontWeight.w600),
-                ),
-                subtitle: Text(
-                  '${pl.songs.length} 首',
-                  style: TextStyle(
-                      fontSize: 11 * s,
-                      color: Colors.white.withValues(alpha: 0.45)),
-                ),
+                title: pl.name,
+                subtitle: '${pl.songs.length} 首',
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
                       builder: (_) => _CloudPlaylistDetailPage(
@@ -147,37 +133,28 @@ class _CloudPlaylistDetailPage extends StatelessWidget {
             style: TextStyle(fontSize: 14 * s)),
         centerTitle: true,
       ),
-      body: ListView.builder(
-        padding: EdgeInsets.symmetric(vertical: 6 * s),
+      body: SteppedListView(
         itemCount: playlist.songs.length,
         itemBuilder: (context, i) {
           // 局部变量改名为 song，避免遮蔽缩放系数 s。
           final song = playlist.songs[i];
-          return ListTile(
-            dense: true,
-            leading: Text(
-              '${i + 1}',
-              style: TextStyle(
-                fontSize: 12 * s,
-                fontWeight: FontWeight.w700,
-                color: i < 3
-                    ? const Color(0xFFFF4D6E)
-                    : Colors.white.withValues(alpha: 0.4),
+          return SteppedTile(
+            leading: SizedBox(
+              width: 24 * s,
+              child: Text(
+                '${i + 1}',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 15 * s,
+                  fontWeight: FontWeight.w700,
+                  color: i < 3
+                      ? const Color(0xFFFF4D6E)
+                      : Colors.white.withValues(alpha: 0.4),
+                ),
               ),
             ),
-            title: Text(
-              song.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 13 * s),
-            ),
-            subtitle: Text(
-              song.artist.isEmpty ? '未知歌手' : song.artist,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                  fontSize: 11 * s, color: Colors.white.withValues(alpha: 0.45)),
-            ),
+            title: song.title,
+            subtitle: song.artist.isEmpty ? '未知歌手' : song.artist,
             onTap: () => onPlay?.call(playlist, i),
           );
         },

@@ -1,14 +1,11 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:wearable_rotary/wearable_rotary.dart';
 
 import '../../favorites/favorites_provider.dart';
 import '../../lyrics/lyric_model.dart';
 import '../../lyrics/lyrics_repository.dart';
 import '../../player/player_provider.dart';
+import '../common/stepped_list.dart';
 import '../home/cloud_playlists_page.dart';
 import '../../core/watch_fit.dart';
 import '../player/play_page_body.dart';
@@ -74,17 +71,20 @@ class _LocalMusicHubState extends ConsumerState<LocalMusicHub> {
 
   @override
   Widget build(BuildContext context) {
-    final st = ref.watch(playerProvider);
+    // 只盯封面字段：播放进度逐秒刷新 playerProvider，若整层 watch 会
+    // 连带重建 CoverBackdrop——ImageFilter 实例每次都变，触发全屏模糊
+    // 重栅格化（表上是明显的周期性卡顿）。
+    final coverPath =
+        ref.watch(playerProvider.select((s) => s.current?.coverPath));
+    final coverUrl =
+        ref.watch(playerProvider.select((s) => s.current?.coverUrl));
     return Scaffold(
       body: Stack(
         children: [
           // 全屏封面模糊背景（网易云手表版）：三页共享一层，横移时背景不动。
           Positioned.fill(
             child: CoverBackdrop(
-              cover: CoverRef(
-                filePath: st.current?.coverPath,
-                url: st.current?.coverUrl,
-              ),
+              cover: CoverRef(filePath: coverPath, url: coverUrl),
             ),
           ),
           PageView(
@@ -125,46 +125,9 @@ class _SourcePickerPage extends ConsumerStatefulWidget {
 }
 
 class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
-  final ScrollController _scroll = ScrollController();
-  StreamSubscription<RotaryEvent>? _rotarySub;
-
-  @override
-  void initState() {
-    super.initState();
-    _rotarySub = rotaryEvents.listen(_onRotary);
-  }
-
-  @override
-  void dispose() {
-    _rotarySub?.cancel();
-    _scroll.dispose();
-    super.dispose();
-  }
-
-  void _onRotary(RotaryEvent event) {
-    if (!mounted || !_scroll.hasClients) return;
-    // 表冠是全局流：仅本页为当前页（PageView 第 0 页 + 无上层推送页）
-    // 时响应，否则转表冠会滚动这份隐藏列表并误振。
-    if (ref.read(localHubPageProvider) != 0) return;
-    if (ModalRoute.of(context)?.isCurrent != true) return;
-    final s = context.watchScale();
-    final pitch = 64 * s; // 一档 = 一个条目，与列表阶梯节距一致
-    final dir = event.direction == RotaryDirection.clockwise ? 1 : -1;
-    final target = (_scroll.offset + dir * pitch)
-        .clamp(0.0, _scroll.position.maxScrollExtent);
-    _scroll.animateTo(
-      target,
-      duration: const Duration(milliseconds: 120),
-      curve: Curves.easeOutCubic,
-    );
-    HapticFeedback.selectionClick(); // 表冠档位振动反馈
-  }
-
   @override
   Widget build(BuildContext context) {
-    // 透明：透出宿主层的全屏封面模糊背景；尺寸随屏径等比缩放。
     final s = context.watchScale();
-    final pitch = 64 * s; // 阶梯节距：一个条目占一档
     // 对齐移动端：无任何已启用音源插件时隐藏 每日推荐/音源榜单。
     final hasPlugins =
         ref.watch(pluginManagerProvider).sources.any((p) => p.enabled);
@@ -232,97 +195,27 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            // 首尾留白：顶部/底部各补 (视口高-节距)/2，让第一项和
-            // 最后一项都能精确停在屏幕正中（maxScroll 恰为 (n-1)*节距）。
-            final spacer =
-                ((constraints.maxHeight - pitch) / 2).clamp(0.0, double.infinity);
-            return AnimatedBuilder(
-              animation: _scroll,
-              builder: (context, _) {
-                // 居中锚点：屏幕正中是「当前项」。距锚点越远条目越小
-                // （1.0 → 相邻 0.775 → 0.55 封底），上收/下收对称，
-                // 形成网易云手表式「中间大、上下逐级缩小」的纵深列表。
-                final offset = _scroll.hasClients ? _scroll.offset : 0.0;
-                final anchor = offset + constraints.maxHeight / 2;
-                return ListView.builder(
-                  controller: _scroll,
-                  itemExtent: pitch,
-                  padding: EdgeInsets.symmetric(vertical: spacer),
-                  itemCount: specs.length,
-                  itemBuilder: (context, i) {
-                    final distance =
-                        ((i + 0.5) * pitch + spacer - anchor).abs() / pitch;
-                    final scale = (1.0 - distance * 0.225).clamp(0.55, 1.0);
-                    final alpha = 0.45 + 0.55 * ((scale - 0.55) / 0.45);
-                    final (color, icon, label, onTap) = specs[i];
-                    return Center(
-                      child: Opacity(
-                        opacity: alpha,
-                        child: Transform.scale(
-                          scale: scale,
-                          child: _entry(
-                            context: context,
-                            color: color,
-                            icon: icon,
-                            label: label,
-                            onTap: onTap,
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                );
-              },
+        child: SteppedListView(
+          itemCount: specs.length,
+          // 本页在 PageView 中：表冠是全局流，仅第 0 页且无上层推送页时
+          // 才归本页，否则隐藏页会误滚动误振动。
+          rotaryGuard: () => ref.read(localHubPageProvider) == 0,
+          itemBuilder: (context, i) {
+            final (color, icon, label, onTap) = specs[i];
+            return SteppedTile(
+              leading: SteppedLeadCircle(
+                color: color,
+                child: Icon(icon, size: 22 * s, color: Colors.white),
+              ),
+              title: label,
+              trailing: Icon(
+                Icons.chevron_right_rounded,
+                size: 22 * s,
+                color: Colors.white.withValues(alpha: 0.38),
+              ),
+              onTap: onTap,
             );
           },
-        ),
-      ),
-    );
-  }
-
-  Widget _entry({
-    required BuildContext context,
-    required Color color,
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-  }) {
-    // 尺寸随屏径等比适配（与播放页同一套 watchScale 基准）。
-    final s = context.watchScale();
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(26 * s),
-      child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: 24 * s, vertical: 4 * s),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 46 * s,
-              height: 46 * s,
-              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-              child: Icon(icon, size: 22 * s, color: Colors.white),
-            ),
-            SizedBox(width: 14 * s),
-            ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: 150 * s),
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: 17 * s,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-            SizedBox(width: 5 * s),
-            Icon(
-              Icons.chevron_right_rounded,
-              size: 22 * s,
-              color: Colors.white.withValues(alpha: 0.38),
-            ),
-          ],
         ),
       ),
     );

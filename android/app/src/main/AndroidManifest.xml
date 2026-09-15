@@ -70,5 +70,12 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- 强制 Skia 渲染（关 Impeller）：Flutter 3.29+ 在支持 Vulkan 的设备上默认
+             启用 Impeller，华为 Watch 3 系（骁龙 Wear 4100 / Adreno 504，鸿蒙旧版
+             Vulkan 驱动）概率性触发原生崩溃（抬腕/熄屏常显切换、模糊合成时
+             SIGSEGV）。Skia 走 GLES 路径，老驱动久经验证；性能差异可忽略。 -->
+        <meta-data
+            android:name="io.flutter.embedding.android.EnableImpeller"
+            android:value="false" />
     </application>
 </manifest>

@@ -1,9 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:wearable_rotary/wearable_rotary.dart';
 
 import '../../core/app_version.dart';
 import '../../core/settings.dart';
@@ -11,6 +9,7 @@ import '../../core/watch_fit.dart';
 import '../../library/library_provider.dart';
 import '../../link/link_provider.dart';
 import '../../player/stream_cache.dart';
+import '../common/stepped_list.dart';
 import '../controller/watch_controller_page.dart';
 import '../online/plugin_manage_page.dart';
 import '../pair/pair_view.dart';
@@ -136,9 +135,9 @@ class _LinkagePage extends ConsumerWidget {
         onChanged: (v) =>
             ref.read(settingsProvider.notifier).setWatchLinkageEnabled(v),
       ),
-      _linkStatusRow(context, ref, link, 58 * s, s),
+      _linkStatusRow(context, ref, link, 64 * s, s),
       if (link.phase != LinkPhase.connecting)
-        _linkActionsRow(context, ref, link, 58 * s, s),
+        _linkActionsRow(context, ref, link, 64 * s, s),
     ]);
   }
 }
@@ -166,7 +165,7 @@ class _PlaybackPage extends ConsumerWidget {
       ),
       _actionRow(
         s: s,
-        icon: Icon(Icons.volume_up_rounded, size: 20 * s),
+        icon: Icon(Icons.volume_up_rounded, size: 24 * s),
         title: '默认音量',
         subtitle: '新会话起始音量，表冠可随时微调',
         trailing: Text(
@@ -178,7 +177,7 @@ class _PlaybackPage extends ConsumerWidget {
       ),
       _actionRow(
         s: s,
-        icon: Icon(Icons.repeat_rounded, size: 20 * s),
+        icon: Icon(Icons.repeat_rounded, size: 24 * s),
         title: '播放模式',
         trailing: Text(
           _playModeLabels[settings.playMode.clamp(0, 2)],
@@ -189,7 +188,7 @@ class _PlaybackPage extends ConsumerWidget {
       ),
       _actionRow(
         s: s,
-        icon: Icon(Icons.high_quality_rounded, size: 20 * s),
+        icon: Icon(Icons.high_quality_rounded, size: 24 * s),
         title: '音质偏好',
         subtitle: '在线播放音质',
         trailing: Text(
@@ -201,7 +200,7 @@ class _PlaybackPage extends ConsumerWidget {
       ),
       _actionRow(
         s: s,
-        icon: Icon(Icons.speed_rounded, size: 20 * s),
+        icon: Icon(Icons.speed_rounded, size: 24 * s),
         title: '播放倍速',
         subtitle: '独立播放生效，联动由手机端自控',
         trailing: Text(
@@ -213,7 +212,7 @@ class _PlaybackPage extends ConsumerWidget {
       ),
       _actionRow(
         s: s,
-        icon: Icon(Icons.swap_horiz_rounded, size: 20 * s),
+        icon: Icon(Icons.swap_horiz_rounded, size: 24 * s),
         title: '起播失败',
         subtitle: '在线歌曲起播失败时的处理',
         trailing: Text(
@@ -225,7 +224,7 @@ class _PlaybackPage extends ConsumerWidget {
       ),
       _actionRow(
         s: s,
-        icon: Icon(Icons.save_alt_rounded, size: 20 * s),
+        icon: Icon(Icons.save_alt_rounded, size: 24 * s),
         title: '流缓存',
         subtitle: '在线播放边下边存，重播秒开',
         trailing: Text(
@@ -239,7 +238,7 @@ class _PlaybackPage extends ConsumerWidget {
       ),
       _actionRow(
         s: s,
-        icon: Icon(Icons.cleaning_services_rounded, size: 20 * s),
+        icon: Icon(Icons.cleaning_services_rounded, size: 24 * s),
         title: '清除流缓存',
         subtitle: '删除已缓存的在线音频',
         onTap: () => _clearStreamCache(context),
@@ -384,7 +383,7 @@ class _LyricsPage extends ConsumerWidget {
       ),
       _actionRow(
         s: s,
-        icon: Icon(Icons.format_size_rounded, size: 20 * s),
+        icon: Icon(Icons.format_size_rounded, size: 24 * s),
         title: '歌词字号',
         trailing: Text(
           _fontSizeLabels[settings.lyricFontSize.clamp(0, 3)],
@@ -395,7 +394,7 @@ class _LyricsPage extends ConsumerWidget {
       ),
       _actionRow(
         s: s,
-        icon: Icon(Icons.schedule_rounded, size: 20 * s),
+        icon: Icon(Icons.schedule_rounded, size: 24 * s),
         title: '同步偏移',
         subtitle: '蓝牙耳机延迟时可整体校准',
         trailing: Text(
@@ -629,13 +628,13 @@ class _LibraryPageState extends ConsumerState<_LibraryPage> {
                 width: 18 * s,
                 height: 18 * s,
                 child: CircularProgressIndicator(strokeWidth: 2 * s))
-            : Icon(Icons.refresh_rounded, size: 20 * s),
+            : Icon(Icons.refresh_rounded, size: 24 * s),
         title: '立即扫描',
         onTap: _scanning ? null : _scanNow,
       ),
       _actionRow(
         s: s,
-        icon: Icon(Icons.audio_file_rounded, size: 20 * s),
+        icon: Icon(Icons.audio_file_rounded, size: 24 * s),
         title: '扫描格式',
         subtitle: settings.scanFormats.isEmpty
             ? '未选择'
@@ -644,7 +643,7 @@ class _LibraryPageState extends ConsumerState<_LibraryPage> {
       ),
       _actionRow(
         s: s,
-        icon: Icon(Icons.timer_outlined, size: 20 * s),
+        icon: Icon(Icons.timer_outlined, size: 24 * s),
         title: '最短时长',
         subtitle: '过滤铃声等短音频',
         trailing: Text(
@@ -670,7 +669,7 @@ class _AboutPage extends ConsumerWidget {
     return _SteppedPage(rows: [
       _actionRow(
         s: s,
-        icon: Icon(Icons.music_note_rounded, size: 20 * s),
+        icon: Icon(Icons.music_note_rounded, size: 24 * s),
         title: '弦予音乐 腕上版',
         subtitle: 'v$kAppVersion · 独立播放 / 手机联动',
       ),
@@ -678,92 +677,24 @@ class _AboutPage extends ConsumerWidget {
   }
 }
 
-/// 居中阶梯列表页骨架：滚动 + 表冠逐档滚动 + 返回键浮层，
-/// 由主页与各二级页共用（rows 由宿主页传入，宿主重建即刷新）。
-class _SteppedPage extends StatefulWidget {
+/// 居中阶梯列表页骨架：滚动/表冠/阶梯效果由共享 SteppedListView 提供
+/// （与功能页同款：一屏约三行，焦点行最大铺满中部、上下行缩小变淡），
+/// 本骨架只叠加返回键浮层，rows 由宿主页传入，宿主重建即刷新。
+class _SteppedPage extends StatelessWidget {
   const _SteppedPage({required this.rows});
 
   final List<Widget> rows;
 
   @override
-  State<_SteppedPage> createState() => _SteppedPageState();
-}
-
-class _SteppedPageState extends State<_SteppedPage> {
-  final ScrollController _scroll = ScrollController();
-  StreamSubscription<RotaryEvent>? _rotarySub;
-
-  @override
-  void initState() {
-    super.initState();
-    _rotarySub = rotaryEvents.listen(_onRotary);
-  }
-
-  @override
-  void dispose() {
-    _rotarySub?.cancel();
-    _scroll.dispose();
-    super.dispose();
-  }
-
-  void _onRotary(RotaryEvent event) {
-    if (!mounted || !_scroll.hasClients) return;
-    // 表冠是全局流：仅本页处于路由栈顶时响应（弹窗打开时 isCurrent 为
-    // false，不滚动）。功能页另有 localHubPageProvider 门禁，互不干扰。
-    if (ModalRoute.of(context)?.isCurrent != true) return;
-    final s = context.watchScale();
-    final pitch = 58 * s; // 一档 = 一个条目，与列表节距一致
-    final dir = event.direction == RotaryDirection.clockwise ? 1 : -1;
-    final target = (_scroll.offset + dir * pitch)
-        .clamp(0.0, _scroll.position.maxScrollExtent);
-    _scroll.animateTo(
-      target,
-      duration: const Duration(milliseconds: 120),
-      curve: Curves.easeOutCubic,
-    );
-    HapticFeedback.selectionClick(); // 表冠档位振动反馈
-  }
-
-  @override
   Widget build(BuildContext context) {
     final s = context.watchScale();
-    final pitch = 58 * s;
     return Scaffold(
       body: SafeArea(
         child: Stack(
           children: [
-            LayoutBuilder(
-              builder: (context, constraints) {
-                // 首尾留白：顶部/底部各补 (视口高-节距)/2，第一行和
-                // 最后一行都能精确停在屏幕正中（maxScroll = (n-1)*节距）。
-                final spacer =
-                    ((constraints.maxHeight - pitch) / 2).clamp(0.0, double.infinity);
-                return AnimatedBuilder(
-                  animation: _scroll,
-                  builder: (context, _) {
-                    // 居中锚点：屏幕正中是当前项，距锚点越远越小越淡
-                    // （1.0 → 相邻 0.8 → 0.6 封底），适配圆屏。
-                    final offset = _scroll.hasClients ? _scroll.offset : 0.0;
-                    final anchor = offset + constraints.maxHeight / 2;
-                    return ListView.builder(
-                      controller: _scroll,
-                      itemExtent: pitch,
-                      padding: EdgeInsets.symmetric(vertical: spacer),
-                      itemCount: widget.rows.length,
-                      itemBuilder: (context, i) {
-                        final distance =
-                            ((i + 0.5) * pitch + spacer - anchor).abs() / pitch;
-                        final scale = (1.0 - distance * 0.2).clamp(0.6, 1.0);
-                        final alpha = 0.4 + 0.6 * ((scale - 0.6) / 0.4);
-                        return Transform.scale(
-                          scale: scale,
-                          child: Opacity(opacity: alpha, child: widget.rows[i]),
-                        );
-                      },
-                    );
-                  },
-                );
-              },
+            SteppedListView(
+              itemCount: rows.length,
+              itemBuilder: (context, i) => rows[i],
             ),
             // 返回键浮层：阶梯列表占满全屏，返回键固定悬浮左上角。
             Positioned(
@@ -797,7 +728,8 @@ Widget _backChip(double s) {
   );
 }
 
-/// 分类入口行：彩色圆图标 + 标题/副标题 + 箭头（移动端分类页风格）。
+/// 分类入口行：彩色圆图标 + 标题/副标题 + 箭头（移动端分类页风格，
+/// 分量对齐功能页大号行：44*s 圆标 + 16*s 标题）。
 Widget _categoryRow({
   required double s,
   required Color color,
@@ -806,48 +738,45 @@ Widget _categoryRow({
   required String subtitle,
   required VoidCallback onTap,
 }) {
-  return SizedBox(
-    height: 58 * s,
-    child: InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: 14 * s),
-        child: Row(
-          children: [
-            Container(
-              width: 36 * s,
-              height: 36 * s,
-              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-              child: Icon(icon, size: 18 * s, color: Colors.white),
+  return SteppedPill(
+    onTap: onTap,
+    child: Padding(
+      padding: EdgeInsets.symmetric(horizontal: 14 * s),
+      child: Row(
+        children: [
+          Container(
+            width: 44 * s,
+            height: 44 * s,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            child: Icon(icon, size: 22 * s, color: Colors.white),
+          ),
+          SizedBox(width: 12 * s),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontSize: 16 * s, fontWeight: FontWeight.w600)),
+                SizedBox(height: 2 * s),
+                Text(subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontSize: 11.5 * s,
+                        color: Colors.white.withValues(alpha: 0.5))),
+              ],
             ),
-            SizedBox(width: 12 * s),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          fontSize: 13 * s, fontWeight: FontWeight.w600)),
-                  SizedBox(height: 2 * s),
-                  Text(subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          fontSize: 11 * s,
-                          color: Colors.white.withValues(alpha: 0.5))),
-                ],
-              ),
-            ),
-            Icon(
-              Icons.chevron_right_rounded,
-              size: 20 * s,
-              color: Colors.white.withValues(alpha: 0.38),
-            ),
-          ],
-        ),
+          ),
+          Icon(
+            Icons.chevron_right_rounded,
+            size: 22 * s,
+            color: Colors.white.withValues(alpha: 0.38),
+          ),
+        ],
       ),
     ),
   );
@@ -861,46 +790,40 @@ Widget _switchRow({
   required bool value,
   required ValueChanged<bool> onChanged,
 }) {
-  return SizedBox(
-    height: 58 * s,
-    child: InkWell(
-      onTap: () => onChanged(!value),
-      child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: 14 * s),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          fontSize: 13 * s, fontWeight: FontWeight.w600)),
-                  SizedBox(height: 2 * s),
-                  Text(subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          fontSize: 11 * s,
-                          color: Colors.white.withValues(alpha: 0.5))),
-                ],
-              ),
+  return InkWell(
+    onTap: () => onChanged(!value),
+    child: Padding(
+      padding: EdgeInsets.symmetric(horizontal: 14 * s),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontSize: 16 * s, fontWeight: FontWeight.w600)),
+                SizedBox(height: 2 * s),
+                Text(subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontSize: 11.5 * s,
+                        color: Colors.white.withValues(alpha: 0.5))),
+              ],
             ),
-            SizedBox(
-              width: 44 * s,
-              child: Transform.scale(
-                scale: 0.85,
-                child: Switch(
-                    value: value,
-                    activeThumbColor: const Color(0xFFFF4D6E),
-                    onChanged: onChanged),
-              ),
-            ),
-          ],
-        ),
+          ),
+          SizedBox(
+            width: 48 * s,
+            child: Switch(
+                value: value,
+                activeThumbColor: const Color(0xFFFF4D6E),
+                onChanged: onChanged),
+          ),
+        ],
       ),
     ),
   );
@@ -915,7 +838,7 @@ Widget _linkStatusRow(
     case LinkPhase.connected:
       child = Row(
         children: [
-          Icon(Icons.watch_rounded, size: 20 * s, color: Colors.greenAccent),
+          Icon(Icons.watch_rounded, size: 24 * s, color: Colors.greenAccent),
           SizedBox(width: 12 * s),
           Expanded(
             child: Column(
@@ -926,13 +849,13 @@ Widget _linkStatusRow(
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                        fontSize: 13 * s, fontWeight: FontWeight.w600)),
+                        fontSize: 16 * s, fontWeight: FontWeight.w600)),
                 SizedBox(height: 2 * s),
                 Text('已连接 · 点击进入播放控制',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                        fontSize: 11 * s,
+                        fontSize: 11.5 * s,
                         color: Colors.white.withValues(alpha: 0.5))),
               ],
             ),
@@ -943,15 +866,15 @@ Widget _linkStatusRow(
       child = Row(
         children: [
           SizedBox(
-              width: 18 * s,
-              height: 18 * s,
+              width: 20 * s,
+              height: 20 * s,
               child: CircularProgressIndicator(strokeWidth: 2 * s)),
           SizedBox(width: 12 * s),
           Expanded(
             child: Text('正在连接 ${link.pairedName ?? ''}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 13 * s)),
+                style: TextStyle(fontSize: 14 * s)),
           ),
           TextButton(
             onPressed: controller.disconnectManually,
@@ -968,14 +891,14 @@ Widget _linkStatusRow(
       child = Row(
         children: [
           Icon(Icons.watch_off_rounded,
-              size: 20 * s, color: Colors.white.withValues(alpha: 0.5)),
+              size: 24 * s, color: Colors.white.withValues(alpha: 0.5)),
           SizedBox(width: 12 * s),
           Expanded(
             child: Text(
               link.pairedAddress == null ? '未配对手机' : '未连接 ${link.pairedName ?? ''}',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 13 * s, fontWeight: FontWeight.w600),
+              style: TextStyle(fontSize: 16 * s, fontWeight: FontWeight.w600),
             ),
           ),
         ],
@@ -983,7 +906,7 @@ Widget _linkStatusRow(
   }
   return SizedBox(
     height: pitch,
-    child: InkWell(
+    child: SteppedPill(
       onTap: link.phase == LinkPhase.connected
           ? () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
@@ -1068,14 +991,16 @@ Widget _linkActionsRow(
   }
   return SizedBox(
     height: pitch,
-    child: Padding(
-      padding: EdgeInsets.symmetric(horizontal: 14 * s),
-      child: Row(children: [
-        for (var i = 0; i < buttons.length; i++) ...[
-          if (i > 0) SizedBox(width: 6 * s),
-          buttons[i],
-        ],
-      ]),
+    child: SteppedPill(
+      child: Padding(
+        padding: EdgeInsets.symmetric(horizontal: 14 * s),
+        child: Row(children: [
+          for (var i = 0; i < buttons.length; i++) ...[
+            if (i > 0) SizedBox(width: 6 * s),
+            buttons[i],
+          ],
+        ]),
+      ),
     ),
   );
 }
@@ -1089,44 +1014,41 @@ Widget _actionRow({
   Widget? trailing,
   VoidCallback? onTap,
 }) {
-  return SizedBox(
-    height: 58 * s,
-    child: InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: 14 * s),
-        child: Row(
-          children: [
-            icon,
-            SizedBox(width: 12 * s),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          fontSize: 13 * s, fontWeight: FontWeight.w600)),
-                  ...?subtitle == null
-                      ? null
-                      : [
-                          SizedBox(height: 2 * s),
-                          Text(subtitle,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                  fontSize: 11 * s,
-                                  color:
-                                      Colors.white.withValues(alpha: 0.5))),
-                        ],
-                ],
-              ),
+  return SteppedPill(
+    onTap: onTap,
+    child: Padding(
+      padding: EdgeInsets.symmetric(horizontal: 14 * s),
+      child: Row(
+        children: [
+          icon,
+          SizedBox(width: 12 * s),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontSize: 16 * s, fontWeight: FontWeight.w600)),
+                ...?subtitle == null
+                    ? null
+                    : [
+                        SizedBox(height: 2 * s),
+                        Text(subtitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                fontSize: 11.5 * s,
+                                color:
+                                    Colors.white.withValues(alpha: 0.5))),
+                      ],
+              ],
             ),
-            ?trailing,
-          ],
-        ),
+          ),
+          ?trailing,
+        ],
       ),
     ),
   );

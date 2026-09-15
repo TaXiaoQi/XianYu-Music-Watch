@@ -9,6 +9,7 @@ import '../../plugin/plugin_models.dart';
 import '../../plugin/plugin_provider.dart';
 import '../../plugin/plugin_search.dart';
 import '../../player/player_provider.dart';
+import '../common/stepped_list.dart';
 import '../local/local_music_hub.dart';
 
 /// 音源榜单：已启用插件的 getTopLists 聚合（与桌面端 MF 协议同源）。
@@ -123,38 +124,16 @@ class _TopListPageState extends ConsumerState<TopListPage> {
                                     Colors.white.withValues(alpha: 0.5)),
                           ),
                         )
-                      : ListView.separated(
-                          padding: EdgeInsets.symmetric(
-                              horizontal: 10 * s, vertical: 2 * s),
+                      : SteppedListView(
                           itemCount: _entries.length,
-                          separatorBuilder: (_, _) => Divider(
-                              height: 1 * s,
-                              color:
-                                  Colors.white.withValues(alpha: 0.06)),
                           itemBuilder: (context, i) {
                             final (src, it) = _entries[i];
-                            return ListTile(
-                              dense: true,
-                              contentPadding:
-                                  EdgeInsets.symmetric(horizontal: 4 * s),
+                            return SteppedTile(
                               leading: _SheetCover(url: it.coverUrl),
-                              title: Text(
-                                it.title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(fontSize: 13 * s),
-                              ),
-                              subtitle: Text(
-                                src.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                    fontSize: 10 * s,
-                                    color: Colors.white
-                                        .withValues(alpha: 0.45)),
-                              ),
+                              title: it.title,
+                              subtitle: src.name,
                               trailing: Icon(Icons.chevron_right_rounded,
-                                  size: 18 * s,
+                                  size: 22 * s,
                                   color: Colors.white
                                       .withValues(alpha: 0.35)),
                               onTap: () => Navigator.of(context).push(
@@ -285,26 +264,18 @@ class _TopListDetailPageState extends ConsumerState<TopListDetailPage> {
                                 color: Colors.white.withValues(alpha: 0.5)),
                           ),
                         )
-                      : ListView.separated(
-                          padding: EdgeInsets.symmetric(
-                              horizontal: 10 * s, vertical: 2 * s),
+                      : SteppedListView(
                           itemCount: _songs.length,
-                          separatorBuilder: (_, _) => Divider(
-                              height: 1 * s,
-                              color: Colors.white.withValues(alpha: 0.06)),
                           itemBuilder: (context, i) {
                             final r = _songs[i];
-                            return ListTile(
-                              dense: true,
-                              contentPadding:
-                                  EdgeInsets.symmetric(horizontal: 4 * s),
+                            return SteppedTile(
                               leading: SizedBox(
-                                width: 20 * s,
+                                width: 24 * s,
                                 child: Text(
                                   '${i + 1}',
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
-                                      fontSize: 12 * s,
+                                      fontSize: 15 * s,
                                       fontWeight: FontWeight.w700,
                                       color: i < 3
                                           ? const Color(0xFFFF6B81)
@@ -312,21 +283,8 @@ class _TopListDetailPageState extends ConsumerState<TopListDetailPage> {
                                               .withValues(alpha: 0.4)),
                                 ),
                               ),
-                              title: Text(
-                                r.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(fontSize: 13 * s),
-                              ),
-                              subtitle: Text(
-                                r.singer,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                    fontSize: 10 * s,
-                                    color: Colors.white
-                                        .withValues(alpha: 0.45)),
-                              ),
+                              title: r.name,
+                              subtitle: r.singer,
                               onTap: () => _play(i),
                             );
                           },
@@ -356,7 +314,7 @@ class _SheetCover extends StatelessWidget {
             : Image.file(File(u),
                 fit: BoxFit.cover, errorBuilder: (_, _, _) => const _SheetIcon()))
         : const _SheetIcon();
-    return SizedBox(width: 36 * s, height: 36 * s, child: w);
+    return SizedBox(width: 44 * s, height: 44 * s, child: w);
   }
 }
 

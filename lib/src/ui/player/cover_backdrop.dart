@@ -12,18 +12,39 @@ import 'player_source.dart' show CoverRef;
 ///
 /// 性能：约 72px 低清解码再拉伸模糊，模糊层近乎零开销；RepaintBoundary
 /// 保证前景（进度环等）逐帧重绘不会反复触发模糊重栅格化。
+/// 另一处关键：模糊子树按封面缓存（State 字段）。宿主随播放进度逐秒
+/// 重建时若重建本 widget，ImageFilter.blur 新实例会让 ImageFiltered 判定
+/// 滤镜变更而 markNeedsPaint——全屏模糊每秒重栅格化，表上严重卡顿。
 /// ambient 常显时隐藏（OLED 防烧屏 + 常显要求近黑背景），无封面时留黑底。
-class CoverBackdrop extends ConsumerWidget {
+class CoverBackdrop extends ConsumerStatefulWidget {
   const CoverBackdrop({super.key, required this.cover});
 
   final CoverRef cover;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    if (ref.watch(ambientModeProvider) || cover.isEmpty) {
+  ConsumerState<CoverBackdrop> createState() => _CoverBackdropState();
+}
+
+class _CoverBackdropState extends ConsumerState<CoverBackdrop> {
+  String? _cachedKey;
+  Widget? _cached;
+
+  @override
+  Widget build(BuildContext context) {
+    if (ref.watch(ambientModeProvider) || widget.cover.isEmpty) {
       return const SizedBox.expand();
     }
+    final key = '${widget.cover.filePath ?? ''}|${widget.cover.url ?? ''}';
+    // 同一封面复用缓存子树：build 返回同一实例，Element 走 identical
+    // 短路，底层渲染对象完全不动，零重绘。
+    if (_cached == null || key != _cachedKey) {
+      _cachedKey = key;
+      _cached = _buildBackdrop(widget.cover);
+    }
+    return _cached!;
+  }
 
+  Widget _buildBackdrop(CoverRef cover) {
     ImageProvider? provider;
     if (cover.filePath != null && cover.filePath!.isNotEmpty) {
       final f = File(cover.filePath!);
