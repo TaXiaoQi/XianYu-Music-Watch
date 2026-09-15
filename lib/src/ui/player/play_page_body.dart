@@ -3,9 +3,9 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:wearable_rotary/wearable_rotary.dart';
 
+import '../../core/haptics.dart';
 import '../../core/watch_fit.dart';
 import '../common/rotary_input.dart';
 import 'player_source.dart';
@@ -54,8 +54,6 @@ class PlayPageBody extends StatefulWidget {
 }
 
 class _PlayPageBodyState extends State<PlayPageBody> {
-  static const _volumeStep = 0.05;
-
   /// 倍速档位（更多面板点选，与本地播放引擎档位一致）。
   static const _speedSteps = [0.75, 1.0, 1.25, 1.5, 2.0];
 
@@ -68,8 +66,9 @@ class _PlayPageBodyState extends State<PlayPageBody> {
   /// 表冠调节中标记：1s 内不覆盖本地显示。
   DateTime _lastRotary = DateTime.fromMillisecondsSinceEpoch(0);
   Timer? _volumeSendTimer;
-  Timer? _volumeHideTimer;
-  bool _volumeVisible = false;
+
+  /// 音量独立页是否已在前台：表冠连发事件只在首次唤起，页内自行处理。
+  bool _volumePageOpen = false;
 
   /// 环形 seek 状态：拖拽预览目标进度（null = 未拖拽）、长按快进快退。
   double? _scrubTarget;
@@ -88,7 +87,6 @@ class _PlayPageBodyState extends State<PlayPageBody> {
   void dispose() {
     _rotarySub?.cancel();
     _volumeSendTimer?.cancel();
-    _volumeHideTimer?.cancel();
     _seekSendTimer?.cancel();
     _longSeekTimer?.cancel();
     super.dispose();
@@ -100,27 +98,24 @@ class _PlayPageBodyState extends State<PlayPageBody> {
     // 宿主在 PageView 中：非当前页的表冠事件不归本页（隐藏页误触音量）。
     final guard = widget.rotaryGuard;
     if (guard != null && !guard()) return;
-    // 量化：轻刮一步、快转加速。
+    // 量化：轻刮一步、快转加速。有输入即唤起音量独立页（网易云式），
+    // 连发事件只唤起一次，页内由音量页自己的表冠处理接续调节。
     final steps = _rotary.add(event);
-    if (steps == 0) return;
-    HapticFeedback.selectionClick(); // 表冠档位振动反馈
+    if (steps == 0 || _volumePageOpen) return;
+    _volumePageOpen = true;
+    Haptics.tick(); // 表冠档位振动反馈
     final src = widget.sourceBuilder();
-    final cur = _volume ?? src.volume;
-    final next = (cur + steps * _volumeStep).clamp(0.0, 1.0);
     _lastRotary = DateTime.now();
-    setState(() {
-      _volume = next;
-      _volumeVisible = true;
-    });
-    // 节流下发：250ms 静默后才发，避免连续旋转刷爆链路。
-    _volumeSendTimer?.cancel();
-    _volumeSendTimer = Timer(const Duration(milliseconds: 250), () {
-      widget.sourceBuilder().setVolume(_volume ?? 0.5);
-    });
-    _volumeHideTimer?.cancel();
-    _volumeHideTimer = Timer(const Duration(milliseconds: 1200), () {
-      if (mounted) setState(() => _volumeVisible = false);
-    });
+    Navigator.of(context)
+        .push(
+          MaterialPageRoute<void>(
+            builder: (_) => _VolumePage(
+              initial: (_volume ?? src.volume).clamp(0.0, 1.0),
+              onChanged: _onVolumePageChanged,
+            ),
+          ),
+        )
+        .whenComplete(() => _volumePageOpen = false);
   }
 
   /// 音量独立页回调：静默同步（页面自身有仪表反馈，不再叠 HUD）。
@@ -154,7 +149,7 @@ class _PlayPageBodyState extends State<PlayPageBody> {
   /// （联动模式不支持倍速时整组隐藏）。点选即生效，StatefulBuilder +
   /// 现取数据源让面板高亮随设置结果刷新。
   void _openMoreSheet() {
-    HapticFeedback.selectionClick();
+    Haptics.tick();
     final s = context.watchScale();
     showModalBottomSheet<void>(
       context: context,
@@ -184,7 +179,7 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                           active: src.playMode == m,
                           onTap: () {
                             src.setMode(m);
-                            HapticFeedback.selectionClick();
+                            Haptics.tick();
                             setSheet(() {});
                           },
                           child: Row(
@@ -226,7 +221,7 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                             active: (src.speed! - v).abs() < 0.01,
                             onTap: () {
                               src.setSpeed(v);
-                              HapticFeedback.selectionClick();
+                              Haptics.tick();
                               setSheet(() {});
                             },
                             child: Text(
@@ -347,7 +342,7 @@ class _PlayPageBodyState extends State<PlayPageBody> {
     final delta = _longSeekForward ? 10.0 : -10.0;
     final target = (src.position + delta).clamp(0.0, src.duration);
     src.seekTo(target);
-    HapticFeedback.selectionClick();
+    Haptics.tick();
   }
 
   void _sendSeek(double pos) {
@@ -377,8 +372,8 @@ class _PlayPageBodyState extends State<PlayPageBody> {
   Widget build(BuildContext context) {
     final src = widget.sourceBuilder();
     final s = context.watchScale();
-    // 小封面（网易云手表版）：屏径约 1/3，红圈进度贴封面留窄缝。
-    final ringSize = 86 * s;
+    // 小封面（网易云手表版）：屏径约 1/3 强，红圈进度贴封面留窄缝。
+    final ringSize = 92 * s;
 
     // 手机推来的音量覆盖本地显示（表冠调节后 1s 内除外）。
     if (DateTime.now().difference(_lastRotary) > const Duration(seconds: 1)) {
@@ -400,13 +395,18 @@ class _PlayPageBodyState extends State<PlayPageBody> {
             right: false,
             child: Padding(
               // 底部留白明显大于顶部：整体重心上提（贴底显挤，网易云式）。
-              padding: EdgeInsets.fromLTRB(16 * s, 2 * s, 16 * s, 18 * s),
+              // 水平收窄到 4：中部三大件整体外扩，拉开上下首与播放红圈的
+              // 间距；歌名行/底部行经内层 Padding 补回常规边距（4+12=16）。
+              padding: EdgeInsets.fromLTRB(4 * s, 2 * s, 4 * s, 18 * s),
               child: Column(
                 // 居中排布 + 显式间距：底部控件间距收紧、向中部靠拢。
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // 歌名 / 歌手（云中继附小云标）；过长自动跑马灯滚动
-                  Column(
+                  // 歌名 / 歌手（云中继附小云标）；过长自动跑马灯滚动。
+                  // 靠近中部三大件：下方间距收紧（4）。
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 12 * s),
+                    child: Column(
                     children: [
                       SizedBox(
                         width: double.infinity,
@@ -461,14 +461,15 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                         ),
                       ],
                     ],
+                    ),
                   ),
-                  SizedBox(height: 10 * s),
+                  SizedBox(height: 4 * s),
                   // 中部：上一首 | 封面红圈 | 下一首
                   // 红圈用 Expanded+Center 钉死在行正中：不依赖左右按钮等宽。
                   Row(
                     children: [
                       SizedBox(
-                        width: 48 * s,
+                        width: 44 * s,
                         child: _sideBtn(
                           s: s,
                           icon: Icons.skip_previous_rounded,
@@ -507,7 +508,7 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                                         src.isPlaying
                                             ? Icons.pause_rounded
                                             : Icons.play_arrow_rounded,
-                                        size: ringSize * 0.40,
+                                        size: ringSize * 0.42,
                                         color: Colors.white,
                                         shadows: [
                                           Shadow(
@@ -526,7 +527,7 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                         ),
                       ),
                       SizedBox(
-                        width: 48 * s,
+                        width: 44 * s,
                         child: _sideBtn(
                           s: s,
                           icon: Icons.skip_next_rounded,
@@ -535,9 +536,12 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                       ),
                     ],
                   ),
-                  SizedBox(height: 8 * s),
-                  // 底部：喜欢（可选）/ 音量 / 更多（播放模式+倍速）
-                  Row(
+                  SizedBox(height: 2 * s),
+                  // 底部：喜欢（可选）/ 音量 / 更多（播放模式+倍速）。
+                  // 与中部三大件间距收紧（2）：三键整体上移。
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 12 * s),
+                    child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
                       if (src.liked != null)
@@ -578,42 +582,12 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                         tooltip: '更多（播放模式/倍速）',
                       ),
                     ],
+                    ),
                   ),
                 ],
               ),
             ),
           ),
-          // 音量 HUD（表冠调节或点音量键时短暂显示）
-          if (_volumeVisible)
-            Align(
-              alignment: Alignment.topCenter,
-              child: Container(
-                margin: EdgeInsets.only(top: 8 * s),
-                padding: EdgeInsets.symmetric(horizontal: 12 * s, vertical: 5 * s),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(18 * s),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      (_volume ?? src.volume) <= 0
-                          ? Icons.volume_off_rounded
-                          : (_volume ?? src.volume) < 0.5
-                              ? Icons.volume_down_rounded
-                              : Icons.volume_up_rounded,
-                      size: 14 * s,
-                    ),
-                    SizedBox(width: 5 * s),
-                    Text(
-                      '${((_volume ?? src.volume) * 100).round()}%',
-                      style: TextStyle(fontSize: 11.5 * s),
-                    ),
-                  ],
-                ),
-              ),
-            ),
           // 长按 seek HUD（快进/快退提示）
           if (_longSeeking)
             Align(
@@ -681,7 +655,7 @@ class _PlayPageBodyState extends State<PlayPageBody> {
       onPressed: onTap,
       icon: Icon(icon, size: 28 * s, color: Colors.white.withValues(alpha: 0.92)),
       padding: EdgeInsets.all(4 * s),
-      constraints: BoxConstraints(minWidth: 48 * s, minHeight: 48 * s),
+      constraints: BoxConstraints(minWidth: 44 * s, minHeight: 44 * s),
     );
   }
 
@@ -847,8 +821,8 @@ class _MarqueeTextState extends State<_MarqueeText>
   }
 }
 
-/// 音量独立页（网易云手表版式）：全屏深底 + 大环形量表 + 中央百分比，
-/// 表冠逐档调节（±4%）+ 加减按钮 + 环上点按/拖拽；4s 无操作自动返回。
+/// 音量独立页（网易云手表版式）：全屏深底 + 大竖条量表 + 中央百分比，
+/// 表冠逐档调节（±4%）+ 竖条点按/拖拽；4s 无操作自动返回。
 class _VolumePage extends StatefulWidget {
   const _VolumePage({required this.initial, required this.onChanged});
 
@@ -861,7 +835,6 @@ class _VolumePage extends StatefulWidget {
 
 class _VolumePageState extends State<_VolumePage> {
   static const _crownStep = 0.04; // 表冠一档 4%（细调）
-  static const _btnStep = 0.05; // 按钮一档 5%
 
   late double _v = widget.initial.clamp(0.0, 1.0).toDouble();
   Timer? _closeTimer;
@@ -894,7 +867,7 @@ class _VolumePageState extends State<_VolumePage> {
 
   void _update(double v, {bool haptic = true}) {
     final next = v.clamp(0.0, 1.0).toDouble();
-    if (haptic) HapticFeedback.selectionClick();
+    if (haptic) Haptics.tick();
     setState(() => _v = next);
     widget.onChanged(next);
     _armAutoClose();
@@ -912,16 +885,13 @@ class _VolumePageState extends State<_VolumePage> {
   @override
   Widget build(BuildContext context) {
     final s = context.watchScale();
-    // 网易云手表版式：居中一条粗壮竖条，音量从底部向上填充，表冠/拖拽/按钮。
+    // 网易云手表版式：居中一条粗壮竖条，音量从底部向上填充，表冠/点按/拖拽。
+    // 竖条高度吃掉剩余空间（上限 240*s），任何屏径都不会溢出。
     final barWidth = 64 * s;
-    final barHeight = 208 * s;
-    double valueFromY(double dy) =>
-        (1 - dy / barHeight).clamp(0.0, 1.0).toDouble();
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text(
               '音量',
@@ -930,79 +900,66 @@ class _VolumePageState extends State<_VolumePage> {
                 color: Colors.white.withValues(alpha: 0.55),
               ),
             ),
-            SizedBox(height: 10 * s),
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              // 竖条上点按/拖拽直接设音量（触点越靠上音量越大）。
-              onTapDown: (d) =>
-                  _update(valueFromY(d.localPosition.dy), haptic: false),
-              onPanStart: (d) =>
-                  _update(valueFromY(d.localPosition.dy), haptic: false),
-              onPanUpdate: (d) =>
-                  _update(valueFromY(d.localPosition.dy), haptic: false),
-              child: Container(
-                width: barWidth,
-                height: barHeight,
-                clipBehavior: Clip.antiAlias,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(barWidth / 2),
-                ),
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    // 音量填充：自底部向上，圆角由外层裁剪。
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      height: barHeight * _v.clamp(0.0, 1.0),
-                      child: ColoredBox(color: kPlayerAccent),
-                    ),
-                    Text(
-                      '${(_v * 100).round()}',
-                      style: TextStyle(
-                        fontSize: 34 * s,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                        shadows: const [
-                          Shadow(color: Colors.black45, blurRadius: 8),
-                        ],
+            SizedBox(height: 8 * s),
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, cons) {
+                  final barHeight =
+                      cons.maxHeight.clamp(0.0, 240 * s).toDouble();
+                  double valueFromY(double dy) =>
+                      (1 - dy / barHeight).clamp(0.0, 1.0).toDouble();
+                  return Center(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      // 竖条上点按/拖拽直接设音量（触点越靠上音量越大）。
+                      onTapDown: (d) => _update(
+                          valueFromY(d.localPosition.dy),
+                          haptic: false),
+                      onPanStart: (d) => _update(
+                          valueFromY(d.localPosition.dy),
+                          haptic: false),
+                      onPanUpdate: (d) => _update(
+                          valueFromY(d.localPosition.dy),
+                          haptic: false),
+                      child: Container(
+                        width: barWidth,
+                        height: barHeight,
+                        clipBehavior: Clip.antiAlias,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(barWidth / 2),
+                        ),
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            // 音量填充：自底部向上，圆角由外层裁剪。
+                            Positioned(
+                              left: 0,
+                              right: 0,
+                              bottom: 0,
+                              height: barHeight * _v.clamp(0.0, 1.0),
+                              child: ColoredBox(color: kPlayerAccent),
+                            ),
+                            Text(
+                              '${(_v * 100).round()}',
+                              style: TextStyle(
+                                fontSize: 34 * s,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                                shadows: const [
+                                  Shadow(color: Colors.black45, blurRadius: 8),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ],
-                ),
+                  );
+                },
               ),
             ),
-            SizedBox(height: 16 * s),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _roundBtn(s, Icons.remove_rounded, () => _update(_v - _btnStep)),
-                _roundBtn(s, Icons.add_rounded, () => _update(_v + _btnStep)),
-              ],
-            ),
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _roundBtn(double s, IconData icon, VoidCallback onTap) {
-    return InkWell(
-      onTap: onTap,
-      customBorder: const CircleBorder(),
-      child: Ink(
-        width: 54 * s,
-        height: 54 * s,
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.12),
-          shape: BoxShape.circle,
-        ),
-        child: Icon(
-          icon,
-          size: 26 * s,
-          color: Colors.white.withValues(alpha: 0.9),
         ),
       ),
     );
