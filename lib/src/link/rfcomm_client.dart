@@ -26,6 +26,22 @@ class BondedDevice {
   }
 }
 
+/// 手机端主动发起的配对请求（手表侧待确认）。
+class IncomingPairRequest {
+  const IncomingPairRequest({required this.name, required this.address});
+
+  final String name;
+  final String address;
+
+  static IncomingPairRequest fromMap(Object? m) {
+    final map = m as Map? ?? const {};
+    return IncomingPairRequest(
+      name: (map['name'] as String?) ?? '',
+      address: (map['address'] as String?) ?? '',
+    );
+  }
+}
+
 /// 手表端联动 MethodChannel 封装（对应 Kotlin `WatchLinkClient.kt`）。
 ///
 /// Kotlin 只做 RFCOMM 字节管道：connect/读写/断连感知；帧编解码、心跳
@@ -36,6 +52,7 @@ class LinkClientChannel {
   final _rawCtrl = StreamController<Uint8List>.broadcast();
   final _connCtrl = StreamController<LinkConnectionEvent>.broadcast();
   final _permCtrl = StreamController<bool>.broadcast();
+  final _incomingCtrl = StreamController<IncomingPairRequest>.broadcast();
   bool _bound = false;
 
   /// 收到的原始字节流（帧解码由上层 FrameDecoder 完成）。
@@ -46,6 +63,9 @@ class LinkClientChannel {
 
   /// 运行时权限请求结果（Android 12+ BLUETOOTH_CONNECT）。
   Stream<bool> get onPermission => _permCtrl.stream;
+
+  /// 手机端主动发起的配对请求（需手表确认允许/拒绝）。
+  Stream<IncomingPairRequest> get onIncomingPair => _incomingCtrl.stream;
 
   /// 注册 Kotlin→Dart 回调 handler（幂等）。
   void bind() {
@@ -64,6 +84,9 @@ class LinkClientChannel {
           ));
         case 'onPermission':
           _permCtrl.add(call.arguments == true);
+        case 'onIncomingPair':
+          final req = IncomingPairRequest.fromMap(call.arguments);
+          if (req.address.isNotEmpty) _incomingCtrl.add(req);
       }
     });
   }
@@ -89,6 +112,27 @@ class LinkClientChannel {
   Future<void> disconnect() async {
     try {
       await _ch.invokeMethod('disconnect');
+    } catch (_) {}
+  }
+
+  /// 启动反向配对服务端（应用存活期间常开，幂等）。
+  Future<void> startServer() async {
+    try {
+      await _ch.invokeMethod('startServer');
+    } catch (_) {}
+  }
+
+  /// 采纳挂起的入站配对（手表确认允许）。
+  Future<void> acceptPair() async {
+    try {
+      await _ch.invokeMethod('acceptPair');
+    } catch (_) {}
+  }
+
+  /// 拒绝挂起的入站配对（手表确认拒绝）。
+  Future<void> rejectPair() async {
+    try {
+      await _ch.invokeMethod('rejectPair');
     } catch (_) {}
   }
 

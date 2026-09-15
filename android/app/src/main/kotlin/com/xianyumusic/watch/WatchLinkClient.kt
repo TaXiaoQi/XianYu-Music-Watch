@@ -7,6 +7,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothServerSocket
 import android.bluetooth.BluetoothSocket
 import android.content.Context
 import android.content.Intent
@@ -24,15 +25,20 @@ import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * 腕上端手表联动 RFCOMM 传输层（手表端 = 客户端）。
+ * 腕上端手表联动 RFCOMM 传输层（手表端 = 客户端 + 反向服务端）。
  *
- * 职责边界：Kotlin 只做蓝牙 SPP 字节管道（connect / 读写 / 断连感知），
+ * 职责边界：Kotlin 只做蓝牙 SPP 字节管道（connect / accept / 读写 / 断连感知），
  * 帧编解码、CRC、分片重组、心跳（3s ping / 10s 无帧判死）、重连指数退避
  * 与协议语义全部在 Dart 侧 `lib/src/link/`（与手机端同一份协议实现）。
  *
  * 连接模型：单手机场景，connect(address) 异步发起一次连接（成败经
  * onConnection 回传），断开后由 Dart 决策退避重连；disconnect 关闭套接字
  * 并中断连接线程，幂等可重入。
+ *
+ * 反向配对（手机端发起）：startServer 监听同一 SPP UUID，手机作为客户端
+ * 连入后先挂起（pending）并回调 onIncomingPair，由 Dart 弹「允许/拒绝」
+ * 确认后 acceptPair 采纳（走与 connect 成功相同的 onConnection 流程）或
+ * rejectPair 拒绝。已连接/已有待确认时新入连接直接关闭。
  */
 object WatchLinkClient {
     const val CHANNEL = "xianyu/watch_link"
@@ -54,6 +60,13 @@ object WatchLinkClient {
     /** connect 进行中标志（防止并发连接线程叠加）。 */
     private val connecting = AtomicBoolean(false)
 
+    /** 反向配对服务端（手机端主动发起时手表侧 accept）。 */
+    private var serverSocket: BluetoothServerSocket? = null
+    private val serverRunning = AtomicBoolean(false)
+
+    /** 手机端发起、等待手表确认的入站连接。 */
+    private var pending: BluetoothSocket? = null
+
     fun register(messenger: BinaryMessenger, activity: android.app.Activity) {
         this.activity = activity
         channel = MethodChannel(messenger, CHANNEL).apply {
@@ -72,6 +85,18 @@ object WatchLinkClient {
                     "send" -> {
                         val bytes = call.argument<ByteArray>("bytes") ?: ByteArray(0)
                         send(bytes)
+                        result.success(null)
+                    }
+                    "startServer" -> {
+                        startServer()
+                        result.success(null)
+                    }
+                    "acceptPair" -> {
+                        acceptPair()
+                        result.success(null)
+                    }
+                    "rejectPair" -> {
+                        rejectPair()
                         result.success(null)
                     }
                     "hasPermission" -> result.success(hasPermission())
@@ -244,6 +269,82 @@ object WatchLinkClient {
             s
         }
         runCatching { sock?.close() } // 关闭会使阻塞中的 connect()/read() 抛异常退出
+    }
+
+    /**
+     * 启动反向配对服务端（幂等）：监听同一 SPP UUID，手机作为客户端连入时
+     * 挂起等待手表确认。应用存活期间常开（Dart init 调一次）。
+     */
+    @Synchronized
+    fun startServer() {
+        if (serverRunning.get()) return
+        val adapter = adapter() ?: return
+        if (!hasPermission()) return
+        val server = try {
+            adapter.listenUsingRfcommWithServiceRecord("XianYuWatchLink", SERVICE_UUID)
+        } catch (_: Exception) {
+            return
+        }
+        serverSocket = server
+        serverRunning.set(true)
+        Thread {
+            while (serverRunning.get()) {
+                val sock = try {
+                    server.accept()
+                } catch (_: IOException) {
+                    break // socket 被关闭
+                }
+                if (!serverRunning.get()) {
+                    runCatching { sock.close() }
+                    break
+                }
+                onIncoming(sock)
+            }
+        }.apply { setName("xy-watch-accept") }.start()
+    }
+
+    /** 处理手机端主动连入：已连接/已有待确认时直接关闭，否则挂起并请求确认。 */
+    private fun onIncoming(sock: BluetoothSocket) {
+        synchronized(writeLock) {
+            if (socket != null || pending != null) {
+                runCatching { sock.close() }
+                return
+            }
+            pending = sock
+        }
+        val name = try { sock.remoteDevice.name ?: "手机" } catch (_: Exception) { "手机" }
+        val address = try { sock.remoteDevice.address ?: "" } catch (_: Exception) { "" }
+        mainHandler.post {
+            runCatching {
+                channel?.invokeMethod("onIncomingPair", mapOf("name" to name, "address" to address))
+            }
+        }
+    }
+
+    /** 采纳挂起的入站连接（手表确认允许）：与 connect 成功同流程。 */
+    fun acceptPair() {
+        val sock = synchronized(writeLock) {
+            val s = pending
+            pending = null
+            s
+        } ?: return
+        val name = try { sock.remoteDevice.name ?: "手机" } catch (_: Exception) { "手机" }
+        synchronized(writeLock) {
+            socket = sock
+            out = try { sock.outputStream } catch (_: Exception) { null }
+        }
+        emitConnection(true, name)
+        Thread { readLoop(sock) }.apply { setName("xy-watch-read-accepted") }.start()
+    }
+
+    /** 拒绝挂起的入站连接（手表确认拒绝）。 */
+    fun rejectPair() {
+        val sock = synchronized(writeLock) {
+            val s = pending
+            pending = null
+            s
+        }
+        runCatching { sock?.close() }
     }
 
     /** 读取循环：断连时统一上报 onConnection(false)（Dart 据此退避重连）。 */

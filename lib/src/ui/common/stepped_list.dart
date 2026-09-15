@@ -20,11 +20,20 @@ class SteppedListView extends StatefulWidget {
     super.key,
     required this.itemCount,
     required this.itemBuilder,
+    this.header,
+    this.headerExtent = 56,
     this.rotaryGuard,
   });
 
   final int itemCount;
   final IndexedWidgetBuilder itemBuilder;
+
+  /// 页面头（One UI 式）：作为滚动内容的最顶部条带，随列表一起滚动、
+  /// 滚走后由圆屏裁掉——标题不再固定占位破坏圆弧适配。头部不参与
+  /// 阶梯缩放。加载/错误等无列表状态需自行渲染头部。
+  /// [headerExtent] 为头部条带高度（设计 dp，随屏径等比缩放）。
+  final Widget? header;
+  final double headerExtent;
 
   /// 表冠事件门禁：宿主在 PageView 里时，只有本页是当前页才允许响应
   /// （表冠是全局流，PageView 邻页/隐藏页收到会误触）。返回 true 表示
@@ -78,28 +87,46 @@ class _SteppedListViewState extends State<SteppedListView> {
   Widget build(BuildContext context) {
     final s = context.watchScale();
     final pitch = _pitchBase * s;
+    final header = widget.header;
+    final headerBand = header == null ? 0.0 : widget.headerExtent * s;
     return LayoutBuilder(
       builder: (context, constraints) {
-        // 首尾留白：顶部/底部各补 (视口高-节距)/2，第一行和最后一行
-        // 都能精确停在屏幕正中（maxScroll = (n-1)*节距）。
+        // 首尾留白：底部补 (视口高-节距)/2，最后一行精确停在正中；
+        // 顶部在同基础上扣除头部条带——第一行停正中、页面头恰好露在
+        // 顶端（One UI 式：标题在最上，随列表滚走）。
         final viewportH = constraints.maxHeight;
-        final spacer = ((viewportH - pitch) / 2).clamp(0.0, double.infinity);
+        final endSpacer = ((viewportH - pitch) / 2).clamp(0.0, double.infinity);
+        final startSpacer = math.max(0.0, endSpacer - headerBand);
+        final hasHeader = header != null;
         return Stack(
           children: [
             ListView.builder(
               controller: _scroll,
-              itemExtent: pitch,
-              padding: EdgeInsets.symmetric(vertical: spacer),
-              itemCount: widget.itemCount,
+              padding: EdgeInsets.fromLTRB(0, startSpacer, 0, endSpacer),
+              itemCount: widget.itemCount + (hasHeader ? 1 : 0),
               itemBuilder: (context, i) {
-                return AnimatedBuilder(
-                  animation: _scroll,
-                  child: widget.itemBuilder(context, i),
-                  builder: (context, child) {
-                    final offset = _scroll.hasClients ? _scroll.offset : 0.0;
-                    final anchor = offset + viewportH / 2;
-                    final distance =
-                        ((i + 0.5) * pitch + spacer - anchor).abs() / pitch;
+                if (hasHeader && i == 0) {
+                  // 页面头条带：不参与阶梯缩放，随内容自然滚走。
+                  return SizedBox(
+                    height: headerBand,
+                    child: Center(child: header),
+                  );
+                }
+                final row = hasHeader ? i - 1 : i;
+                return SizedBox(
+                  height: pitch,
+                  child: AnimatedBuilder(
+                    animation: _scroll,
+                    child: widget.itemBuilder(context, row),
+                    builder: (context, child) {
+                      final offset = _scroll.hasClients ? _scroll.offset : 0.0;
+                      final anchor = offset + viewportH / 2;
+                      final distance = ((row + 0.5) * pitch +
+                              startSpacer +
+                              headerBand -
+                              anchor)
+                          .abs() /
+                          pitch;
                     final scale = (1.0 - distance * 0.225).clamp(0.55, 1.0);
                     final alpha = 0.45 + 0.55 * ((scale - 0.55) / 0.45);
                     // 焦点行铺满、上下行内收变窄（One UI 胶囊阶梯）：
@@ -116,7 +143,8 @@ class _SteppedListViewState extends State<SteppedListView> {
                             : Opacity(opacity: alpha, child: child),
                       ),
                     );
-                  },
+                    },
+                  ),
                 );
               },
             ),
@@ -155,7 +183,9 @@ class _ScrollThumbPainter extends CustomPainter {
     if (!pos.hasContentDimensions || pos.maxScrollExtent <= 0) return;
     const span = 110 * math.pi / 180;
     final total = pos.maxScrollExtent + pos.viewportDimension;
-    final thumbFrac = (pos.viewportDimension / total).clamp(0.10, 1.0);
+    // One UI 式限短：亮弧长度限制在导轨的 10%~30%（约 11°~33°），
+    // 内容略长于视口时不再出现几乎绕圈的长弧。
+    final thumbFrac = (pos.viewportDimension / total).clamp(0.10, 0.30);
     final off = (pos.pixels / pos.maxScrollExtent).clamp(0.0, 1.0);
     final thumb = span * thumbFrac;
     final start = -span / 2 + off * (span - thumb);
@@ -203,8 +233,8 @@ class SteppedPill extends StatelessWidget {
 }
 
 /// 标准大号行（与 [SteppedListView] 配套）：胶囊卡 + 44*s 前导区 +
-/// 居中主标题 17*s / 副标题 12*s + 可选尾部控件；行高与档位一致
-/// （64*s，itemExtent 以紧约束撑满），焦点行铺满屏幕中部。
+/// 居中主标题 17*s / 副标题 12*s + 可选尾部控件；行高由列表按档位
+/// （64*s）以紧约束提供，焦点行铺满屏幕中部。
 class SteppedTile extends StatelessWidget {
   const SteppedTile({
     super.key,

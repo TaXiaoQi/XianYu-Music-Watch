@@ -143,6 +143,7 @@ class LinkMessage {
     required String artist,
     required String album,
     String? cover,
+    String? coverData,
     required double duration,
   }) =>
       LinkMessage(LinkMsgType.nowPlaying, {
@@ -151,6 +152,8 @@ class LinkMessage {
         'artist': artist,
         'album': album,
         'cover': cover,
+        // 手机端本地歌封面（512px JPEG base64）；在线歌用 cover URL。
+        'coverData': ?coverData,
         'duration': duration,
       });
 

@@ -119,11 +119,13 @@ class _PlayPageBodyState extends State<PlayPageBody> {
     });
   }
 
-  void _showVolumeHud() {
-    setState(() => _volumeVisible = true);
-    _volumeHideTimer?.cancel();
-    _volumeHideTimer = Timer(const Duration(milliseconds: 1200), () {
-      if (mounted) setState(() => _volumeVisible = false);
+  /// 音量独立页回调：静默同步（页面自身有仪表反馈，不再叠 HUD）。
+  void _onVolumePageChanged(double v) {
+    _lastRotary = DateTime.now();
+    setState(() => _volume = v);
+    _volumeSendTimer?.cancel();
+    _volumeSendTimer = Timer(const Duration(milliseconds: 250), () {
+      widget.sourceBuilder().setVolume(_volume ?? 0.5);
     });
   }
 
@@ -372,7 +374,7 @@ class _PlayPageBodyState extends State<PlayPageBody> {
     final src = widget.sourceBuilder();
     final s = context.watchScale();
     // 小封面（网易云手表版）：屏径约 1/3，红圈进度贴封面留窄缝。
-    final ringSize = 78 * s;
+    final ringSize = 86 * s;
 
     // 手机推来的音量覆盖本地显示（表冠调节后 1s 内除外）。
     if (DateTime.now().difference(_lastRotary) > const Duration(seconds: 1)) {
@@ -389,24 +391,26 @@ class _PlayPageBodyState extends State<PlayPageBody> {
         children: [
           SafeArea(
             child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16 * s, vertical: 4 * s),
+              // 底部留白明显大于顶部：整体重心上提（贴底显挤，网易云式）。
+              padding: EdgeInsets.fromLTRB(16 * s, 2 * s, 16 * s, 18 * s),
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                // 居中排布 + 显式间距：底部控件间距收紧、向中部靠拢。
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // 歌名 / 歌手（云中继附小云标）
+                  // 歌名 / 歌手（云中继附小云标）；过长自动跑马灯滚动
                   Column(
                     children: [
-                      Text(
-                        src.hasTrack ? (src.title ?? '') : widget.emptyText,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: src.hasTrack ? 17.5 * s : 13 * s,
-                          fontWeight: FontWeight.w700,
-                          color: src.hasTrack
-                              ? Colors.white
-                              : Colors.white.withValues(alpha: 0.5),
+                      SizedBox(
+                        width: double.infinity,
+                        child: _MarqueeText(
+                          src.hasTrack ? (src.title ?? '') : widget.emptyText,
+                          style: TextStyle(
+                            fontSize: src.hasTrack ? 17.5 * s : 13 * s,
+                            fontWeight: FontWeight.w700,
+                            color: src.hasTrack
+                                ? Colors.white
+                                : Colors.white.withValues(alpha: 0.5),
+                          ),
                         ),
                       ),
                       if (!src.hasTrack && widget.emptyActionLabel != null) ...[
@@ -436,13 +440,13 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                               ),
                               SizedBox(width: 3.5 * s),
                             ],
-                            Text(
-                              src.artist ?? '',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 11 * s,
-                                color: Colors.white.withValues(alpha: 0.6),
+                            Flexible(
+                              child: _MarqueeText(
+                                src.artist ?? '',
+                                style: TextStyle(
+                                  fontSize: 11 * s,
+                                  color: Colors.white.withValues(alpha: 0.6),
+                                ),
                               ),
                             ),
                           ],
@@ -450,6 +454,7 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                       ],
                     ],
                   ),
+                  SizedBox(height: 10 * s),
                   // 中部：上一首 | 封面红圈 | 下一首
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -475,7 +480,7 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                           child: CustomPaint(
                             painter: _RingPainter(
                               progress: displayProgress,
-                              strokeWidth: 4 * s,
+                              strokeWidth: 4.5 * s,
                             ),
                             child: Padding(
                               padding: EdgeInsets.all(2.5 * s),
@@ -512,6 +517,7 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                       ),
                     ],
                   ),
+                  SizedBox(height: 8 * s),
                   // 底部：喜欢（可选）/ 音量 / 更多（播放模式+倍速）
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -535,8 +541,17 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                             : (_volume ?? src.volume) < 0.5
                                 ? Icons.volume_down_rounded
                                 : Icons.volume_up_rounded,
-                        onTap: _showVolumeHud,
-                        tooltip: '音量（表冠调节）',
+                        // 音量独立页（网易云手表版式）：环形量表 + 表冠。
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => _VolumePage(
+                              initial:
+                                  (_volume ?? src.volume).clamp(0.0, 1.0),
+                              onChanged: _onVolumePageChanged,
+                            ),
+                          ),
+                        ),
+                        tooltip: '音量',
                       ),
                       _bottomBtn(
                         s: s,
@@ -646,9 +661,9 @@ class _PlayPageBodyState extends State<PlayPageBody> {
   }) {
     return IconButton(
       onPressed: onTap,
-      icon: Icon(icon, size: 25 * s, color: Colors.white.withValues(alpha: 0.92)),
+      icon: Icon(icon, size: 28 * s, color: Colors.white.withValues(alpha: 0.92)),
       padding: EdgeInsets.all(4 * s),
-      constraints: BoxConstraints(minWidth: 44 * s, minHeight: 44 * s),
+      constraints: BoxConstraints(minWidth: 48 * s, minHeight: 48 * s),
     );
   }
 
@@ -661,10 +676,10 @@ class _PlayPageBodyState extends State<PlayPageBody> {
   }) {
     return IconButton(
       onPressed: onTap,
-      icon: Icon(icon, size: 18.5 * s, color: color),
+      icon: Icon(icon, size: 21 * s, color: color),
       tooltip: tooltip,
       padding: EdgeInsets.all(6 * s),
-      constraints: BoxConstraints(minWidth: 40 * s, minHeight: 40 * s),
+      constraints: BoxConstraints(minWidth: 46 * s, minHeight: 46 * s),
     );
   }
 }
@@ -720,4 +735,281 @@ class _RingPainter extends CustomPainter {
   bool shouldRepaint(_RingPainter oldDelegate) =>
       oldDelegate.progress != progress ||
       oldDelegate.strokeWidth != strokeWidth;
+}
+
+/// 跑马灯文本（网易云式）：实测文本宽超出容器时自动循环滚动——
+/// 起点停顿 → 匀速滚过全文+间隔 → 与下一轮首尾无缝衔接；放得下则静态居中。
+class _MarqueeText extends StatefulWidget {
+  const _MarqueeText(this.text, {required this.style});
+
+  final String text;
+  final TextStyle style;
+
+  @override
+  State<_MarqueeText> createState() => _MarqueeTextState();
+}
+
+class _MarqueeTextState extends State<_MarqueeText>
+    with SingleTickerProviderStateMixin {
+  static const double _gapBase = 30; // 两轮文案间隔（设计 dp）
+  static const double _speed = 26; // 滚动速度（设计 dp/s）
+  static const _headPause = Duration(milliseconds: 1400); // 每轮起点停顿
+
+  late final AnimationController _c = AnimationController(vsync: this);
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.watchScale();
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final boxW = constraints.maxWidth;
+        // TextPainter 实测单行宽度：放得下就退化为静态居中文本。
+        final tp = TextPainter(
+          text: TextSpan(text: widget.text, style: widget.style),
+          maxLines: 1,
+          textDirection: TextDirection.ltr,
+        )..layout();
+        if (boxW <= 0 || tp.width <= boxW || widget.text.isEmpty) {
+          _c.stop();
+          return Text(
+            widget.text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: widget.style,
+          );
+        }
+        final travel = tp.width + _gapBase * s;
+        final scrollMs = (travel / (_speed * s) * 1000).round();
+        _c.duration = _headPause + Duration(milliseconds: scrollMs);
+        if (!_c.isAnimating) _c.repeat();
+        final pauseFrac =
+            _headPause.inMilliseconds / _c.duration!.inMilliseconds;
+        return ClipRect(
+          child: SizedBox(
+            width: boxW,
+            height: tp.height,
+            child: AnimatedBuilder(
+              animation: _c,
+              builder: (context, _) {
+                // 起点停顿后匀速滚动；[T][gap][T] 双份文案在 frac=1 时
+                // 第二份正好顶到第一份的原位 → 无缝循环。
+                final frac = _c.value <= pauseFrac
+                    ? 0.0
+                    : ((_c.value - pauseFrac) / (1 - pauseFrac))
+                        .clamp(0.0, 1.0);
+                return Stack(
+                  children: [
+                    Positioned(
+                      left: -frac * travel,
+                      top: 0,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(widget.text, maxLines: 1, style: widget.style),
+                          SizedBox(width: _gapBase * s),
+                          Text(widget.text, maxLines: 1, style: widget.style),
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// 音量独立页（网易云手表版式）：全屏深底 + 大环形量表 + 中央百分比，
+/// 表冠逐档调节（±4%）+ 加减按钮 + 环上点按/拖拽；4s 无操作自动返回。
+class _VolumePage extends StatefulWidget {
+  const _VolumePage({required this.initial, required this.onChanged});
+
+  final double initial;
+  final ValueChanged<double> onChanged;
+
+  @override
+  State<_VolumePage> createState() => _VolumePageState();
+}
+
+class _VolumePageState extends State<_VolumePage> {
+  static const _crownStep = 0.04; // 表冠一档 4%（细调）
+  static const _btnStep = 0.05; // 按钮一档 5%
+
+  late double _v = widget.initial.clamp(0.0, 1.0).toDouble();
+  Timer? _closeTimer;
+  StreamSubscription<RotaryEvent>? _rotarySub;
+
+  @override
+  void initState() {
+    super.initState();
+    _rotarySub = rotaryEvents.listen(_onRotary);
+    _armAutoClose();
+  }
+
+  @override
+  void dispose() {
+    _rotarySub?.cancel();
+    _closeTimer?.cancel();
+    super.dispose();
+  }
+
+  /// 无操作 4s 自动返回（网易云式）。
+  void _armAutoClose() {
+    _closeTimer?.cancel();
+    _closeTimer = Timer(const Duration(seconds: 4), () {
+      if (mounted && Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+    });
+  }
+
+  void _update(double v, {bool haptic = true}) {
+    final next = v.clamp(0.0, 1.0).toDouble();
+    if (haptic) HapticFeedback.selectionClick();
+    setState(() => _v = next);
+    widget.onChanged(next);
+    _armAutoClose();
+  }
+
+  void _onRotary(RotaryEvent event) {
+    if (!mounted) return;
+    // 本页是路由栈顶时才响应（下方播放页的表冠门禁同样会拦住）。
+    if (ModalRoute.of(context)?.isCurrent != true) return;
+    final dir = event.direction == RotaryDirection.clockwise ? 1 : -1;
+    _update(_v + dir * _crownStep);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.watchScale();
+    final gaugeSize = 150 * s;
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              // 环上点按/拖拽直接设音量（方位角 → 音量，与播放页进度环同法）。
+              onTapDown: (d) => _update(
+                  _PlayPageBodyState._angleToProgress(d.localPosition, gaugeSize),
+                  haptic: false),
+              onPanStart: (d) => _update(
+                  _PlayPageBodyState._angleToProgress(d.localPosition, gaugeSize),
+                  haptic: false),
+              onPanUpdate: (d) => _update(
+                  _PlayPageBodyState._angleToProgress(d.localPosition, gaugeSize),
+                  haptic: false),
+              child: SizedBox(
+                width: gaugeSize,
+                height: gaugeSize,
+                child: CustomPaint(
+                  painter: _VolumeGaugePainter(
+                    value: _v,
+                    strokeWidth: 12 * s,
+                  ),
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '${(_v * 100).round()}',
+                          style: TextStyle(
+                            fontSize: 34 * s,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                        Text(
+                          '音量',
+                          style: TextStyle(
+                            fontSize: 11 * s,
+                            color: Colors.white.withValues(alpha: 0.5),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            SizedBox(height: 16 * s),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _roundBtn(s, Icons.remove_rounded, () => _update(_v - _btnStep)),
+                _roundBtn(s, Icons.add_rounded, () => _update(_v + _btnStep)),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _roundBtn(double s, IconData icon, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      customBorder: const CircleBorder(),
+      child: Ink(
+        width: 54 * s,
+        height: 54 * s,
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.12),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(
+          icon,
+          size: 26 * s,
+          color: Colors.white.withValues(alpha: 0.9),
+        ),
+      ),
+    );
+  }
+}
+
+/// 音量环形量表：整圈底环 + 从 12 点顺时针的音量弧（圆头端点）。
+class _VolumeGaugePainter extends CustomPainter {
+  _VolumeGaugePainter({required this.value, required this.strokeWidth});
+
+  final double value;
+  final double strokeWidth;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Rect.fromCircle(
+      center: size.center(Offset.zero),
+      radius: size.shortestSide / 2,
+    );
+    final track = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..color = Colors.white.withValues(alpha: 0.12);
+    canvas.drawArc(rect, 0, 2 * math.pi, false, track);
+
+    final p = value.clamp(0.0, 1.0);
+    if (p > 0.002) {
+      final arc = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeWidth
+        ..strokeCap = StrokeCap.round
+        ..color = kPlayerAccent;
+      canvas.drawArc(rect, -math.pi / 2, 2 * math.pi * p, false, arc);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_VolumeGaugePainter oldDelegate) =>
+      oldDelegate.value != value || oldDelegate.strokeWidth != strokeWidth;
 }

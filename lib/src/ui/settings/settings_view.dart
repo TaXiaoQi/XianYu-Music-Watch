@@ -7,12 +7,9 @@ import '../../core/app_version.dart';
 import '../../core/settings.dart';
 import '../../core/watch_fit.dart';
 import '../../library/library_provider.dart';
-import '../../link/link_provider.dart';
 import '../../player/stream_cache.dart';
 import '../common/stepped_list.dart';
-import '../controller/watch_controller_page.dart';
 import '../online/plugin_manage_page.dart';
-import '../pair/pair_view.dart';
 import '../../plugin/plugin_provider.dart';
 
 /// 设置主页（导航页，参照移动端分类式设置）：分类入口点进二级页改
@@ -23,35 +20,8 @@ class SettingsView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final s = context.watchScale();
-    final settings =
-        ref.watch(settingsProvider).valueOrNull ?? const AppSettings();
-    final link = ref.watch(linkControllerProvider);
-
-    String linkSubtitle;
-    if (!settings.watchLinkageEnabled) {
-      linkSubtitle = '已关闭';
-    } else {
-      switch (link.phase) {
-        case LinkPhase.connected:
-          linkSubtitle = '已连接 ${link.pairedName ?? ''}';
-        case LinkPhase.connecting:
-          linkSubtitle = '正在连接…';
-        case LinkPhase.disconnected:
-          linkSubtitle = '未连接';
-      }
-    }
 
     final rows = <Widget>[
-      _categoryRow(
-        s: s,
-        color: const Color(0xFF4A90D9),
-        icon: Icons.watch_rounded,
-        title: '手机联动',
-        subtitle: linkSubtitle,
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute<void>(builder: (_) => const _LinkagePage()),
-        ),
-      ),
       _categoryRow(
         s: s,
         color: const Color(0xFFFF4D6E),
@@ -113,32 +83,6 @@ class SettingsView extends ConsumerWidget {
     if (plugins.isEmpty) return '未安装';
     final enabled = plugins.where((p) => p.enabled).length;
     return '$enabled/${plugins.length} 个已启用';
-  }
-}
-
-/// 手机联动二级页：开关 + 连接状态 + 操作按钮。
-class _LinkagePage extends ConsumerWidget {
-  const _LinkagePage();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final s = context.watchScale();
-    final settings =
-        ref.watch(settingsProvider).valueOrNull ?? const AppSettings();
-    final link = ref.watch(linkControllerProvider);
-    return _SteppedPage(rows: [
-      _switchRow(
-        s: s,
-        title: '腕上联动',
-        subtitle: settings.watchLinkageEnabled ? '连接手机后可远程控制播放' : '已关闭，不自动连接手机',
-        value: settings.watchLinkageEnabled,
-        onChanged: (v) =>
-            ref.read(settingsProvider.notifier).setWatchLinkageEnabled(v),
-      ),
-      _linkStatusRow(context, ref, link, 64 * s, s),
-      if (link.phase != LinkPhase.connecting)
-        _linkActionsRow(context, ref, link, 64 * s, s),
-    ]);
   }
 }
 
@@ -824,182 +768,6 @@ Widget _switchRow({
                 onChanged: onChanged),
           ),
         ],
-      ),
-    ),
-  );
-}
-
-/// 联动状态行：已连接（点击进控制页）/ 连接中（可取消）/ 未连接。
-Widget _linkStatusRow(
-    BuildContext context, WidgetRef ref, LinkState link, double pitch, double s) {
-  final controller = ref.read(linkControllerProvider.notifier);
-  late Widget child;
-  switch (link.phase) {
-    case LinkPhase.connected:
-      child = Row(
-        children: [
-          Icon(Icons.watch_rounded, size: 24 * s, color: Colors.greenAccent),
-          SizedBox(width: 12 * s),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(link.pairedName ?? '手机',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                        fontSize: 16 * s, fontWeight: FontWeight.w600)),
-                SizedBox(height: 2 * s),
-                Text('已连接 · 点击进入播放控制',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                        fontSize: 11.5 * s,
-                        color: Colors.white.withValues(alpha: 0.5))),
-              ],
-            ),
-          ),
-        ],
-      );
-    case LinkPhase.connecting:
-      child = Row(
-        children: [
-          SizedBox(
-              width: 20 * s,
-              height: 20 * s,
-              child: CircularProgressIndicator(strokeWidth: 2 * s)),
-          SizedBox(width: 12 * s),
-          Expanded(
-            child: Text('正在连接 ${link.pairedName ?? ''}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 14 * s)),
-          ),
-          TextButton(
-            onPressed: controller.disconnectManually,
-            style: TextButton.styleFrom(
-              padding: EdgeInsets.symmetric(horizontal: 8 * s),
-              minimumSize: Size(0, 32 * s),
-              textStyle: TextStyle(fontSize: 12 * s),
-            ),
-            child: const Text('取消'),
-          ),
-        ],
-      );
-    case LinkPhase.disconnected:
-      child = Row(
-        children: [
-          Icon(Icons.watch_off_rounded,
-              size: 24 * s, color: Colors.white.withValues(alpha: 0.5)),
-          SizedBox(width: 12 * s),
-          Expanded(
-            child: Text(
-              link.pairedAddress == null ? '未配对手机' : '未连接 ${link.pairedName ?? ''}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 16 * s, fontWeight: FontWeight.w600),
-            ),
-          ),
-        ],
-      );
-  }
-  return SizedBox(
-    height: pitch,
-    child: SteppedPill(
-      onTap: link.phase == LinkPhase.connected
-          ? () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                    builder: (_) => const WatchControllerPage()),
-              )
-          : null,
-      child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: 14 * s),
-        child: child,
-      ),
-    ),
-  );
-}
-
-/// 联动操作行：连接态为 播放控制/断开/更换设备，未连接为 重连/配对入口。
-Widget _linkActionsRow(
-    BuildContext context, WidgetRef ref, LinkState link, double pitch, double s) {
-  final accent = const Color(0xFFFF4D6E);
-  final controller = ref.read(linkControllerProvider.notifier);
-  final btnStyle = OutlinedButton.styleFrom(
-    padding: EdgeInsets.symmetric(horizontal: 10 * s, vertical: 2 * s),
-    minimumSize: Size(0, 30 * s),
-    textStyle: TextStyle(fontSize: 11.5 * s),
-  );
-  final List<Widget> buttons;
-  switch (link.phase) {
-    case LinkPhase.connected:
-      buttons = [
-        OutlinedButton(
-          onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(
-                builder: (_) => const WatchControllerPage()),
-          ),
-          style: btnStyle,
-          child: const Text('播放控制'),
-        ),
-        OutlinedButton(
-          onPressed: controller.disconnectManually,
-          style: btnStyle,
-          child: const Text('断开'),
-        ),
-        OutlinedButton(
-          onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(builder: (_) => const PairView()),
-          ),
-          style: btnStyle,
-          child: const Text('更换设备'),
-        ),
-      ];
-    case LinkPhase.connecting:
-      buttons = const [];
-    case LinkPhase.disconnected:
-      buttons = [
-        if (link.pairedAddress != null)
-          OutlinedButton(
-            onPressed: controller.retry,
-            style: btnStyle,
-            child: const Text('重新连接'),
-          )
-        else
-          FilledButton(
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const PairView()),
-            ),
-            style: FilledButton.styleFrom(
-              backgroundColor: accent,
-              padding: EdgeInsets.symmetric(horizontal: 10 * s, vertical: 2 * s),
-              minimumSize: Size(0, 30 * s),
-              textStyle: TextStyle(fontSize: 11.5 * s),
-            ),
-            child: const Text('选择设备'),
-          ),
-        if (link.pairedAddress != null)
-          OutlinedButton(
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const PairView()),
-            ),
-            style: btnStyle,
-            child: const Text('更换设备'),
-          ),
-      ];
-  }
-  return SizedBox(
-    height: pitch,
-    child: SteppedPill(
-      child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: 14 * s),
-        child: Row(children: [
-          for (var i = 0; i < buttons.length; i++) ...[
-            if (i > 0) SizedBox(width: 6 * s),
-            buttons[i],
-          ],
-        ]),
       ),
     ),
   );

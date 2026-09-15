@@ -92,6 +92,7 @@ class _XianYuWatchAppState extends ConsumerState<XianYuWatchApp> {
             children: [
               Positioned.fill(child: nav),
               _EdgeBackStrip(navigatorKey: _navKey),
+              const Positioned.fill(child: _PairRequestHost()),
             ],
           );
         },
@@ -188,6 +189,83 @@ class _EdgeBackStripState extends State<_EdgeBackStrip> {
           if (!isBack) return;
           widget.navigatorKey.currentState?.maybePop();
         },
+      ),
+    );
+  }
+}
+
+/// 手机端发起的配对确认（叠在全部路由之上）：有请求时全屏遮罩 + 确认卡，
+/// 允许 → 采纳连接（后续自动进控制页）；拒绝 → 关闭并回绝。
+class _PairRequestHost extends ConsumerWidget {
+  const _PairRequestHost();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final s = context.watchScale();
+    final name = ref.watch(
+        linkControllerProvider.select((st) => st.incomingName));
+    if (name.isEmpty) return const SizedBox.shrink();
+    return Container(
+      color: Colors.black.withValues(alpha: 0.82),
+      alignment: Alignment.center,
+      child: Padding(
+        padding: EdgeInsets.symmetric(horizontal: 26 * s),
+        child: Material(
+          color: const Color(0xFF1A1A1E),
+          borderRadius: BorderRadius.circular(26 * s),
+          child: Padding(
+            padding: EdgeInsets.all(18 * s),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.watch_rounded,
+                    size: 34 * s, color: const Color(0xFF4A90D9)),
+                SizedBox(height: 10 * s),
+                Text('配对请求',
+                    style: TextStyle(
+                        fontSize: 17 * s, fontWeight: FontWeight.bold)),
+                SizedBox(height: 6 * s),
+                Text(
+                  '「${name.isEmpty ? '手机' : name}」请求连接腕上弦予',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      fontSize: 12.5 * s,
+                      color: Colors.white.withValues(alpha: 0.6)),
+                ),
+                SizedBox(height: 14 * s),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    FilledButton(
+                      onPressed: () =>
+                          ref.read(linkControllerProvider.notifier).acceptIncoming(),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFFFF4D6E),
+                        padding: EdgeInsets.symmetric(
+                            horizontal: 16 * s, vertical: 4 * s),
+                        minimumSize: Size(0, 34 * s),
+                        textStyle: TextStyle(fontSize: 13 * s),
+                      ),
+                      child: const Text('允许'),
+                    ),
+                    SizedBox(width: 10 * s),
+                    OutlinedButton(
+                      onPressed: () =>
+                          ref.read(linkControllerProvider.notifier).rejectIncoming(),
+                      style: OutlinedButton.styleFrom(
+                        padding: EdgeInsets.symmetric(
+                            horizontal: 16 * s, vertical: 4 * s),
+                        minimumSize: Size(0, 34 * s),
+                        textStyle: TextStyle(fontSize: 13 * s),
+                      ),
+                      child: const Text('拒绝'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

@@ -79,77 +79,78 @@ class _TopListPageState extends ConsumerState<TopListPage> {
   @override
   Widget build(BuildContext context) {
     final s = context.watchScale(); // 屏径等比缩放
-    return Scaffold(
-      body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: 4 * s, vertical: 2 * s),
-              child: Row(
-                children: [
-                  const BackButton(),
-                  SizedBox(width: 2 * s),
-                  Text('音源榜单',
-                      style: TextStyle(
-                          fontSize: 15 * s,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white.withValues(alpha: 0.9))),
-                  const Spacer(),
-                  IconButton(
-                    tooltip: '刷新',
-                    onPressed: _loading ? null : _load,
-                    icon: Icon(Icons.refresh_rounded, size: 20 * s),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: _loading
-                  ? Center(
-                      child: SizedBox(
-                        width: 26 * s,
-                        height: 26 * s,
-                        child: CircularProgressIndicator(strokeWidth: 2.4 * s),
-                      ),
-                    )
-                  : _error != null
-                      ? Center(
-                          child: Text(
-                            _error!,
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                                fontSize: 12 * s,
-                                height: 1.7,
-                                color:
-                                    Colors.white.withValues(alpha: 0.5)),
-                          ),
-                        )
-                      : SteppedListView(
-                          itemCount: _entries.length,
-                          itemBuilder: (context, i) {
-                            final (src, it) = _entries[i];
-                            return SteppedTile(
-                              leading: _SheetCover(url: it.coverUrl),
-                              title: it.title,
-                              subtitle: src.name,
-                              trailing: Icon(Icons.chevron_right_rounded,
-                                  size: 22 * s,
-                                  color: Colors.white
-                                      .withValues(alpha: 0.35)),
-                              onTap: () => Navigator.of(context).push(
-                                MaterialPageRoute<void>(
-                                  builder: (_) => TopListDetailPage(
-                                      source: src, item: it),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-            ),
-          ],
-        ),
+    // 页面头：做进滚动内容最顶部（One UI 式，随列表滚走，圆弧适配完整）。
+    final headerRow = Padding(
+      padding: EdgeInsets.symmetric(horizontal: 4 * s),
+      child: Row(
+        children: [
+          const BackButton(),
+          SizedBox(width: 2 * s),
+          Text('音源榜单',
+              style: TextStyle(
+                  fontSize: 15 * s,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white.withValues(alpha: 0.9))),
+          const Spacer(),
+          IconButton(
+            tooltip: '刷新',
+            onPressed: _loading ? null : _load,
+            icon: Icon(Icons.refresh_rounded, size: 20 * s),
+          ),
+        ],
       ),
     );
+    final body = _loading
+        ? Column(children: [
+            headerRow,
+            Expanded(
+              child: Center(
+                child: SizedBox(
+                  width: 26 * s,
+                  height: 26 * s,
+                  child: CircularProgressIndicator(strokeWidth: 2.4 * s),
+                ),
+              ),
+            ),
+          ])
+        : _error != null
+            ? Column(children: [
+                headerRow,
+                Expanded(
+                  child: Center(
+                    child: Text(
+                      _error!,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          fontSize: 12 * s,
+                          height: 1.7,
+                          color: Colors.white.withValues(alpha: 0.5)),
+                    ),
+                  ),
+                ),
+              ])
+            : SteppedListView(
+                header: headerRow,
+                itemCount: _entries.length,
+                itemBuilder: (context, i) {
+                  final (src, it) = _entries[i];
+                  return SteppedTile(
+                    leading: _SheetCover(url: it.coverUrl),
+                    title: it.title,
+                    subtitle: src.name,
+                    trailing: Icon(Icons.chevron_right_rounded,
+                        size: 22 * s,
+                        color: Colors.white.withValues(alpha: 0.35)),
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) =>
+                            TopListDetailPage(source: src, item: it),
+                      ),
+                    ),
+                  );
+                },
+              );
+    return Scaffold(body: SafeArea(child: body));
   }
 }
 
@@ -217,83 +218,85 @@ class _TopListDetailPageState extends ConsumerState<TopListDetailPage> {
   Widget build(BuildContext context) {
     final cover = widget.item.coverUrl;
     final s = context.watchScale(); // 屏径等比缩放
-    return Scaffold(
-      body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: 4 * s, vertical: 2 * s),
-              child: Row(
-                children: [
-                  const BackButton(),
-                  SizedBox(width: 8 * s),
-                  SizedBox(
-                    width: 34 * s,
-                    height: 34 * s,
-                    child: ClipOval(child: _SheetCover(url: cover)),
-                  ),
-                  SizedBox(width: 8 * s),
-                  Expanded(
-                    child: Text(
-                      widget.item.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          fontSize: 14 * s, fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                ],
-              ),
+    // 页面头：做进滚动内容最顶部（One UI 式，随列表滚走，圆弧适配完整）。
+    final headerRow = Padding(
+      padding: EdgeInsets.symmetric(horizontal: 4 * s),
+      child: Row(
+        children: [
+          const BackButton(),
+          SizedBox(width: 8 * s),
+          SizedBox(
+            width: 34 * s,
+            height: 34 * s,
+            child: ClipOval(child: _SheetCover(url: cover)),
+          ),
+          SizedBox(width: 8 * s),
+          Expanded(
+            child: Text(
+              widget.item.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                  fontSize: 14 * s, fontWeight: FontWeight.w600),
             ),
-            Expanded(
-              child: _loading
-                  ? Center(
-                      child: SizedBox(
-                        width: 26 * s,
-                        height: 26 * s,
-                        child: CircularProgressIndicator(strokeWidth: 2.4 * s),
-                      ),
-                    )
-                  : _error != null
-                      ? Center(
-                          child: Text(
-                            _error!,
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                                fontSize: 12 * s,
-                                color: Colors.white.withValues(alpha: 0.5)),
-                          ),
-                        )
-                      : SteppedListView(
-                          itemCount: _songs.length,
-                          itemBuilder: (context, i) {
-                            final r = _songs[i];
-                            return SteppedTile(
-                              leading: SizedBox(
-                                width: 24 * s,
-                                child: Text(
-                                  '${i + 1}',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                      fontSize: 15 * s,
-                                      fontWeight: FontWeight.w700,
-                                      color: i < 3
-                                          ? const Color(0xFFFF6B81)
-                                          : Colors.white
-                                              .withValues(alpha: 0.4)),
-                                ),
-                              ),
-                              title: r.name,
-                              subtitle: r.singer,
-                              onTap: () => _play(i),
-                            );
-                          },
-                        ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
+    final body = _loading
+        ? Column(children: [
+            headerRow,
+            Expanded(
+              child: Center(
+                child: SizedBox(
+                  width: 26 * s,
+                  height: 26 * s,
+                  child: CircularProgressIndicator(strokeWidth: 2.4 * s),
+                ),
+              ),
+            ),
+          ])
+        : _error != null
+            ? Column(children: [
+                headerRow,
+                Expanded(
+                  child: Center(
+                    child: Text(
+                      _error!,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          fontSize: 12 * s,
+                          color: Colors.white.withValues(alpha: 0.5)),
+                    ),
+                  ),
+                ),
+              ])
+            : SteppedListView(
+                header: headerRow,
+                itemCount: _songs.length,
+                itemBuilder: (context, i) {
+                  final r = _songs[i];
+                  return SteppedTile(
+                    leading: SizedBox(
+                      width: 24 * s,
+                      child: Text(
+                        '${i + 1}',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                            fontSize: 15 * s,
+                            fontWeight: FontWeight.w700,
+                            color: i < 3
+                                ? const Color(0xFFFF6B81)
+                                : Colors.white.withValues(alpha: 0.4)),
+                      ),
+                    ),
+                    title: r.name,
+                    subtitle: r.singer,
+                    onTap: () => _play(i),
+                  );
+                },
+              );
+    return Scaffold(body: SafeArea(child: body));
   }
 }
 

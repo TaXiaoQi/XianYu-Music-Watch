@@ -20,76 +20,82 @@ class DailyRecommendPage extends ConsumerWidget {
     final async = ref.watch(dailyRecommendProvider);
     final s = context.watchScale(); // 屏径等比缩放
 
+    // 页面头：做进滚动内容最顶部（One UI 式，随列表滚走，圆弧适配完整）。
+    final headerRow = Padding(
+      padding: EdgeInsets.symmetric(horizontal: 4 * s),
+      child: Row(
+        children: [
+          const BackButton(),
+          SizedBox(width: 2 * s),
+          Text('每日推荐',
+              style: TextStyle(
+                  fontSize: 15 * s,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white.withValues(alpha: 0.9))),
+          const Spacer(),
+          IconButton(
+            tooltip: '换一批',
+            onPressed: () =>
+                ref.read(dailyRecommendProvider.notifier).refresh(),
+            icon: Icon(Icons.casino_rounded, size: 20 * s),
+          ),
+        ],
+      ),
+    );
+    // 无列表状态（加载/错误/未登录/空）自行渲染头部，保持标题可见。
+    Widget stateBody(Widget child) =>
+        Column(children: [headerRow, Expanded(child: child)]);
+
     return Scaffold(
       body: SafeArea(
-        child: Column(
-          children: [
-            // 顶栏：返回 + 标题 + 换一批。
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: 4 * s, vertical: 2 * s),
-              child: Row(
-                children: [
-                  const BackButton(),
-                  SizedBox(width: 2 * s),
-                  Text('每日推荐',
-                      style: TextStyle(
-                          fontSize: 15 * s,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white.withValues(alpha: 0.9))),
-                  const Spacer(),
-                  IconButton(
-                    tooltip: '换一批',
-                    onPressed: () =>
-                        ref.read(dailyRecommendProvider.notifier).refresh(),
-                    icon: Icon(Icons.casino_rounded, size: 20 * s),
-                  ),
-                ],
+        child: async.when(
+          loading: () => stateBody(
+            Center(
+              child: SizedBox(
+                width: 26 * s,
+                height: 26 * s,
+                child: CircularProgressIndicator(strokeWidth: 2.4 * s),
               ),
             ),
-            Expanded(
-              child: async.when(
-                loading: () => Center(
-                  child: SizedBox(
-                    width: 26 * s,
-                    height: 26 * s,
-                    child: CircularProgressIndicator(strokeWidth: 2.4 * s),
+          ),
+          error: (e, _) => stateBody(
+            _EmptyView(
+              icon: Icons.cloud_off_rounded,
+              text: '$e',
+              actionLabel: '重试',
+              onAction: () =>
+                  ref.invalidate(dailyRecommendProvider),
+            ),
+          ),
+          data: (st) {
+            if (!st.loggedIn) {
+              return stateBody(
+                _EmptyView(
+                  icon: Icons.lock_rounded,
+                  text: '登录后解锁每日推荐\n基于你的听歌记录，每天为你量身定制',
+                  actionLabel: '去登录',
+                  onAction: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                        builder: (_) => const AccountView()),
                   ),
                 ),
-                error: (e, _) => _EmptyView(
-                  icon: Icons.cloud_off_rounded,
-                  text: '每日推荐获取失败\n$e',
-                  actionLabel: '重试',
-                  onAction: () =>
-                      ref.invalidate(dailyRecommendProvider),
+              );
+            }
+            if (st.items.isEmpty) {
+              return stateBody(
+                _EmptyView(
+                  icon: Icons.extension_off_rounded,
+                  text: '没有可用插件，无法生成推荐',
+                  actionLabel: '去插件管理',
+                  onAction: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                        builder: (_) => const PluginManagePage()),
+                  ),
                 ),
-                data: (st) {
-                  if (!st.loggedIn) {
-                    return _EmptyView(
-                      icon: Icons.lock_rounded,
-                      text: '登录后解锁每日推荐\n基于你的听歌记录，每天为你量身定制',
-                      actionLabel: '去登录',
-                      onAction: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                            builder: (_) => const AccountView()),
-                      ),
-                    );
-                  }
-                  if (st.items.isEmpty) {
-                    return _EmptyView(
-                      icon: Icons.extension_off_rounded,
-                      text: '没有可用插件，无法生成推荐',
-                      actionLabel: '去插件管理',
-                      onAction: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                            builder: (_) => const PluginManagePage()),
-                      ),
-                    );
-                  }
-                  return _RecommendList(items: st.items);
-                },
-              ),
-            ),
-          ],
+              );
+            }
+            return _RecommendList(items: st.items, header: headerRow);
+          },
         ),
       ),
     );
@@ -97,15 +103,17 @@ class DailyRecommendPage extends ConsumerWidget {
 }
 
 class _RecommendList extends ConsumerWidget {
-  const _RecommendList({required this.items});
+  const _RecommendList({required this.items, required this.header});
 
   final List<DailyRecommendItem> items;
+  final Widget header;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final s = context.watchScale(); // 屏径等比缩放
     // 功能页同款圆屏阶梯列表：一屏约三行，焦点行最大铺满中部。
     return SteppedListView(
+      header: header,
       itemCount: items.length,
       itemBuilder: (context, i) {
         final it = items[i];

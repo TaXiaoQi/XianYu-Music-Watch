@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/widgets.dart';
@@ -46,27 +48,19 @@ class LinkNowPlaying {
         cover: p['cover'] as String?,
         duration: (p['duration'] as num?)?.toDouble() ?? 0,
       );
+
+  LinkNowPlaying copyWith({String? cover}) => LinkNowPlaying(
+        id: id,
+        title: title,
+        artist: artist,
+        album: album,
+        cover: cover ?? this.cover,
+        duration: duration,
+      );
 }
 
 /// 联接状态（手表侧 UI 订阅）。
 class LinkState {
-  const LinkState({
-    this.phase = LinkPhase.disconnected,
-    this.phoneName = '',
-    this.autoEnabled = true,
-    this.pairedAddress,
-    this.pairedName,
-    this.now,
-    this.isPlaying = false,
-    this.playMode = LinkPlayMode.order,
-    this.liked = false,
-    this.volume,
-    this.position = 0,
-    this.viaCloud = false,
-    this.lyricSongId,
-    this.lyricPayload,
-  });
-
   final LinkPhase phase;
   final String phoneName;
 
@@ -94,6 +88,29 @@ class LinkState {
   final String? lyricSongId;
   final String? lyricPayload;
 
+  /// 手机端主动发起、待手表确认的配对请求（非空时 UI 弹确认框）。
+  final String incomingName;
+  final String incomingAddress;
+
+  const LinkState({
+    this.phase = LinkPhase.disconnected,
+    this.phoneName = '',
+    this.autoEnabled = true,
+    this.pairedAddress,
+    this.pairedName,
+    this.now,
+    this.isPlaying = false,
+    this.playMode = LinkPlayMode.order,
+    this.liked = false,
+    this.volume,
+    this.position = 0,
+    this.viaCloud = false,
+    this.lyricSongId,
+    this.lyricPayload,
+    this.incomingName = '',
+    this.incomingAddress = '',
+  });
+
   LinkState copyWith({
     LinkPhase? phase,
     String? phoneName,
@@ -109,6 +126,8 @@ class LinkState {
     bool? viaCloud,
     Object? lyricSongId = _noChange,
     Object? lyricPayload = _noChange,
+    String? incomingName,
+    String? incomingAddress,
   }) =>
       LinkState(
         phase: phase ?? this.phase,
@@ -134,6 +153,8 @@ class LinkState {
         lyricPayload: lyricPayload == _noChange
             ? this.lyricPayload
             : lyricPayload as String?,
+        incomingName: incomingName ?? this.incomingName,
+        incomingAddress: incomingAddress ?? this.incomingAddress,
       );
 }
 
@@ -191,8 +212,11 @@ class LinkController extends StateNotifier<LinkState> {
     _subs.add(_channel.onRaw.listen(_onRaw));
     _subs.add(_channel.onConnection.listen(_onConnection));
     _subs.add(_channel.onPermission.listen(_onPermission));
+    _subs.add(_channel.onIncomingPair.listen(_onIncomingPair));
     _subs.add(_cloud.onRaw.listen(_onRaw));
     _subs.add(_cloud.onEvent.listen(_onCloudEvent));
+    // 反向配对服务端：手机可主动发起连接，手表端弹确认。
+    _channel.startServer();
 
     final prefs = await SharedPreferences.getInstance();
     final addr = prefs.getString('watch.pairedAddress');
@@ -302,6 +326,36 @@ class LinkController extends StateNotifier<LinkState> {
     _attemptConnect();
   }
 
+  /// 采纳手机端发起的配对请求（确认弹窗「允许」）。
+  void acceptIncoming() {
+    _reconnect?.cancel();
+    _backoff = _minBackoff;
+    state = state.copyWith(
+      phase: LinkPhase.connecting,
+      incomingName: '',
+      incomingAddress: '',
+    );
+    _channel.acceptPair();
+  }
+
+  /// 拒绝手机端发起的配对请求（确认弹窗「拒绝」）。
+  void rejectIncoming() {
+    _channel.rejectPair();
+    state = state.copyWith(incomingName: '', incomingAddress: '');
+  }
+
+  /// 手机端主动连入（反向配对）：忙时静默拒绝，空闲时弹确认。
+  void _onIncomingPair(IncomingPairRequest req) {
+    if (state.phase != LinkPhase.disconnected) {
+      _channel.rejectPair();
+      return;
+    }
+    state = state.copyWith(
+      incomingName: req.name,
+      incomingAddress: req.address,
+    );
+  }
+
   /// 已配对设备列表（设备选择页用）。
   Future<List<BondedDevice>> loadPairedDevices() =>
       _channel.pairedDevices();
@@ -335,6 +389,8 @@ class LinkController extends StateNotifier<LinkState> {
 
   void _onConnection(LinkConnectionEvent evt) {
     _reconnect?.cancel();
+    // 任何连接结果到达，未决的配对弹窗即失效（可能已被 accept 采纳）。
+    state = state.copyWith(incomingName: '', incomingAddress: '');
     if (evt.connected) {
       _decoder = FrameDecoder();
       _viaCloud = false;
@@ -527,6 +583,15 @@ class LinkController extends StateNotifier<LinkState> {
       case LinkMsgType.nowPlaying:
         final now = LinkNowPlaying.fromPayload(msg.payload);
         state = state.copyWith(now: now, position: 0);
+        // 手机端本地歌封面（base64 JPEG）：落盘后挂到 now 上，背景/小封面复用
+        // 文件路径链路。序号守卫防异步写盘期间切歌导致错挂。
+        final coverData = msg.payload['coverData'] as String?;
+        if (coverData != null && coverData.isNotEmpty) {
+          _saveLinkCover(now.id, coverData).then((path) {
+            if (path == null || state.now?.id != now.id) return;
+            state = state.copyWith(now: state.now!.copyWith(cover: path));
+          });
+        }
         // 高德腕上式拉起：手机开播而手表在后台 → fullScreenIntent。
         final lifecycle =
             WidgetsBinding.instance.lifecycleState ?? AppLifecycleState.resumed;
@@ -601,6 +666,38 @@ class LinkController extends StateNotifier<LinkState> {
       }
     } catch (_) {
       // 发送失败静默：断连由读线程统一上报。
+    }
+  }
+
+  /// 联动封面落盘：按歌曲 id 命名（FileImage/背景模糊按路径缓存，同名覆盖
+  /// 会切歌不刷新），保留最新 3 张，其余清理防堆积。
+  Future<String?> _saveLinkCover(String songId, String base64Data) async {
+    try {
+      final bytes = base64Decode(base64Data);
+      if (bytes.isEmpty) return null;
+      final dir = Directory.systemTemp;
+      final f = File(
+          '${dir.path}/xianyu_link_cover_${songId.hashCode.abs() % 0x7FFFFFFF}.jpg');
+      await f.writeAsBytes(bytes, flush: true);
+      // 清理旧封面（保留当前 + 最新 2 张）。
+      try {
+        final olds = dir
+            .listSync()
+            .whereType<File>()
+            .where((e) =>
+                e.path.startsWith('${dir.path}/xianyu_link_cover_') &&
+                e.path != f.path)
+            .toList()
+          ..sort((a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()));
+        for (var i = 2; i < olds.length; i++) {
+          try {
+            olds[i].deleteSync();
+          } catch (_) {}
+        }
+      } catch (_) {}
+      return f.path;
+    } catch (_) {
+      return null;
     }
   }
 }

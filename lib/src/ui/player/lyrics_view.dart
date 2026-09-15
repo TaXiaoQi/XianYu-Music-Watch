@@ -40,6 +40,10 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
   /// 行高（build 里按屏径等比更新；居中滚动按行号直算依赖此值）。
   double _rowExtent = 32;
 
+  /// 列表上下留白（build 里按屏高刷新；居中滚动必须计入顶部留白，
+  /// 否则当前行会落在屏幕偏下位置）。
+  double _vPad = 0;
+
   final ScrollController _scroll = ScrollController();
   TimingNavigator? _navigator;
   List<LyricLine> _lines = const [];
@@ -94,9 +98,10 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
   void _centerOn(int index) {
     if (!_scroll.hasClients) return;
     final viewport = _scroll.position.viewportDimension;
-    final target =
-        (index * _rowExtent + _rowExtent / 2 - viewport / 2)
-            .clamp(0.0, _scroll.position.maxScrollExtent);
+    // 条目在内容里的位置含顶部留白：目标 = 留白 + 行中心 - 半视口，
+    // 少算留白当前行会停在偏下（30% 屏高处正好差一整个留白）。
+    final target = (_vPad + index * _rowExtent + _rowExtent / 2 - viewport / 2)
+        .clamp(0.0, _scroll.position.maxScrollExtent);
     if (ref.read(ambientModeProvider)) {
       _scroll.jumpTo(target);
       return;
@@ -119,6 +124,8 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
     _showTranslation = settings?.showLyricsTranslation ?? true;
     // 行高随字号档位等比缩放，保证固定 itemExtent 居中直算不溢出。
     _rowExtent = 32 * s * fontMul;
+    // 上下留白 30% 屏高（居中滚动需要同源数值，见 _centerOn）。
+    _vPad = MediaQuery.of(context).size.height * 0.3;
 
     // 环境模式参与重建：ambient 冻结时静态渲染当前帧即可。
     ref.watch(ambientModeProvider);
@@ -157,7 +164,7 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
         controller: _scroll,
         itemExtent: _rowExtent,
         padding: EdgeInsets.symmetric(
-          vertical: MediaQuery.of(context).size.height * 0.3,
+          vertical: _vPad,
           horizontal: 16 * s,
         ),
         itemCount: _lines.length,

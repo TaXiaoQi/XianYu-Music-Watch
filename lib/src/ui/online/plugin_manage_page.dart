@@ -167,83 +167,90 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
     final sources = list.sources;
     final updateCount = sources.where((s) => s.updateAvailable).length;
 
-    return Scaffold(
-      body: SafeArea(
-        child: Column(
-          children: [
-            // 顶栏：返回 + 标题 + 检测更新 + 添加。
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: 4 * s, vertical: 2 * s),
-              child: Row(
-                children: [
-                  const BackButton(),
-                  SizedBox(width: 2 * s),
-                  Text('插件管理',
-                      style: TextStyle(
-                          fontSize: 15 * s,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white.withValues(alpha: 0.9))),
-                  const Spacer(),
-                  IconButton(
-                    tooltip: '检测全部更新',
-                    onPressed: _checking ? null : _checkAllUpdates,
-                    icon: _checking
-                        ? SizedBox(
-                            width: 16 * s,
-                            height: 16 * s,
-                            child:
-                                CircularProgressIndicator(strokeWidth: 2 * s))
-                        : Icon(Icons.sync_rounded, size: 20 * s),
-                  ),
-                  IconButton(
-                    tooltip: '添加插件',
-                    onPressed: _addPlugin,
-                    icon: Icon(Icons.add_circle_outline_rounded, size: 22 * s),
-                  ),
-                ],
+    // 页面头：做进滚动内容最顶部（One UI 式，随列表滚走，圆弧适配完整）。
+    // 有可更新插件时头部下挂「一键更新」横幅，条带相应加高。
+    final header = Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: 4 * s),
+          child: Row(
+            children: [
+              const BackButton(),
+              SizedBox(width: 2 * s),
+              Text('插件管理',
+                  style: TextStyle(
+                      fontSize: 15 * s,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white.withValues(alpha: 0.9))),
+              const Spacer(),
+              IconButton(
+                tooltip: '检测全部更新',
+                onPressed: _checking ? null : _checkAllUpdates,
+                icon: _checking
+                    ? SizedBox(
+                        width: 16 * s,
+                        height: 16 * s,
+                        child:
+                            CircularProgressIndicator(strokeWidth: 2 * s))
+                    : Icon(Icons.sync_rounded, size: 20 * s),
               ),
-            ),
-            if (updateCount > 0)
-              Padding(
-                padding:
-                    EdgeInsets.only(left: 16 * s, right: 16 * s, bottom: 4 * s),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.tonal(
-                    onPressed: _updateAll,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFFFF4D6E),
-                      foregroundColor: Colors.white,
-                      minimumSize: Size(0, 34 * s),
-                      padding: EdgeInsets.symmetric(vertical: 6 * s),
-                    ),
-                    child: Text('一键更新 $updateCount 个插件',
-                        style: TextStyle(fontSize: 12 * s)),
-                  ),
-                ),
+              IconButton(
+                tooltip: '添加插件',
+                onPressed: _addPlugin,
+                icon: Icon(Icons.add_circle_outline_rounded, size: 22 * s),
               ),
-            Expanded(
-              child: sources.isEmpty
-                  ? Center(
-                      child: Text(
-                        '暂无插件\n点右上角 + 添加在线音源',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                            fontSize: 12 * s,
-                            height: 1.8,
-                            color: Colors.white.withValues(alpha: 0.4)),
-                      ),
-                    )
-                  : SteppedListView(
-                      itemCount: sources.length,
-                      // 局部变量改名为 src，避免遮蔽缩放系数 s。
-                      itemBuilder: (context, i) => _pluginTile(sources[i], s: s),
-                    ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
+        if (updateCount > 0)
+          Padding(
+            padding:
+                EdgeInsets.only(left: 16 * s, right: 16 * s, bottom: 4 * s),
+            child: SizedBox(
+              width: double.infinity,
+              child: FilledButton.tonal(
+                onPressed: _updateAll,
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFFFF4D6E),
+                  foregroundColor: Colors.white,
+                  minimumSize: Size(0, 34 * s),
+                  padding: EdgeInsets.symmetric(vertical: 6 * s),
+                ),
+                child: Text('一键更新 $updateCount 个插件',
+                    style: TextStyle(fontSize: 12 * s)),
+              ),
+            ),
+          ),
+      ],
     );
+    Widget? body;
+    if (sources.isEmpty) {
+      body = Column(children: [
+        header,
+        Expanded(
+          child: Center(
+            child: Text(
+              '暂无插件\n点右上角 + 添加在线音源',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  fontSize: 12 * s,
+                  height: 1.8,
+                  color: Colors.white.withValues(alpha: 0.4)),
+            ),
+          ),
+        ),
+      ]);
+    } else {
+      body = SteppedListView(
+        header: header,
+        headerExtent: updateCount > 0 ? 96 : 56,
+        itemCount: sources.length,
+        // 局部变量改名为 src，避免遮蔽缩放系数 s。
+        itemBuilder: (context, i) => _pluginTile(sources[i], s: s),
+      );
+    }
+    return Scaffold(body: SafeArea(child: body));
   }
 
   Widget _pluginTile(PluginSource src, {required double s}) {

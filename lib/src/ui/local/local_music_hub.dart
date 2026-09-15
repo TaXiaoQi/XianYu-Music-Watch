@@ -18,6 +18,7 @@ import '../home/daily_recommend_page.dart';
 import '../../plugin/plugin_provider.dart';
 import '../online/search_page.dart';
 import '../online/toplist_page.dart';
+import '../link/link_page.dart';
 import '../settings/settings_view.dart';
 import 'local_library_view.dart';
 
@@ -196,12 +197,14 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
       backgroundColor: Colors.transparent,
       body: SafeArea(
         child: SteppedListView(
-          itemCount: specs.length,
+          itemCount: specs.length + 1,
           // 本页在 PageView 中：表冠是全局流，仅第 0 页且无上层推送页时
           // 才归本页，否则隐藏页会误滚动误振动。
           rotaryGuard: () => ref.read(localHubPageProvider) == 0,
           itemBuilder: (context, i) {
-            final (color, icon, label, onTap) = specs[i];
+            // 第一位固定为腕上联动入口（初次配对只能手表发起，必须显眼）。
+            if (i == 0) return const LinkEntryTile();
+            final (color, icon, label, onTap) = specs[i - 1];
             return SteppedTile(
               leading: SteppedLeadCircle(
                 color: color,

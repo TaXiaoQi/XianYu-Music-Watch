@@ -3,10 +3,12 @@ package com.xianyumusic.watch
 import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
+import android.view.MotionEvent
 import android.view.WindowManager
 import android.view.ViewTreeObserver
 import androidx.wear.ambient.AmbientLifecycleObserver
 import com.ryanheise.audioservice.AudioServiceActivity
+import com.samsung.wearable_rotary.WearableRotaryPlugin
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
@@ -117,6 +119,19 @@ class MainActivity : AudioServiceActivity() {
                 }
             }
     }
+
+    /**
+     * 表冠旋转事件转发：wearable_rotary 插件不会自己挂监听，要求宿主
+     * Activity 重写 dispatchGenericMotionEvent 手动喂给它（SOURCE_ROTARY_
+     * ENCODER 的 ACTION_SCROLL 才会被消费）。不转发 = 表冠事件永远进不了
+     * Flutter（列表滚不动、播放页调不了音量）。
+     */
+    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean =
+        if (WearableRotaryPlugin.onGenericMotionEvent(event)) {
+            true
+        } else {
+            super.dispatchGenericMotionEvent(event)
+        }
 
     override fun onRequestPermissionsResult(
         requestCode: Int,
