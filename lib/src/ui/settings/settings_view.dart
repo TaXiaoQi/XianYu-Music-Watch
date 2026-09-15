@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:wearable_rotary/wearable_rotary.dart';
 
+import '../../core/app_version.dart';
 import '../../core/settings.dart';
 import '../../core/watch_fit.dart';
 import '../../library/library_provider.dart';
@@ -97,7 +98,7 @@ class SettingsView extends ConsumerWidget {
         color: const Color(0xFF5FA97C),
         icon: Icons.info_rounded,
         title: '关于',
-        subtitle: 'v0.1.0+1 · 弦予音乐 腕上版',
+        subtitle: 'v$kAppVersion · 弦予音乐 腕上版',
         onTap: () => Navigator.of(context).push(
           MaterialPageRoute<void>(builder: (_) => const _AboutPage()),
         ),
@@ -671,7 +672,7 @@ class _AboutPage extends ConsumerWidget {
         s: s,
         icon: Icon(Icons.music_note_rounded, size: 20 * s),
         title: '弦予音乐 腕上版',
-        subtitle: 'v0.1.0+1 · 独立播放 / 手机联动',
+        subtitle: 'v$kAppVersion · 独立播放 / 手机联动',
       ),
     ]);
   }
