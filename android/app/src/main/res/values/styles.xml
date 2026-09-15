@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Theme applied to the Android Window while the process is starting when the OS's Dark Mode setting is off -->
-    <!-- 深色主题：应用本体为深色，亮色主题会在启动瞬间闪白方块（圆表上
-         尤其突兀）。启动图 drawable(黑)/drawable-round(黑底圆环) 按屏幕
-         形状自动分流。 -->
+    <!-- 白底品牌启动图（drawable/drawable-round 按屏幕形状自动分流，与手机端
+         日间启动图同源）；主题本身保持深色，不影响 windowBackground 绘制。 -->
     <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
         <!-- Show a splash screen on the activity. Automatically removed when
              the Flutter engine draws its first frame -->

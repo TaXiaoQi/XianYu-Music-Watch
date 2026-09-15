@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#FFFFFF</color>
+    <!-- 启动图背景：白底（与手机端日间启动图同款；腕上端无昼夜分流，
+         固定白底品牌观感） -->
+    <color name="splash_background">#FFFFFF</color>
 </resources>

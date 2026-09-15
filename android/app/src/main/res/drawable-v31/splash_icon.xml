@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+ 系统闪屏图标（与手机端 drawable-v31/splash_icon.xml 同方案）。
+     实测要点：
+     1) windowSplashScreenAnimatedIcon 写全出血裸 PNG（非自适应 drawable）会被
+        系统按整个 icon 区域渲染——logo 直接撑满表盘；
+     2) 透明底 adaptive icon 在部分兼容层上透明背景层被垫黑，出现黑方块。
+     对策：background 层用 @color/splash_background（白，与窗口启动图同色，
+     被垫色时与背景无缝隐形）；前景 splash_foreground 是把 logo 按 0.31 占比
+     预缩放进方形画布的 PNG（各密度），系统闪屏内即得合适大小。 -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/splash_background"/>
+    <foreground android:drawable="@drawable/splash_foreground"/>
+</adaptive-icon>
