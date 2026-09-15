@@ -245,7 +245,7 @@ class _LocalPlayPage extends ConsumerWidget {
         liked,
       ),
       emptyText: '还没有在播的歌',
-      emptyActionLabel: '去选歌',
+      emptyActionLabel: '无音乐，去选歌',
       onEmptyAction: () => ref.read(localHubPageProvider.notifier).state = 0,
       // 表冠门禁：仅播放页是 PageView 当前页时才调音量。
       rotaryGuard: () => ref.read(localHubPageProvider) == 1,
