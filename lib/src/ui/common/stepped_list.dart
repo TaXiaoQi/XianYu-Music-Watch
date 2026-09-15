@@ -2,9 +2,9 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:wearable_rotary/wearable_rotary.dart';
 
+import '../../core/haptics.dart';
 import '../../core/watch_fit.dart';
 import 'rotary_input.dart';
 
@@ -87,7 +87,7 @@ class _SteppedListViewState extends State<SteppedListView> {
       duration: const Duration(milliseconds: 120),
       curve: Curves.easeOutCubic,
     );
-    HapticFeedback.selectionClick(); // 表冠档位振动反馈
+    Haptics.tick(); // 表冠档位振动反馈（原生直振，兼容华为表）
   }
 
   @override

@@ -18,6 +18,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- 表冠/点选触觉反馈：Vibrator 直振不走 View.performHapticFeedback，
+         需要普通权限 VIBRATE（安装即授予）。 -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:label="${appLabel}"

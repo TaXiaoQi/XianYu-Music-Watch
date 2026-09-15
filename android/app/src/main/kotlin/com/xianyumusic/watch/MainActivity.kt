@@ -3,6 +3,9 @@ package com.xianyumusic.watch
 import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.view.MotionEvent
 import android.view.WindowManager
 import android.view.ViewTreeObserver
@@ -118,6 +121,40 @@ class MainActivity : AudioServiceActivity() {
                     result.notImplemented()
                 }
             }
+        // 触觉反馈直振：Flutter HapticFeedback.selectionClick 走
+        // View.performHapticFeedback(CLOCK_TICK)，受系统「触摸时振动」开关
+        // 影响，华为表兼容层上常被静默忽略（用户体感无振动）。这里用
+        // Vibrator 直接打轻脉冲，不受该开关影响。
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "xianyu/haptics")
+            .setMethodCallHandler { call, result ->
+                if (call.method == "tick") {
+                    runOnUiThread { result.success(hapticTick()) }
+                } else {
+                    result.notImplemented()
+                }
+            }
+    }
+
+    /** 表冠档位/点选确认轻脉冲（约 18ms）。返回 false = 设备无振动器。 */
+    private fun hapticTick(): Boolean {
+        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            (getSystemService(VIBRATOR_MANAGER_SERVICE) as? VibratorManager)?.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            getSystemService(VIBRATOR_SERVICE) as? Vibrator
+        } ?: return false
+        if (!vibrator.hasVibrator()) return false
+        return runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val amplitude =
+                    if (vibrator.hasAmplitudeControl()) 96 else VibrationEffect.DEFAULT_AMPLITUDE
+                vibrator.vibrate(VibrationEffect.createOneShot(18, amplitude))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(18)
+            }
+            true
+        }.getOrDefault(false)
     }
 
     /**
