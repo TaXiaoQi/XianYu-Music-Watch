@@ -195,6 +195,10 @@ class LinkController extends StateNotifier<LinkState> {
   /// 云连接尝试进行中（防重入）。
   bool _cloudTryActive = false;
 
+  /// 手机预载的歌词缓存（id → payload）：precache 帧先到，切歌 now_playing
+  /// 到达时立即命中，免等手机重发。上限防膨胀。
+  final Map<String, String> _lyricCache = {};
+
   /// 拉起回调：收到 now_playing 且应用在后台时触发
   ///（Kotlin 侧发 fullScreenIntent 高优先级通知拉起控制页）。
   void Function(String title, String artist)? onBackgroundNowPlaying;
@@ -582,7 +586,21 @@ class LinkController extends StateNotifier<LinkState> {
         );
       case LinkMsgType.nowPlaying:
         final now = LinkNowPlaying.fromPayload(msg.payload);
-        state = state.copyWith(now: now, position: 0);
+        // 预载封面命中：手机起播时提前推过的封面已在本机（precache 落盘
+        // 同一命名），直接挂文件路径——免等 coverData 重传，更免在线歌
+        // 手表二次拉 URL（联动切歌几秒丢封面的主因）。
+        final preCover = _linkCoverPathFor(now.id);
+        state = state.copyWith(
+          now: preCover != null && File(preCover).existsSync()
+              ? now.copyWith(cover: preCover)
+              : now,
+          position: 0,
+        );
+        // 预载歌词命中：歌词立刻可用；手机随后重发的同内容 lyric 帧幂等。
+        final cachedLyric = _lyricCache[now.id];
+        if (cachedLyric != null) {
+          state = state.copyWith(lyricSongId: now.id, lyricPayload: cachedLyric);
+        }
         // 手机端本地歌封面（base64 JPEG）：落盘后挂到 now 上，背景/小封面复用
         // 文件路径链路。序号守卫防异步写盘期间切歌导致错挂。
         final coverData = msg.payload['coverData'] as String?;
@@ -610,6 +628,22 @@ class LinkController extends StateNotifier<LinkState> {
         final payload = lyric['payload'] as String?;
         if (id == null || id.isEmpty || payload == null) break;
         state = state.copyWith(lyricSongId: id, lyricPayload: payload);
+      case LinkMsgType.precache:
+        // 下一首预载：封面按 id 落盘（与 now_playing coverData 同一命名，
+        // 切歌时命中）、歌词进缓存；静默接收，不影响当前 UI 状态。
+        final p = msg.payload['precache'];
+        if (p is! Map) break;
+        final pid = p['id'] as String?;
+        if (pid == null || pid.isEmpty) break;
+        final pcover = p['cover'] as String?;
+        if (pcover != null && pcover.isNotEmpty) {
+          _saveLinkCover(pid, pcover);
+        }
+        final plyric = p['lyric'] as String?;
+        if (plyric != null && plyric.isNotEmpty) {
+          if (_lyricCache.length > 8) _lyricCache.clear();
+          _lyricCache[pid] = plyric;
+        }
       case LinkMsgType.hello:
         // 手机侧 hello（握手回应），phoneName 以 onConnection 事件为准。
         break;
@@ -669,18 +703,24 @@ class LinkController extends StateNotifier<LinkState> {
     }
   }
 
+  /// 联动封面落盘路径（与 [_saveLinkCover] 同一命名；预载命中检查用）。
+  String? _linkCoverPathFor(String songId) {
+    if (songId.isEmpty) return null;
+    return '${Directory.systemTemp.path}'
+        '/xianyu_link_cover_${songId.hashCode.abs() % 0x7FFFFFFF}.jpg';
+  }
+
   /// 联动封面落盘：按歌曲 id 命名（FileImage/背景模糊按路径缓存，同名覆盖
   /// 会切歌不刷新），保留最新 3 张，其余清理防堆积。
   Future<String?> _saveLinkCover(String songId, String base64Data) async {
     try {
       final bytes = base64Decode(base64Data);
       if (bytes.isEmpty) return null;
-      final dir = Directory.systemTemp;
-      final f = File(
-          '${dir.path}/xianyu_link_cover_${songId.hashCode.abs() % 0x7FFFFFFF}.jpg');
+      final f = File(_linkCoverPathFor(songId)!);
       await f.writeAsBytes(bytes, flush: true);
       // 清理旧封面（保留当前 + 最新 2 张）。
       try {
+        final dir = Directory.systemTemp;
         final olds = dir
             .listSync()
             .whereType<File>()
