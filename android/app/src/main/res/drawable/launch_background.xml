@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 启动闪屏（方形屏兜底）：白底 + 居中品牌 logo（日间品牌色版，与手机端
-     日间启动图同源）。88dp 约占表盘 40%：过大在圆表上顶满屏缘。圆形屏由
+     日间启动图同源）。64dp 约占表盘 29%：过大在圆表上顶满屏缘。圆形屏由
      drawable-round 提供同款启动图。 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@color/splash_background" />
-    <item android:gravity="center" android:width="88dp" android:height="88dp">
+    <item android:gravity="center" android:width="64dp" android:height="64dp">
         <bitmap
             android:src="@drawable/splash_logo"
             android:gravity="center" />

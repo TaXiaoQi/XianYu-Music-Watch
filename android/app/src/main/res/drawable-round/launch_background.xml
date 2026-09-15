@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 启动闪屏（圆形屏专用，round 资源限定符自动生效）：白底 + 居中品牌
-     logo（日间品牌色版，与方形屏/手机端同源），88dp 不顶满表盘。 -->
+     logo（日间品牌色版，与方形屏/手机端同源），64dp 不顶满表盘。 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@color/splash_background" />
-    <item android:gravity="center" android:width="88dp" android:height="88dp">
+    <item android:gravity="center" android:width="64dp" android:height="64dp">
         <bitmap
             android:src="@drawable/splash_logo"
             android:gravity="center" />

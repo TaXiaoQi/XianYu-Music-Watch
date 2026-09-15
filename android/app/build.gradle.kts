@@ -75,6 +75,9 @@ android {
 
     buildTypes {
         debug {
+            // debug 包名加 .debug 后缀：与正式版（com.xianyumusic.watch）共存，
+            // flutter run 不再顶掉正式安装包（与移动端同款做法）
+            applicationIdSuffix = ".debug"
             // debug 显示名加「·测试」后缀，多任务/桌面与正式版一眼区分
             manifestPlaceholders["appLabel"] = "腕上弦予·测试"
         }
@@ -155,7 +158,7 @@ tasks.matching { it.name == "preBuild" }.configureEach {
 }
 
 // 正式包自动归档：assembleRelease 完成后把 release APK（arm64+armv7 双 ABI）
-// 复制到 releases/android/弦予音乐v<版本>-Watch.apk（预发布版本名自带
+// 复制到 releases/android/弦予音乐v<版本>-Watch-<架构>.apk（预发布版本名自带
 // -betaN 后缀），让裸 `flutter build apk --release` 一条命令出正式包并归档
 // （与移动端同款钩子）。
 tasks.register("archiveReleaseApk") {
@@ -167,7 +170,15 @@ tasks.register("archiveReleaseApk") {
         val projectRoot = rootProject.projectDir.parentFile
         val releasesAndroidDir = File(File(projectRoot, "releases"), "android")
         releasesAndroidDir.mkdirs()
-        val dest = File(releasesAndroidDir, "弦予音乐v$version-Watch.apk")
+        // 架构后缀：XIANMU_RUST_ABI（包装函数写入）v7→arm32 / v8→arm64；
+        // 未设时 rust 与 Flutter 目标均为双 ABI 全编 → -arm32-arm64。
+        // 与移动端 -Mobile-arm64、鸿蒙 -Mobile-arm64/-x86 命名体系对齐。
+        val arch = when (System.getenv("XIANMU_RUST_ABI")) {
+            "v7" -> "arm32"
+            "v8" -> "arm64"
+            else -> "arm32-arm64"
+        }
+        val dest = File(releasesAndroidDir, "弦予音乐v$version-Watch-$arch.apk")
         apk.copyTo(dest, overwrite = true)
         logger.lifecycle("已归档正式安装包: ${dest.absolutePath} (${"%.1f".format(dest.length() / 1024.0 / 1024.0)} MB)")
     }
