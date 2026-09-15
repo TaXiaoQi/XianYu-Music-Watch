@@ -194,75 +194,113 @@ class _EdgeBackStripState extends State<_EdgeBackStrip> {
   }
 }
 
-/// 手机端发起的配对确认（叠在全部路由之上）：有请求时全屏遮罩 + 确认卡，
-/// 允许 → 采纳连接（后续自动进控制页）；拒绝 → 关闭并回绝。
-class _PairRequestHost extends ConsumerWidget {
+/// 手机端发起的配对确认（叠在全部路由之上）：有请求时显示完整确认页
+/// （非浮卡，圆屏弧缘不再裁切内容）。内容垂直居中、上下留白填充；设备名
+/// 超长换行使内容超屏时可滚动，滚动结束吸附到最近端（头部/按钮完整可见），
+/// 不超屏时始终居中。允许 → 采纳连接（后续自动进控制页）；拒绝 → 关闭并回绝。
+class _PairRequestHost extends ConsumerStatefulWidget {
   const _PairRequestHost();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_PairRequestHost> createState() => _PairRequestHostState();
+}
+
+class _PairRequestHostState extends ConsumerState<_PairRequestHost> {
+  final ScrollController _scroll = ScrollController();
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final s = context.watchScale();
     final name = ref.watch(
         linkControllerProvider.select((st) => st.incomingName));
     if (name.isEmpty) return const SizedBox.shrink();
+    final vh = MediaQuery.of(context).size.height;
     return Container(
-      color: Colors.black.withValues(alpha: 0.82),
-      alignment: Alignment.center,
-      child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: 26 * s),
-        child: Material(
-          color: const Color(0xFF1A1A1E),
-          borderRadius: BorderRadius.circular(26 * s),
-          child: Padding(
-            padding: EdgeInsets.all(18 * s),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.watch_rounded,
-                    size: 34 * s, color: const Color(0xFF4A90D9)),
-                SizedBox(height: 10 * s),
-                Text('配对请求',
+      color: const Color(0xFF0C0C0F),
+      child: NotificationListener<ScrollEndNotification>(
+        onNotification: (n) {
+          // 滚动结束吸附：内容超屏时对齐最近端（头部或按钮完整可见），
+          // 不停在半截；不超屏时本就居中，无需处理。
+          final m = n.metrics;
+          if (!m.hasContentDimensions || m.maxScrollExtent <= 0) return false;
+          final target =
+              (m.pixels / m.maxScrollExtent).round() * m.maxScrollExtent;
+          if ((target - m.pixels).abs() > 0.5) {
+            _scroll.animateTo(
+              target,
+              duration: const Duration(milliseconds: 160),
+              curve: Curves.easeOutCubic,
+            );
+          }
+          return false;
+        },
+        child: SingleChildScrollView(
+          controller: _scroll,
+          padding: EdgeInsets.symmetric(horizontal: 30 * s, vertical: 14 * s),
+          child: ConstrainedBox(
+            // 最小高度撑满视口（扣除自身纵向 padding）：内容少时垂直
+            // 居中，上下留白填充；内容多时自然撑开、可滚动。
+            constraints: BoxConstraints(minHeight: vh - 28 * s),
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.watch_rounded,
+                      size: 44 * s, color: const Color(0xFF4A90D9)),
+                  SizedBox(height: 12 * s),
+                  Text('配对请求',
+                      style: TextStyle(
+                          fontSize: 18 * s, fontWeight: FontWeight.bold)),
+                  SizedBox(height: 8 * s),
+                  Text(
+                    '「${name.isEmpty ? '手机' : name}」请求连接腕上弦予',
+                    textAlign: TextAlign.center,
                     style: TextStyle(
-                        fontSize: 17 * s, fontWeight: FontWeight.bold)),
-                SizedBox(height: 6 * s),
-                Text(
-                  '「${name.isEmpty ? '手机' : name}」请求连接腕上弦予',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      fontSize: 12.5 * s,
-                      color: Colors.white.withValues(alpha: 0.6)),
-                ),
-                SizedBox(height: 14 * s),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    FilledButton(
-                      onPressed: () =>
-                          ref.read(linkControllerProvider.notifier).acceptIncoming(),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFFFF4D6E),
-                        padding: EdgeInsets.symmetric(
-                            horizontal: 16 * s, vertical: 4 * s),
-                        minimumSize: Size(0, 34 * s),
-                        textStyle: TextStyle(fontSize: 13 * s),
+                        fontSize: 13 * s,
+                        height: 1.35,
+                        color: Colors.white.withValues(alpha: 0.6)),
+                  ),
+                  SizedBox(height: 20 * s),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      FilledButton(
+                        onPressed: () => ref
+                            .read(linkControllerProvider.notifier)
+                            .acceptIncoming(),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFFFF4D6E),
+                          padding: EdgeInsets.symmetric(
+                              horizontal: 18 * s, vertical: 5 * s),
+                          minimumSize: Size(0, 36 * s),
+                          textStyle: TextStyle(fontSize: 13.5 * s),
+                        ),
+                        child: const Text('允许'),
                       ),
-                      child: const Text('允许'),
-                    ),
-                    SizedBox(width: 10 * s),
-                    OutlinedButton(
-                      onPressed: () =>
-                          ref.read(linkControllerProvider.notifier).rejectIncoming(),
-                      style: OutlinedButton.styleFrom(
-                        padding: EdgeInsets.symmetric(
-                            horizontal: 16 * s, vertical: 4 * s),
-                        minimumSize: Size(0, 34 * s),
-                        textStyle: TextStyle(fontSize: 13 * s),
+                      SizedBox(width: 12 * s),
+                      OutlinedButton(
+                        onPressed: () => ref
+                            .read(linkControllerProvider.notifier)
+                            .rejectIncoming(),
+                        style: OutlinedButton.styleFrom(
+                          padding: EdgeInsets.symmetric(
+                              horizontal: 18 * s, vertical: 5 * s),
+                          minimumSize: Size(0, 36 * s),
+                          textStyle: TextStyle(fontSize: 13.5 * s),
+                        ),
+                        child: const Text('拒绝'),
                       ),
-                      child: const Text('拒绝'),
-                    ),
-                  ],
-                ),
-              ],
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),

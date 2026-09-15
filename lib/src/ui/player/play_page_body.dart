@@ -394,35 +394,50 @@ class _PlayPageBodyState extends State<PlayPageBody> {
             left: false,
             right: false,
             child: Padding(
-              // 底部留白明显大于顶部：整体重心上提（贴底显挤，网易云式）。
+              // 底部留白大于顶部：整体重心略上提（贴底显挤，网易云式）。
               // 水平收窄到 4：中部三大件整体外扩，拉开上下首与播放红圈的
               // 间距；歌名行/底部行经内层 Padding 补回常规边距（4+12=16）。
-              padding: EdgeInsets.fromLTRB(4 * s, 2 * s, 4 * s, 18 * s),
+              // 纵向预算必须 ≤200 设计单位（歌名~44 + 3 + 红圈92 + 2 +
+              // 底键44 + 上下10 = 195），超出会在页面底部渲出溢出警告条。
+              padding: EdgeInsets.fromLTRB(4 * s, 2 * s, 4 * s, 8 * s),
               child: Column(
                 // 居中排布 + 显式间距：底部控件间距收紧、向中部靠拢。
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   // 歌名 / 歌手（云中继附小云标）；过长自动跑马灯滚动。
-                  // 靠近中部三大件：下方间距收紧（4）。
+                  // 靠近中部三大件：下方间距收紧（3）。
                   Padding(
                     padding: EdgeInsets.symmetric(horizontal: 12 * s),
                     child: Column(
                     children: [
-                      SizedBox(
-                        width: double.infinity,
-                        child: _MarqueeText(
-                          src.hasTrack ? (src.title ?? '') : widget.emptyText,
-                          style: TextStyle(
-                            fontSize: src.hasTrack ? 17.5 * s : 13 * s,
-                            fontWeight: FontWeight.w700,
-                            color: src.hasTrack
-                                ? Colors.white
-                                : Colors.white.withValues(alpha: 0.5),
+                      // 空态：不显示提示文字行（会把中部三大件/底部控件
+                      // 顶出屏），有引导按钮时只渲染按钮本身；无按钮的
+                      // 宿主（如联动页）才保留提示文字。
+                      if (src.hasTrack)
+                        SizedBox(
+                          width: double.infinity,
+                          child: _MarqueeText(
+                            src.title ?? '',
+                            style: TextStyle(
+                              fontSize: 17.5 * s,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
+                          ),
+                        )
+                      else if (widget.emptyActionLabel == null)
+                        SizedBox(
+                          width: double.infinity,
+                          child: _MarqueeText(
+                            widget.emptyText,
+                            style: TextStyle(
+                              fontSize: 13 * s,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white.withValues(alpha: 0.5),
+                            ),
                           ),
                         ),
-                      ),
-                      if (!src.hasTrack && widget.emptyActionLabel != null) ...[
-                        SizedBox(height: 8 * s),
+                      if (!src.hasTrack && widget.emptyActionLabel != null)
                         FilledButton.tonal(
                           onPressed: widget.onEmptyAction,
                           style: FilledButton.styleFrom(
@@ -433,7 +448,6 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                           child: Text(widget.emptyActionLabel!,
                               style: TextStyle(fontSize: 12 * s)),
                         ),
-                      ],
                       if (src.hasTrack) ...[
                         SizedBox(height: 2 * s),
                         Row(
@@ -463,7 +477,7 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                     ],
                     ),
                   ),
-                  SizedBox(height: 4 * s),
+                  SizedBox(height: 3 * s),
                   // 中部：上一首 | 封面红圈 | 下一首
                   // 红圈用 Expanded+Center 钉死在行正中：不依赖左右按钮等宽。
                   Row(
@@ -671,7 +685,7 @@ class _PlayPageBodyState extends State<PlayPageBody> {
       icon: Icon(icon, size: 21 * s, color: color),
       tooltip: tooltip,
       padding: EdgeInsets.all(6 * s),
-      constraints: BoxConstraints(minWidth: 46 * s, minHeight: 46 * s),
+      constraints: BoxConstraints(minWidth: 44 * s, minHeight: 44 * s),
     );
   }
 }
