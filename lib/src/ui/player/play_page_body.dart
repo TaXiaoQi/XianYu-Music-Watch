@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:wearable_rotary/wearable_rotary.dart';
 
 import '../../core/watch_fit.dart';
+import '../common/rotary_input.dart';
 import 'player_source.dart';
 
 /// 主题色（与 app.dart ColorScheme.primary 一致）。
@@ -59,6 +60,7 @@ class _PlayPageBodyState extends State<PlayPageBody> {
   static const _speedSteps = [0.75, 1.0, 1.25, 1.5, 2.0];
 
   StreamSubscription<RotaryEvent>? _rotarySub;
+  final RotaryQuantizer _rotary = RotaryQuantizer();
 
   /// 本地音量回显（null = 跟随 source）。
   double? _volume;
@@ -98,11 +100,13 @@ class _PlayPageBodyState extends State<PlayPageBody> {
     // 宿主在 PageView 中：非当前页的表冠事件不归本页（隐藏页误触音量）。
     final guard = widget.rotaryGuard;
     if (guard != null && !guard()) return;
+    // 量化：轻刮一步、快转加速。
+    final steps = _rotary.add(event);
+    if (steps == 0) return;
     HapticFeedback.selectionClick(); // 表冠档位振动反馈
     final src = widget.sourceBuilder();
-    final dir = event.direction == RotaryDirection.clockwise ? 1 : -1;
     final cur = _volume ?? src.volume;
-    final next = (cur + dir * _volumeStep).clamp(0.0, 1.0);
+    final next = (cur + steps * _volumeStep).clamp(0.0, 1.0);
     _lastRotary = DateTime.now();
     setState(() {
       _volume = next;
@@ -389,7 +393,11 @@ class _PlayPageBodyState extends State<PlayPageBody> {
       backgroundColor: Colors.transparent,
       body: Stack(
         children: [
+          // 横向不消费系统内边距：W3 鸿蒙层会上报不对称的横向 gesture inset，
+          // 把整页内容推向表冠一侧（视觉上三大件右移不居中）。
           SafeArea(
+            left: false,
+            right: false,
             child: Padding(
               // 底部留白明显大于顶部：整体重心上提（贴底显挤，网易云式）。
               padding: EdgeInsets.fromLTRB(16 * s, 2 * s, 16 * s, 18 * s),
@@ -456,64 +464,74 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                   ),
                   SizedBox(height: 10 * s),
                   // 中部：上一首 | 封面红圈 | 下一首
+                  // 红圈用 Expanded+Center 钉死在行正中：不依赖左右按钮等宽。
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      _sideBtn(
-                        s: s,
-                        icon: Icons.skip_previous_rounded,
-                        onTap: src.prev,
+                      SizedBox(
+                        width: 48 * s,
+                        child: _sideBtn(
+                          s: s,
+                          icon: Icons.skip_previous_rounded,
+                          onTap: src.prev,
+                        ),
                       ),
-                      GestureDetector(
-                        onTap: src.toggle,
-                        onPanStart: (d) => _onRingPanStart(d, ringSize),
-                        onPanUpdate: (d) => _onRingPanUpdate(d, ringSize),
-                        onPanEnd: (_) => _onRingPanEnd(),
-                        onLongPressStart: (d) =>
-                            _onRingLongPressStart(d, ringSize),
-                        onLongPressMoveUpdate: (d) =>
-                            _onRingLongPressMoveUpdate(d, ringSize),
-                        onLongPressEnd: (_) => _onRingLongPressEnd(),
-                        child: SizedBox(
-                          width: ringSize,
-                          height: ringSize,
-                          child: CustomPaint(
-                            painter: _RingPainter(
-                              progress: displayProgress,
-                              strokeWidth: 4.5 * s,
-                            ),
-                            child: Padding(
-                              padding: EdgeInsets.all(2.5 * s),
-                              child: Stack(
-                                alignment: Alignment.center,
-                                children: [
-                                  ClipOval(child: _cover(src.cover)),
-                                  // 大播放/暂停键（网易云样式：白色大图标
-                                  // 直接压在封面上，无底色圆片）。
-                                  Icon(
-                                    src.isPlaying
-                                        ? Icons.pause_rounded
-                                        : Icons.play_arrow_rounded,
-                                    size: ringSize * 0.40,
-                                    color: Colors.white,
-                                    shadows: [
-                                      Shadow(
-                                        color: Colors.black
-                                            .withValues(alpha: 0.5),
-                                        blurRadius: 10 * s,
+                      Expanded(
+                        child: Center(
+                          child: GestureDetector(
+                            onTap: src.toggle,
+                            onPanStart: (d) => _onRingPanStart(d, ringSize),
+                            onPanUpdate: (d) => _onRingPanUpdate(d, ringSize),
+                            onPanEnd: (_) => _onRingPanEnd(),
+                            onLongPressStart: (d) =>
+                                _onRingLongPressStart(d, ringSize),
+                            onLongPressMoveUpdate: (d) =>
+                                _onRingLongPressMoveUpdate(d, ringSize),
+                            onLongPressEnd: (_) => _onRingLongPressEnd(),
+                            child: SizedBox(
+                              width: ringSize,
+                              height: ringSize,
+                              child: CustomPaint(
+                                painter: _RingPainter(
+                                  progress: displayProgress,
+                                  strokeWidth: 4.5 * s,
+                                ),
+                                child: Padding(
+                                  padding: EdgeInsets.all(2.5 * s),
+                                  child: Stack(
+                                    alignment: Alignment.center,
+                                    children: [
+                                      ClipOval(child: _cover(src.cover)),
+                                      // 大播放/暂停键（网易云样式：白色大图标
+                                      // 直接压在封面上，无底色圆片）。
+                                      Icon(
+                                        src.isPlaying
+                                            ? Icons.pause_rounded
+                                            : Icons.play_arrow_rounded,
+                                        size: ringSize * 0.40,
+                                        color: Colors.white,
+                                        shadows: [
+                                          Shadow(
+                                            color: Colors.black
+                                                .withValues(alpha: 0.5),
+                                            blurRadius: 10 * s,
+                                          ),
+                                        ],
                                       ),
                                     ],
                                   ),
-                                ],
+                                ),
                               ),
                             ),
                           ),
                         ),
                       ),
-                      _sideBtn(
-                        s: s,
-                        icon: Icons.skip_next_rounded,
-                        onTap: src.next,
+                      SizedBox(
+                        width: 48 * s,
+                        child: _sideBtn(
+                          s: s,
+                          icon: Icons.skip_next_rounded,
+                          onTap: src.next,
+                        ),
                       ),
                     ],
                   ),
@@ -848,6 +866,7 @@ class _VolumePageState extends State<_VolumePage> {
   late double _v = widget.initial.clamp(0.0, 1.0).toDouble();
   Timer? _closeTimer;
   StreamSubscription<RotaryEvent>? _rotarySub;
+  final RotaryQuantizer _rotary = RotaryQuantizer();
 
   @override
   void initState() {
@@ -885,62 +904,73 @@ class _VolumePageState extends State<_VolumePage> {
     if (!mounted) return;
     // 本页是路由栈顶时才响应（下方播放页的表冠门禁同样会拦住）。
     if (ModalRoute.of(context)?.isCurrent != true) return;
-    final dir = event.direction == RotaryDirection.clockwise ? 1 : -1;
-    _update(_v + dir * _crownStep);
+    final steps = _rotary.add(event);
+    if (steps == 0) return;
+    _update(_v + steps * _crownStep);
   }
 
   @override
   Widget build(BuildContext context) {
     final s = context.watchScale();
-    final gaugeSize = 150 * s;
+    // 网易云手表版式：居中一条粗壮竖条，音量从底部向上填充，表冠/拖拽/按钮。
+    final barWidth = 64 * s;
+    final barHeight = 208 * s;
+    double valueFromY(double dy) =>
+        (1 - dy / barHeight).clamp(0.0, 1.0).toDouble();
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            Text(
+              '音量',
+              style: TextStyle(
+                fontSize: 12.5 * s,
+                color: Colors.white.withValues(alpha: 0.55),
+              ),
+            ),
+            SizedBox(height: 10 * s),
             GestureDetector(
               behavior: HitTestBehavior.opaque,
-              // 环上点按/拖拽直接设音量（方位角 → 音量，与播放页进度环同法）。
-              onTapDown: (d) => _update(
-                  _PlayPageBodyState._angleToProgress(d.localPosition, gaugeSize),
-                  haptic: false),
-              onPanStart: (d) => _update(
-                  _PlayPageBodyState._angleToProgress(d.localPosition, gaugeSize),
-                  haptic: false),
-              onPanUpdate: (d) => _update(
-                  _PlayPageBodyState._angleToProgress(d.localPosition, gaugeSize),
-                  haptic: false),
-              child: SizedBox(
-                width: gaugeSize,
-                height: gaugeSize,
-                child: CustomPaint(
-                  painter: _VolumeGaugePainter(
-                    value: _v,
-                    strokeWidth: 12 * s,
-                  ),
-                  child: Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          '${(_v * 100).round()}',
-                          style: TextStyle(
-                            fontSize: 34 * s,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
-                          ),
-                        ),
-                        Text(
-                          '音量',
-                          style: TextStyle(
-                            fontSize: 11 * s,
-                            color: Colors.white.withValues(alpha: 0.5),
-                          ),
-                        ),
-                      ],
+              // 竖条上点按/拖拽直接设音量（触点越靠上音量越大）。
+              onTapDown: (d) =>
+                  _update(valueFromY(d.localPosition.dy), haptic: false),
+              onPanStart: (d) =>
+                  _update(valueFromY(d.localPosition.dy), haptic: false),
+              onPanUpdate: (d) =>
+                  _update(valueFromY(d.localPosition.dy), haptic: false),
+              child: Container(
+                width: barWidth,
+                height: barHeight,
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(barWidth / 2),
+                ),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    // 音量填充：自底部向上，圆角由外层裁剪。
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      height: barHeight * _v.clamp(0.0, 1.0),
+                      child: ColoredBox(color: kPlayerAccent),
                     ),
-                  ),
+                    Text(
+                      '${(_v * 100).round()}',
+                      style: TextStyle(
+                        fontSize: 34 * s,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                        shadows: const [
+                          Shadow(color: Colors.black45, blurRadius: 8),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -977,39 +1007,4 @@ class _VolumePageState extends State<_VolumePage> {
       ),
     );
   }
-}
-
-/// 音量环形量表：整圈底环 + 从 12 点顺时针的音量弧（圆头端点）。
-class _VolumeGaugePainter extends CustomPainter {
-  _VolumeGaugePainter({required this.value, required this.strokeWidth});
-
-  final double value;
-  final double strokeWidth;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final rect = Rect.fromCircle(
-      center: size.center(Offset.zero),
-      radius: size.shortestSide / 2,
-    );
-    final track = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth
-      ..color = Colors.white.withValues(alpha: 0.12);
-    canvas.drawArc(rect, 0, 2 * math.pi, false, track);
-
-    final p = value.clamp(0.0, 1.0);
-    if (p > 0.002) {
-      final arc = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = strokeWidth
-        ..strokeCap = StrokeCap.round
-        ..color = kPlayerAccent;
-      canvas.drawArc(rect, -math.pi / 2, 2 * math.pi * p, false, arc);
-    }
-  }
-
-  @override
-  bool shouldRepaint(_VolumeGaugePainter oldDelegate) =>
-      oldDelegate.value != value || oldDelegate.strokeWidth != strokeWidth;
 }

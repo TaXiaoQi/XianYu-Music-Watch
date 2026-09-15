@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:wearable_rotary/wearable_rotary.dart';
 
 import '../../core/watch_fit.dart';
+import 'rotary_input.dart';
 
 /// 圆屏阶梯列表（One UI 表盘同款观感，全部二级页与功能页统一适配）：
 /// 行为圆角胶囊卡片，一档一个条目、一屏只现约三行——居中焦点行最大
@@ -45,10 +46,11 @@ class SteppedListView extends StatefulWidget {
 }
 
 class _SteppedListViewState extends State<SteppedListView> {
-  static const double _pitchBase = 64; // 一档 = 一个条目（设计基准 200dp 屏径）
+  static const double _pitchBase = 58; // 一档 = 一个条目（对齐 One UI 行距/屏径 ≈29%）
 
   final ScrollController _scroll = ScrollController();
   StreamSubscription<RotaryEvent>? _rotarySub;
+  final RotaryQuantizer _rotary = RotaryQuantizer();
 
   @override
   void initState() {
@@ -70,11 +72,16 @@ class _SteppedListViewState extends State<SteppedListView> {
     if (ModalRoute.of(context)?.isCurrent != true) return;
     final guard = widget.rotaryGuard;
     if (guard != null && !guard()) return;
+    // 量化：像素预算累积 + 限速，轻刮 1 格、快转加速、单次最多 2 格。
+    final steps = _rotary.add(event);
+    if (steps == 0) return;
     final s = context.watchScale();
     final pitch = _pitchBase * s;
-    final dir = event.direction == RotaryDirection.clockwise ? 1 : -1;
-    final target = (_scroll.offset + dir * pitch)
-        .clamp(0.0, _scroll.position.maxScrollExtent);
+    final max = _scroll.position.maxScrollExtent;
+    // 以最近档位为基准步进：表冠落点永远在网格上，与松手吸附一致。
+    final baseRow = (_scroll.offset / pitch).round() + steps;
+    final target = (baseRow * pitch).clamp(0.0, max);
+    if ((target - _scroll.offset).abs() < 0.5) return; // 已到边不空振
     _scroll.animateTo(
       target,
       duration: const Duration(milliseconds: 120),
@@ -100,53 +107,83 @@ class _SteppedListViewState extends State<SteppedListView> {
         final hasHeader = header != null;
         return Stack(
           children: [
-            ListView.builder(
-              controller: _scroll,
-              padding: EdgeInsets.fromLTRB(0, startSpacer, 0, endSpacer),
-              itemCount: widget.itemCount + (hasHeader ? 1 : 0),
-              itemBuilder: (context, i) {
-                if (hasHeader && i == 0) {
-                  // 页面头条带：不参与阶梯缩放，随内容自然滚走。
-                  return SizedBox(
-                    height: headerBand,
-                    child: Center(child: header),
+            NotificationListener<ScrollEndNotification>(
+              onNotification: (n) {
+                // One UI 式吸附：滚动结束后对齐最近档位，保证有一行精确
+                // 停在正中（表冠步进本就落网格，这里兜住手势拖动/惯性）。
+                if (!_scroll.hasClients) return false;
+                final max = _scroll.position.maxScrollExtent;
+                if (max <= 0) return false;
+                final grid = (_scroll.offset / pitch).round() * pitch;
+                final target = grid.clamp(0.0, max);
+                if ((target - _scroll.offset).abs() > 0.5) {
+                  _scroll.animateTo(
+                    target,
+                    duration: const Duration(milliseconds: 160),
+                    curve: Curves.easeOutCubic,
                   );
                 }
-                final row = hasHeader ? i - 1 : i;
-                return SizedBox(
-                  height: pitch,
-                  child: AnimatedBuilder(
-                    animation: _scroll,
-                    child: widget.itemBuilder(context, row),
-                    builder: (context, child) {
-                      final offset = _scroll.hasClients ? _scroll.offset : 0.0;
-                      final anchor = offset + viewportH / 2;
-                      final distance = ((row + 0.5) * pitch +
-                              startSpacer +
-                              headerBand -
-                              anchor)
-                          .abs() /
-                          pitch;
-                    final scale = (1.0 - distance * 0.225).clamp(0.55, 1.0);
-                    final alpha = 0.45 + 0.55 * ((scale - 0.55) / 0.45);
-                    // 焦点行铺满、上下行内收变窄（One UI 胶囊阶梯）：
-                    // 距锚点越远水平内收越多（相邻 +9、两档封顶 18）。
-                    final inset = (distance * 9 * s).clamp(0.0, 18.0 * s);
-                    return Padding(
-                      padding: EdgeInsets.fromLTRB(
-                          10 * s + inset, 4.5 * s, 10 * s + inset, 4.5 * s),
-                      child: Transform.scale(
-                        scale: scale,
-                        // 焦点行不透明度为 1，直接省掉一层 saveLayer。
-                        child: alpha >= 1
-                            ? child
-                            : Opacity(opacity: alpha, child: child),
-                      ),
-                    );
-                    },
-                  ),
-                );
+                return false;
               },
+              child: ListView.builder(
+                controller: _scroll,
+                padding: EdgeInsets.fromLTRB(0, startSpacer, 0, endSpacer),
+                itemCount: widget.itemCount + (hasHeader ? 1 : 0),
+                itemBuilder: (context, i) {
+                  if (hasHeader && i == 0) {
+                    // 页面头条带：不参与阶梯缩放，随内容自然滚走。
+                    return SizedBox(
+                      height: headerBand,
+                      child: Center(child: header),
+                    );
+                  }
+                  final row = hasHeader ? i - 1 : i;
+                  return SizedBox(
+                    height: pitch,
+                    child: AnimatedBuilder(
+                      animation: _scroll,
+                      child: widget.itemBuilder(context, row),
+                      builder: (context, child) {
+                        final offset = _scroll.hasClients ? _scroll.offset : 0.0;
+                        final anchor = offset + viewportH / 2;
+                        final distance = ((row + 0.5) * pitch +
+                                startSpacer +
+                                headerBand -
+                                anchor)
+                            .abs() /
+                            pitch;
+                        final scale = (1.0 - distance * 0.225)
+                            .clamp(0.30, 1.0);
+                        // 透明度随阶梯继续下滑（0.55 以下再衰减），边缘
+                        // 「小条子」几乎隐入圆屏轮廓。
+                        final alpha = scale >= 0.55
+                            ? 0.45 + 0.55 * ((scale - 0.55) / 0.45)
+                            : (0.45 - (0.55 - scale) * 0.75)
+                                .clamp(0.22, 0.45);
+                        // 内收跟随圆屏弧度（先陡后缓的凹曲线，对齐原版：
+                        // 相邻行 ≈61% 屏宽、边缘条 ≈34%），线性小步长会让
+                        // 第二行往外全偏宽。
+                        final inset = (10.5 + 27.7 * math.pow(distance, 0.7))
+                            .clamp(0.0, 78.0) *
+                            s;
+                        return Padding(
+                          // 上下 3：胶囊几乎贴合（原版 One UI 行距），
+                          // 阶梯缩放自带额外视觉间隙。
+                          padding: EdgeInsets.fromLTRB(
+                              inset, 3 * s, inset, 3 * s),
+                          child: Transform.scale(
+                            scale: scale,
+                            // 焦点行不透明度为 1，直接省掉一层 saveLayer。
+                            child: alpha >= 1
+                                ? child
+                                : Opacity(opacity: alpha, child: child),
+                          ),
+                        );
+                      },
+                    ),
+                  );
+                },
+              ),
             ),
             // One UI 式右缘弧形滚动指示：短亮弧在右侧导轨上随位置移动，
             // 内容不溢出时不画。

@@ -68,10 +68,18 @@ class _LocalLibraryViewState extends ConsumerState<LocalLibraryView> {
     final s = context.watchScale(); // 屏径等比缩放
 
     if (songs.isEmpty) {
-      return _EmptyView(scanning: _scanning, onScan: _scan);
+      // Scaffold 提供 Material 祖先：裸路由里没有它，Text 会渲染成
+      // Flutter 标志性的「双黄线」默认样式。
+      return Scaffold(
+        backgroundColor: Colors.black,
+        body: SafeArea(child: _EmptyView(scanning: _scanning, onScan: _scan)),
+      );
     }
     // 功能页同款圆屏阶梯列表：一屏约三行，焦点行最大铺满中部。
-    return SteppedListView(
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        child: SteppedListView(
       itemCount: songs.length + 1,
       itemBuilder: (context, i) {
         if (i == 0) {
@@ -114,6 +122,8 @@ class _LocalLibraryViewState extends ConsumerState<LocalLibraryView> {
           },
         );
       },
+        ),
+      ),
     );
   }
 }
