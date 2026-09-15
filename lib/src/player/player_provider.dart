@@ -7,16 +7,20 @@ import 'package:audio_service/audio_service.dart' as asrv;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../favorites/favorites_provider.dart';
 
 import '../core/db_path.dart';
 import '../core/settings.dart';
+import '../plugin/plugin_catalog.dart';
 import '../plugin/plugin_engine.dart';
 import '../plugin/plugin_models.dart';
 import '../plugin/plugin_provider.dart';
+import '../plugin/plugin_search.dart';
 import '../rust/api.dart';
 import 'media_url.dart';
+import 'stream_cache.dart';
 
 /// 播放中的单曲信息（移动端 QueueItem 精简版：本地 + 在线插件歌所需字段）。
 class QueueItem {
@@ -51,7 +55,9 @@ class QueueItem {
     this.onlineInfoJson,
   });
 
-  QueueItem copyWith({String? coverPath, String? coverUrl}) => QueueItem(
+  QueueItem copyWith(
+          {String? coverPath, String? coverUrl, String? onlineSongJson}) =>
+      QueueItem(
         path: path,
         title: title,
         artist: artist,
@@ -59,7 +65,7 @@ class QueueItem {
         durationMs: durationMs,
         coverPath: coverPath ?? this.coverPath,
         coverUrl: coverUrl ?? this.coverUrl,
-        onlineSongJson: onlineSongJson,
+        onlineSongJson: onlineSongJson ?? this.onlineSongJson,
         onlineQuality: onlineQuality,
         source: source,
         onlineInfoJson: onlineInfoJson,
@@ -145,6 +151,19 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
   final List<String> _shuffleHistory = [];
   final List<String> _shuffleFuture = [];
 
+  // —— 在线失败自动换源上下文（对齐移动端口径的表端精简版）——
+  /// 同曲防抖：错误事件与起播异常可能先后到达，800ms 内同曲只换源一次。
+  DateTime? _lastAutoSwitchAt;
+  String? _lastAutoSwitchPath;
+  /// 换源上下文按歌曲（标题+歌手）隔离：已失败插件不再重试。
+  String _switchCtxKey = '';
+  final Set<String> _failedPluginIds = {};
+
+  // —— 流缓存跟踪：当前直链/请求头/是否走了缓存源（错误自愈用）——
+  String? _currentMediaUrl;
+  Map<String, String>? _currentHeaders;
+  bool _usedCacheSource = false;
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused ||
@@ -183,6 +202,13 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
         _onPlaybackError(e);
       },
     );
+    // 流缓存目录注入（失败不阻塞播放器初始化，之后回退直连）。
+    unawaited(() async {
+      try {
+        final tmp = await getTemporaryDirectory();
+        StreamCache.instance.rootDir = tmp.path;
+      } catch (_) {}
+    }());
     await _restoreSession();
   }
 
@@ -203,8 +229,9 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     }
   }
 
-  Future<void> _playAt(int index, {double startAtSecs = 0}) async {
-    if (index < 0 || index >= state.queue.length) return;
+  /// 起播指定曲目；返回是否成功进入播放（失败已走换源兜底）。
+  Future<bool> _playAt(int index, {double startAtSecs = 0}) async {
+    if (index < 0 || index >= state.queue.length) return false;
     _playEpoch++;
     final epoch = _playEpoch;
     final item = state.queue[index];
@@ -223,7 +250,7 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
       try {
         await _player.stop();
       } catch (_) {}
-      if (epoch != _playEpoch) return;
+      if (epoch != _playEpoch) return false;
       await _loadItemSource(item);
       if (startAtSecs > 0) {
         try {
@@ -239,16 +266,23 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
           await _player.setSpeed(state.speed);
         } catch (_) {}
       }
-      if (epoch != _playEpoch) return;
+      if (epoch != _playEpoch) return false;
       await _player.play();
-      if (epoch != _playEpoch) return;
+      if (epoch != _playEpoch) return false;
       state = state.copyWith(isPlaying: true, error: null);
+      _persistSession();
+      return true;
     } catch (e) {
-      if (epoch != _playEpoch) return;
+      if (epoch != _playEpoch) return false;
+      debugPrint('[play] 起播失败 path=${item.path} error=$e');
+      // 在线歌起播异常：autoswitch 时自动换源，成功即由新 _playAt 接管。
+      if (item.onlineSongJson != null && item.onlineSongJson!.isNotEmpty) {
+        if (await _autoSwitchSource(item, index: index)) return true;
+      }
       state = state.copyWith(isPlaying: false, error: '播放失败：$e');
-      debugPrint('[play] 本地播放失败 path=${item.path} error=$e');
+      _persistSession();
+      return false;
     }
-    _persistSession();
   }
 
   /// 加载曲目音源：在线插件歌走引擎解析直链，本地走文件/URI。
@@ -300,6 +334,25 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     final cleaned = sanitizeMediaUrl(resolved.url);
     if (cleaned.isEmpty) throw StateError('直链无效');
     final headers = normalizeMediaRequestHeaders(cleaned, resolved.headers);
+    // 流缓存：预算>0 时走 LockCaching 落盘（重播同链秒开零流量），失败回退直连。
+    StreamCache.instance.budgetMB =
+        _ref.read(settingsProvider).valueOrNull?.streamCacheSizeMB ?? 200;
+    unawaited(StreamCache.instance.settle()); // 释放上一首占用并按预算清理
+    _currentMediaUrl = cleaned;
+    _currentHeaders = headers;
+    _usedCacheSource = false;
+    final cacheSource =
+        await StreamCache.instance.sourceFor(cleaned, headers: headers);
+    if (cacheSource != null) {
+      try {
+        await _player.setAudioSource(cacheSource);
+        _usedCacheSource = true;
+        return null;
+      } catch (_) {
+        // 缓存源起播失败（半截/损坏文件）：清掉该文件后直连重试一次。
+        await StreamCache.instance.evict(cleaned);
+      }
+    }
     await _player.setUrl(cleaned, headers: headers);
     return null;
   }
@@ -505,8 +558,186 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
 
   Future<void> _onPlaybackError(Object e) async {
     if (state.current == null) return;
-    state = state.copyWith(isPlaying: false, error: '播放中断：$e');
     debugPrint('[play] 播放错误: $e');
+    // 在线歌中途出错：缓存文件自愈 → 自动换源 → 缓存源损坏时直连兜底。
+    final item = state.current!;
+    if (item.onlineSongJson != null && item.onlineSongJson!.isNotEmpty) {
+      final url = _currentMediaUrl;
+      if (_usedCacheSource && url != null) {
+        await StreamCache.instance.evict(url);
+      }
+      if (await _autoSwitchSource(item, index: state.queueIndex)) return;
+      if (_usedCacheSource && url != null) {
+        try {
+          await _player.stop();
+          await _player.setUrl(url, headers: _currentHeaders ?? const {});
+          await _player.setVolume(
+              _ref.read(settingsProvider).valueOrNull?.volume ?? 1.0);
+          await _player.play();
+          state = state.copyWith(isPlaying: true, error: null);
+          return;
+        } catch (_) {}
+      }
+    }
+    state = state.copyWith(isPlaying: false, error: '播放中断：$e');
+  }
+
+  /// 在线歌曲失败自动换源（对齐移动端口径的表端精简版）。
+  /// 阶段一：同平台其他启用插件重解析同一首歌（musicInfo 直接复用，成本最低）；
+  /// 阶段二：跨启用插件搜索同名歌（标题归一化相等 + 歌手有交集），
+  /// 命中后以命中插件的 QueueItem 替换队列条目再起播。
+  /// 返回 true 表示换源成功且已重新起播。
+  Future<bool> _autoSwitchSource(QueueItem item, {required int index}) async {
+    final settings = _ref.read(settingsProvider).valueOrNull;
+    if ((settings?.onlineFailureBehavior ?? 'autoswitch') != 'autoswitch') {
+      return false;
+    }
+    // 同曲防抖（移动端同款 800ms）：错误事件与起播异常可能先后到达。
+    final now = DateTime.now();
+    if (_lastAutoSwitchPath == item.path &&
+        _lastAutoSwitchAt != null &&
+        now.difference(_lastAutoSwitchAt!) <
+            const Duration(milliseconds: 800)) {
+      return false;
+    }
+    _lastAutoSwitchAt = now;
+    _lastAutoSwitchPath = item.path;
+
+    final ctxKey = '${item.title}|${item.artist}';
+    if (_switchCtxKey != ctxKey) {
+      _switchCtxKey = ctxKey;
+      _failedPluginIds.clear();
+    }
+    if (item.title.trim().isEmpty || index < 0) return false;
+
+    Map<String, dynamic> songJson;
+    try {
+      songJson = jsonDecode(item.onlineSongJson!) as Map<String, dynamic>;
+    } catch (_) {
+      return false;
+    }
+    final failedId = songJson['pluginId'] as String? ?? '';
+    if (failedId.isNotEmpty) _failedPluginIds.add(failedId);
+
+    PluginEngine engine;
+    List<PluginSource> sources;
+    try {
+      engine = await _ref.read(pluginEngineProvider.future);
+      sources = await engine.store.loadSources();
+    } catch (_) {
+      return false;
+    }
+    final enabled = sources.where((s) => s.enabled).toList();
+    final quality = settings?.onlineQuality ?? '320k';
+
+    // —— 阶段一：同平台兄弟插件重解析（直链死链场景命中率最高）。
+    if (songJson['format'] != 'musicfree') {
+      final sourceKey = songJson['source'] as String? ?? '';
+      final musicInfo = songJson['musicInfo'];
+      if (sourceKey.isNotEmpty && musicInfo is Map && musicInfo.isNotEmpty) {
+        for (final s in enabled) {
+          if (_failedPluginIds.contains(s.id)) continue;
+          if (s.format != PluginFormat.lx) continue;
+          if (!s.sources.contains(sourceKey)) continue;
+          try {
+            final result = await engine.getMusicUrl(
+                s, sourceKey, Map<String, dynamic>.from(musicInfo), quality);
+            final url = result?['url'] as String?;
+            if (result == null || !_isPlayableUrl(url)) {
+              _failedPluginIds.add(s.id);
+              continue;
+            }
+            final newItem = item.copyWith(
+              onlineSongJson:
+                  jsonEncode({...songJson, 'pluginId': s.id}),
+            );
+            return await _replaceAndPlay(newItem, index);
+          } catch (_) {
+            _failedPluginIds.add(s.id);
+          }
+        }
+      }
+    }
+
+    // —— 阶段二：跨插件搜索同名歌（限 3 个插件，防表端越搜越卡）。
+    final keyword = '${item.title} ${item.artist}'.trim();
+    var tried = 0;
+    for (final s in enabled) {
+      if (_failedPluginIds.contains(s.id)) continue;
+      if (tried >= 3) break;
+      tried++;
+      try {
+        List<PluginSearchResult> hits;
+        if (s.format == PluginFormat.lx) {
+          final keys = s.sources.isEmpty ? <String>['default'] : s.sources;
+          hits = [];
+          for (final key in keys) {
+            hits.addAll(
+                await engine.searchInPlugin(s, key, keyword, limit: 10));
+          }
+        } else {
+          hits = await PluginCatalogService(engine, sources)
+              .searchMusic(s, keyword, limit: 10);
+        }
+        final pick = _pickMatch(hits, item.title, item.artist);
+        if (pick == null) {
+          _failedPluginIds.add(s.id);
+          continue;
+        }
+        final newItem =
+            PluginSearchService(engine, sources).toQueueItem(s, pick);
+        if (await _replaceAndPlay(newItem, index)) return true;
+        _failedPluginIds.add(s.id);
+      } catch (_) {
+        _failedPluginIds.add(s.id);
+      }
+    }
+    return false;
+  }
+
+  /// 替换队列条目并重新起播（换源成功路径）。
+  Future<bool> _replaceAndPlay(QueueItem newItem, int index) async {
+    if (index < 0 || index >= state.queue.length) return false;
+    final queue = [...state.queue];
+    queue[index] = newItem;
+    state = state.copyWith(queue: queue, current: newItem);
+    try {
+      return await _playAt(index);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 从搜索结果里挑同名歌：标题归一化相等 + 歌手有交集；
+  /// 兜底放宽为标题互相包含但仍要求歌手有交集（宁停不错）。
+  PluginSearchResult? _pickMatch(
+      List<PluginSearchResult> hits, String title, String artist) {
+    String norm(String s) => s
+        .toLowerCase()
+        .replaceAll(RegExp(r'[\s（）()【】\[\]·・\-_~～]'), '');
+    final t = norm(title);
+    if (t.isEmpty) return null;
+    Set<String> artistSet(String raw) => raw
+        .split(RegExp(r'[/、,，&]'))
+        .map(norm)
+        .where((a) => a.isNotEmpty)
+        .toSet();
+    final artists = artistSet(artist);
+    for (final h in hits) {
+      if (norm(h.name) != t) continue;
+      if (artists.isEmpty ||
+          artistSet(h.singer).intersection(artists).isNotEmpty) {
+        return h;
+      }
+    }
+    for (final h in hits) {
+      final hn = norm(h.name);
+      if ((hn.contains(t) || t.contains(hn)) &&
+          artistSet(h.singer).intersection(artists).isNotEmpty) {
+        return h;
+      }
+    }
+    return null;
   }
 
   int _pickNextIndex() {

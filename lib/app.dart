@@ -13,7 +13,7 @@ import 'src/ui/controller/watch_controller_page.dart';
 import 'src/ui/local/local_music_hub.dart';
 
 /// 弦予腕上版入口：全屏音乐页（左侧功能列表 ↔ 中间播放 ↔ 右侧歌词横移），
-/// 开屏落在播放页；设置/账号/插件管理从左侧功能列表进入。
+/// 开屏落在播放页；设置/账号从左侧功能列表进入（插件管理并入设置）。
 ///
 /// 联动建立（含后台通知拉起）时自动跳转播放控制页，返回后停在原处。
 class XianYuWatchApp extends ConsumerStatefulWidget {

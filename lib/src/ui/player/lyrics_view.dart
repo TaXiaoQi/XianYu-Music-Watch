@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/ambient.dart';
+import '../../core/settings.dart';
 import '../../core/watch_fit.dart';
 import '../../lyrics/lyric_model.dart';
 import 'play_page_body.dart' show kPlayerAccent;
@@ -44,6 +45,12 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
   List<LyricLine> _lines = const [];
   int _currentIndex = -1;
 
+  /// 歌词同步偏移毫秒（build 里随设置刷新，供 tick 路径读取）。
+  int _offsetMs = 0;
+
+  /// 显示翻译（build 里随设置刷新）。
+  bool _showTranslation = true;
+
   @override
   void initState() {
     super.initState();
@@ -73,7 +80,10 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
 
   void _applyPosition() {
     if (_navigator == null) return;
-    final idx = _navigator!.findIndex((widget.position * 1000).round());
+    // 歌词同步偏移（同移动端口径）：curMs = posMs - offsetMs，正=歌词更晚。
+    final offsetMs = _offsetMs;
+    final idx = _navigator!
+        .findIndex((widget.position * 1000).round() - offsetMs);
     if (idx == _currentIndex) return;
     _currentIndex = idx;
     if (idx < 0) return;
@@ -101,7 +111,14 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
   @override
   Widget build(BuildContext context) {
     final s = context.watchScale();
-    _rowExtent = 32 * s;
+    // 歌词样式设置（同移动端口径）：字号 0-3 档 / 翻译开关 / 时间偏移。
+    final settings = ref.watch(settingsProvider).valueOrNull;
+    final fontMul = const [0.85, 1.0, 1.15, 1.3][
+        (settings?.lyricFontSize ?? 1).clamp(0, 3)];
+    _offsetMs = (settings?.lyricOffsetMs ?? 0).clamp(-100, 100);
+    _showTranslation = settings?.showLyricsTranslation ?? true;
+    // 行高随字号档位等比缩放，保证固定 itemExtent 居中直算不溢出。
+    _rowExtent = 32 * s * fontMul;
 
     // 环境模式参与重建：ambient 冻结时静态渲染当前帧即可。
     ref.watch(ambientModeProvider);
@@ -164,19 +181,21 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    fontSize: current ? 13.5 * s : 10.5 * s,
+                    fontSize: (current ? 13.5 : 10.5) * s * fontMul,
                     fontWeight: current ? FontWeight.w600 : FontWeight.w400,
                     color: baseColor,
                   ),
                 ),
-                if (line.translation != null && line.translation!.isNotEmpty)
+                if (_showTranslation &&
+                    line.translation != null &&
+                    line.translation!.isNotEmpty)
                   Text(
                     line.translation!,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      fontSize: current ? 10 * s : 8.5 * s,
+                      fontSize: (current ? 10 : 8.5) * s * fontMul,
                       color: current
                           ? kPlayerAccent.withValues(alpha: 0.75)
                           : Colors.white.withValues(alpha: 0.32),

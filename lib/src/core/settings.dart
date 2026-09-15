@@ -22,6 +22,11 @@ class AppSettings {
     this.scanFormats = kSupportedScanFormats,
     this.watchLinkageEnabled = true,
     this.onlineQuality = '320k',
+    this.showLyricsTranslation = true,
+    this.lyricFontSize = 1,
+    this.lyricOffsetMs = 0,
+    this.onlineFailureBehavior = 'autoswitch',
+    this.streamCacheSizeMB = 200,
   });
 
   final double volume;
@@ -39,6 +44,22 @@ class AppSettings {
   /// 在线播放请求音质档（320k/flac 等，对齐移动端 onlineQuality 默认值）。
   final String onlineQuality;
 
+  /// 歌词翻译显示开关（同移动端 showLyricsTranslation）。
+  final bool showLyricsTranslation;
+
+  /// 歌词字号档位 0-3（小/标准/大/特大，同移动端 lyricFontSize，默认标准）。
+  final int lyricFontSize;
+
+  /// 歌词同步偏移毫秒（-100~100，正=歌词更晚，同移动端 lyricOffsetMs）。
+  final int lyricOffsetMs;
+
+  /// 在线起播失败行为（同移动端 onlineFailureBehavior）：
+  /// 'autoswitch' 自动换源重试 / 'stop' 停止。
+  final String onlineFailureBehavior;
+
+  /// 在线流缓存预算 MB（0 = 关闭；表端默认 200，移动端键名一致）。
+  final int streamCacheSizeMB;
+
   AppSettings copyWith({
     double? volume,
     int? playMode,
@@ -48,6 +69,11 @@ class AppSettings {
     List<String>? scanFormats,
     bool? watchLinkageEnabled,
     String? onlineQuality,
+    bool? showLyricsTranslation,
+    int? lyricFontSize,
+    int? lyricOffsetMs,
+    String? onlineFailureBehavior,
+    int? streamCacheSizeMB,
   }) {
     return AppSettings(
       volume: volume ?? this.volume,
@@ -59,6 +85,13 @@ class AppSettings {
       scanFormats: scanFormats ?? this.scanFormats,
       watchLinkageEnabled: watchLinkageEnabled ?? this.watchLinkageEnabled,
       onlineQuality: onlineQuality ?? this.onlineQuality,
+      showLyricsTranslation:
+          showLyricsTranslation ?? this.showLyricsTranslation,
+      lyricFontSize: lyricFontSize ?? this.lyricFontSize,
+      lyricOffsetMs: lyricOffsetMs ?? this.lyricOffsetMs,
+      onlineFailureBehavior:
+          onlineFailureBehavior ?? this.onlineFailureBehavior,
+      streamCacheSizeMB: streamCacheSizeMB ?? this.streamCacheSizeMB,
     );
   }
 }
@@ -78,6 +111,12 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
       scanFormats: _mergeScanFormats(prefs.getStringList('scanFormats')),
       watchLinkageEnabled: prefs.getBool('watchLinkageEnabled') ?? true,
       onlineQuality: prefs.getString('onlineQuality') ?? '320k',
+      showLyricsTranslation: prefs.getBool('showLyricsTranslation') ?? true,
+      lyricFontSize: (prefs.getInt('lyricFontSize') ?? 1).clamp(0, 3),
+      lyricOffsetMs: (prefs.getInt('lyricOffsetMs') ?? 0).clamp(-100, 100),
+      onlineFailureBehavior:
+          prefs.getString('onlineFailureBehavior') ?? 'autoswitch',
+      streamCacheSizeMB: prefs.getInt('streamCacheSizeMB') ?? 200,
     );
   }
 
@@ -94,6 +133,11 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
       prefs.setStringList('scanFormats', next.scanFormats),
       prefs.setBool('watchLinkageEnabled', next.watchLinkageEnabled),
       prefs.setString('onlineQuality', next.onlineQuality),
+      prefs.setBool('showLyricsTranslation', next.showLyricsTranslation),
+      prefs.setInt('lyricFontSize', next.lyricFontSize),
+      prefs.setInt('lyricOffsetMs', next.lyricOffsetMs),
+      prefs.setString('onlineFailureBehavior', next.onlineFailureBehavior),
+      prefs.setInt('streamCacheSizeMB', next.streamCacheSizeMB),
     ]);
   }
 
@@ -115,6 +159,21 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
           .copyWith(watchLinkageEnabled: v));
   Future<void> setOnlineQuality(String v) =>
       _save((state.valueOrNull ?? const AppSettings()).copyWith(onlineQuality: v));
+  Future<void> setShowLyricsTranslation(bool v) => _save(
+      (state.valueOrNull ?? const AppSettings())
+          .copyWith(showLyricsTranslation: v));
+  Future<void> setLyricFontSize(int v) => _save(
+      (state.valueOrNull ?? const AppSettings())
+          .copyWith(lyricFontSize: v.clamp(0, 3)));
+  Future<void> setLyricOffsetMs(int v) => _save(
+      (state.valueOrNull ?? const AppSettings())
+          .copyWith(lyricOffsetMs: v.clamp(-100, 100)));
+  Future<void> setOnlineFailureBehavior(String v) => _save(
+      (state.valueOrNull ?? const AppSettings())
+          .copyWith(onlineFailureBehavior: v));
+  Future<void> setStreamCacheSizeMB(int v) => _save(
+      (state.valueOrNull ?? const AppSettings())
+          .copyWith(streamCacheSizeMB: v.clamp(0, 2000)));
 
   /// 整体保存（自动同步合并后调用）。
   Future<void> saveAll(AppSettings next) => _save(next);

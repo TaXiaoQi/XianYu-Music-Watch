@@ -18,7 +18,7 @@ import '../player/page_dots.dart';
 import '../player/player_source.dart';
 import '../account/account_view.dart';
 import '../home/daily_recommend_page.dart';
-import '../online/plugin_manage_page.dart';
+import '../../plugin/plugin_provider.dart';
 import '../online/search_page.dart';
 import '../online/toplist_page.dart';
 import '../settings/settings_view.dart';
@@ -89,7 +89,12 @@ class _LocalMusicHubState extends ConsumerState<LocalMusicHub> {
           ),
           PageView(
             controller: _pageCtrl,
-            onPageChanged: (i) => setState(() => _page = i),
+            onPageChanged: (i) {
+              setState(() => _page = i);
+              // 回写 provider：表冠门禁（选择页/播放页守卫）都读它，
+              // 只 setState 不回写会让门禁永远停在初始页。
+              ref.read(localHubPageProvider.notifier).state = i;
+            },
             children: [
               const _SourcePickerPage(),
               const _LocalPlayPage(),
@@ -143,7 +148,7 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
     if (ref.read(localHubPageProvider) != 0) return;
     if (ModalRoute.of(context)?.isCurrent != true) return;
     final s = context.watchScale();
-    final pitch = 56 * s; // 一档 = 一个条目，与列表阶梯节距一致
+    final pitch = 64 * s; // 一档 = 一个条目，与列表阶梯节距一致
     final dir = event.direction == RotaryDirection.clockwise ? 1 : -1;
     final target = (_scroll.offset + dir * pitch)
         .clamp(0.0, _scroll.position.maxScrollExtent);
@@ -159,7 +164,10 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
   Widget build(BuildContext context) {
     // 透明：透出宿主层的全屏封面模糊背景；尺寸随屏径等比缩放。
     final s = context.watchScale();
-    final pitch = 56 * s; // 阶梯节距：一个条目占一档
+    final pitch = 64 * s; // 阶梯节距：一个条目占一档
+    // 对齐移动端：无任何已启用音源插件时隐藏 每日推荐/音源榜单。
+    final hasPlugins =
+        ref.watch(pluginManagerProvider).sources.any((p) => p.enabled);
     final specs = <(Color, IconData, String, VoidCallback)>[
       (
         const Color(0xFFE8A33D),
@@ -169,28 +177,31 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
               MaterialPageRoute<void>(builder: (_) => const AccountView()),
             ),
       ),
-      (
-        const Color(0xFFE8694D),
-        Icons.recommend_rounded,
-        '每日推荐',
-        () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const DailyRecommendPage()),
-            ),
-      ),
-      (
-        const Color(0xFFD94A8C),
-        Icons.queue_music_rounded,
-        '我的歌单',
-        () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const CloudPlaylistsPage()),
-            ),
-      ),
+      if (hasPlugins) ...[
+        (
+          const Color(0xFFE8694D),
+          Icons.recommend_rounded,
+          '每日推荐',
+          () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                    builder: (_) => const DailyRecommendPage()),
+              ),
+        ),
+        (
+          const Color(0xFF4A90D9),
+          Icons.leaderboard_rounded,
+          '音源榜单',
+          () => Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => const TopListPage()),
+              ),
+        ),
+      ],
       (
         const Color(0xFF4A90D9),
-        Icons.leaderboard_rounded,
-        '音源榜单',
+        Icons.travel_explore_rounded,
+        '搜索',
         () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const TopListPage()),
+              MaterialPageRoute<void>(builder: (_) => const OnlineSearchPage()),
             ),
       ),
       (
@@ -202,19 +213,11 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
             ),
       ),
       (
-        const Color(0xFF4A90D9),
-        Icons.travel_explore_rounded,
-        '在线搜索',
+        const Color(0xFFD94A8C),
+        Icons.queue_music_rounded,
+        '我的歌单',
         () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const OnlineSearchPage()),
-            ),
-      ),
-      (
-        const Color(0xFF9B6BD9),
-        Icons.extension_rounded,
-        '插件管理',
-        () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const PluginManagePage()),
+              MaterialPageRoute<void>(builder: (_) => const CloudPlaylistsPage()),
             ),
       ),
       (
@@ -231,24 +234,26 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
-            // 底部补白：让最后一项也能滚到顶部锚点位，阶梯收尾不缩水。
-            final bottomPad =
-                (constraints.maxHeight - pitch).clamp(0.0, double.infinity);
+            // 首尾留白：顶部/底部各补 (视口高-节距)/2，让第一项和
+            // 最后一项都能精确停在屏幕正中（maxScroll 恰为 (n-1)*节距）。
+            final spacer =
+                ((constraints.maxHeight - pitch) / 2).clamp(0.0, double.infinity);
             return AnimatedBuilder(
               animation: _scroll,
               builder: (context, _) {
-                // 阶梯锚点：视口顶部第一档中心。距锚点越远条目越小
-                // （1.0 → 邻档 0.775 → 0.55 封底），形成网易云手表
-                // 「当前项顶满、下一项居中缩小、逐级上收」的纵深列表。
+                // 居中锚点：屏幕正中是「当前项」。距锚点越远条目越小
+                // （1.0 → 相邻 0.775 → 0.55 封底），上收/下收对称，
+                // 形成网易云手表式「中间大、上下逐级缩小」的纵深列表。
                 final offset = _scroll.hasClients ? _scroll.offset : 0.0;
-                final anchor = offset + pitch * 0.5;
+                final anchor = offset + constraints.maxHeight / 2;
                 return ListView.builder(
                   controller: _scroll,
                   itemExtent: pitch,
-                  padding: EdgeInsets.only(bottom: bottomPad),
+                  padding: EdgeInsets.symmetric(vertical: spacer),
                   itemCount: specs.length,
                   itemBuilder: (context, i) {
-                    final distance = ((i + 0.5) * pitch - anchor).abs() / pitch;
+                    final distance =
+                        ((i + 0.5) * pitch + spacer - anchor).abs() / pitch;
                     final scale = (1.0 - distance * 0.225).clamp(0.55, 1.0);
                     final alpha = 0.45 + 0.55 * ((scale - 0.55) / 0.45);
                     final (color, icon, label, onTap) = specs[i];
@@ -288,25 +293,25 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
     final s = context.watchScale();
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(24 * s),
+      borderRadius: BorderRadius.circular(26 * s),
       child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: 20 * s, vertical: 4 * s),
+        padding: EdgeInsets.symmetric(horizontal: 24 * s, vertical: 4 * s),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 36 * s,
-              height: 36 * s,
+              width: 46 * s,
+              height: 46 * s,
               decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-              child: Icon(icon, size: 18 * s, color: Colors.white),
+              child: Icon(icon, size: 22 * s, color: Colors.white),
             ),
-            SizedBox(width: 12 * s),
+            SizedBox(width: 14 * s),
             ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: 100 * s),
+              constraints: BoxConstraints(maxWidth: 150 * s),
               child: Text(
                 label,
                 style: TextStyle(
-                  fontSize: 14 * s,
+                  fontSize: 17 * s,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -314,7 +319,7 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
             SizedBox(width: 5 * s),
             Icon(
               Icons.chevron_right_rounded,
-              size: 20 * s,
+              size: 22 * s,
               color: Colors.white.withValues(alpha: 0.38),
             ),
           ],
