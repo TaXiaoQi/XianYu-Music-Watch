@@ -1,0 +1,15 @@
+name: wearable_rotary
+description: >-
+  OpenHarmony (HarmonyOS NEXT) stub of the wearable_rotary API. The upstream
+  package (Samsung wearable_rotary 2.0.4) ships Android/Tizen platform
+  implementations only; no ohos fork exists yet. This stub keeps the exact
+  Dart API surface used by XianYu-Music-Watch (RotaryEvent / RotaryDirection /
+  rotaryEvents) with an empty event stream, so the ohos build compiles and
+  runs without per-call-site changes. Active ONLY in ohos dependency state
+  (pubspec_overrides.yaml written by scripts/ohos/pub-state.ps1); Android
+  keeps the official package.
+version: 2.0.4
+publish_to: 'none'
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"

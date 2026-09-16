@@ -36,6 +36,18 @@ migrate_working_dir/
 # Release binaries — use GitHub Releases instead of committing APKs
 /releases/
 
+# ohos build state: pubspec_overrides.yaml is written by scripts/ohos/
+# pub-state.ps1 during ohos builds ONLY and must never be committed (it would
+# hijack Android pub get into ohos forks)
+/pubspec_overrides.yaml
+
+# 鸿蒙就地构建的 ohpm 物化产物（构建时自动生成）
+**/oh_modules/
+# 鸿蒙就地构建产物：rust .so 与 flutter_assets（每次构建重新生成）
+/ohos/entry/libs/
+/ohos/entry/src/main/resources/rawfile/
+/ohos/.hvigor/
+
 # Rust build artifacts
 /rust/target/
 

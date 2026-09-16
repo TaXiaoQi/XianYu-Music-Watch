@@ -5,7 +5,9 @@ publish_to: 'none'
 version: 0.1.0-beta3+10000
 
 environment:
-  sdk: ^3.13.0
+  # 下限放宽到 3.11：Flutter-OH 3.41.10-ohos 对应 Dart 3.11（鸿蒙构建用），
+  # 官方 Flutter（Android）用 Dart 3.12+/3.13 仍满足（与移动端同款写法）
+  sdk: ">=3.11.0 <4.0.0"
 
 dependencies:
   flutter:

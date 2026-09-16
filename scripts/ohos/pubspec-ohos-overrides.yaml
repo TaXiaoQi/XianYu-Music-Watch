@@ -1,0 +1,62 @@
+# pubspec-ohos-overrides.yaml (TEMPLATE - watch)
+# Written to <root>/pubspec_overrides.yaml by scripts/ohos/pub-state.ps1
+# (Enter-XianyuOhosPubState) at the START of every ohos build/run/pub-get, and
+# DELETED on full exit - the file REPLACES pubspec's dependency_overrides
+# entirely, so a leftover copy would hijack Android `pub get` into ohos forks
+# whose Dart references TargetPlatform.ohos - uncompilable on the official SDK.
+# The lock likewise flips to the ohos resolution during the build and is
+# restored from build/ohos/pubspec.lock.android afterwards.
+#
+# Watch 依赖面远小于移动端：riverpod/path/crypto/qr_flutter/flutter_rust_bridge
+# 为纯 Dart 无需 override；仅需覆盖带平台通道的 5 个插件 + 表冠 stub。
+
+dependency_overrides:
+  # ---- ohos forks (PoC verified on the mobile project, same constraints) ----
+  path_provider:
+    git:
+      url: https://gitcode.com/openharmony-tpc/flutter_packages.git
+      path: packages/path_provider/path_provider
+
+  # 无 ohos 实现时每个 SharedPreferences.getInstance() 都会抛
+  # MissingPluginException（设置持久化/配对地址全依赖它）。
+  shared_preferences:
+    git:
+      url: https://gitcode.com/openharmony-tpc/flutter_packages.git
+      path: packages/shared_preferences/shared_preferences
+
+  just_audio:
+    git:
+      url: https://gitcode.com/openharmony-sig/fluttertpc_just_audio.git
+      path: just_audio
+
+  # audio_session：just_audio fork 钉死 br_v0.2.2_ohos，而 audio_service fork
+  # 对它是不带 ref 的 git HEAD 依赖——两者无法统一，必须显式 override 钉住
+  # 同一 ref（与移动端模板同款），否则版本解析直接失败。
+  audio_session:
+    git:
+      url: https://gitcode.com/CPF-Flutter/flutter_audio_session.git
+      ref: br_v0.2.2_ohos
+
+  # 后台播放保障（MediaSession/前台媒体服务）
+  audio_service:
+    git:
+      url: https://gitcode.com/openharmony-sig/fluttertpc_audio_service.git
+      path: audio_service
+
+  # 本地扫描运行时权限（SIG fork 11.3.1，主包内嵌 ohos 子包自引用）
+  permission_handler:
+    git:
+      url: https://gitcode.com/openharmony-sig/flutter_permission_handler.git
+      path: permission_handler
+      ref: br_permission_handler_v11.3.1_ohos
+
+  # ---- wearable_rotary（表冠输入）----
+  # 官方包只有 Android/Tizen 实现，鸿蒙生态暂无适配 fork；鸿蒙原生表冠
+  # 走 API18+ onDigitalCrown（ArkUI 层），Flutter-OH 引擎侧无桥接。本工程
+  # 6 处 rotaryEvents.listen 直接消费该包 API，缺实现会在 listen 时抛
+  # MissingPluginException（每页一报、走 FlutterError 日志噪音）。用本地
+  # stub（third_party/wearable_rotary，API 完全同构、事件流为空）替换：
+  # 表冠暂不可用（后续可经 xianyu/* 自定义通道桥接 onDigitalCrown），
+  # 但编译/运行零改动。仅 ohos 构建态生效，Android 保持官方包。
+  wearable_rotary:
+    path: third_party/wearable_rotary
