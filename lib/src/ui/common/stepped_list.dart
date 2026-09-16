@@ -45,13 +45,13 @@ class SteppedListView extends StatefulWidget {
 
 class _SteppedListViewState extends State<SteppedListView> {
   // 一档 46*s ≈ 23% 屏径（对齐系统量测修正：焦点行中心距 23.1%）；焦点
-  // 胶囊高 51*s（25.5%）经 OverflowBox 溢出档位居中放大，相邻行 0.62 后
-  // 高约 31.6*s——与焦点行间隙约 2.4% 屏径（系统 2.5%），紧凑但无重叠。
+  // 胶囊高 53*s（26.5%）经 OverflowBox 溢出档位居中放大，相邻行 0.60 后
+  // 高约 31.8*s——与焦点行间隙约 3.6*s（1.8% 屏径），紧凑但无重叠。
   static const double _pitchBase = 46;
 
-  /// 胶囊标准高（51*s）：SteppedTile 自然高度（47 前导圆 + 2×2 内边距），
+  /// 胶囊标准高（53*s）：SteppedTile 自然高度（47 前导圆 + 2×2 内边距），
   /// OverflowBox 用它突破档位约束。
-  static const double _capsuleH = 51;
+  static const double _capsuleH = 53;
 
   final ScrollController _scroll = ScrollController();
   StreamSubscription<RotaryEvent>? _rotarySub;
@@ -231,29 +231,27 @@ class _SteppedListViewState extends State<SteppedListView> {
                                 anchor)
                             .abs() /
                             pitch;
-                        // 幂曲线（0.6）：相邻 0.62（≈系统 15.7%/25.4% 的
-                        // 行高比）、隔行 0.42、更远 0.30 封底——焦点行
-                        // 明显放大、相邻骤缩，系统的层级感。
+                        // 幂曲线（0.6）：相邻 0.60、隔行 0.40、更远 0.28
+                        // 封底——焦点行明显放大、相邻骤缩，系统的层级感。
                         final scale = (1.0 -
-                                0.38 * math.pow(distance, 0.6))
-                            .clamp(0.30, 1.0);
-                        // 透明度随阶梯继续下滑，边缘「小条子」几乎隐入
-                        // 圆屏轮廓。
-                        final alpha = scale >= 0.55
-                            ? 0.45 + 0.55 * ((scale - 0.55) / 0.45)
-                            : (0.45 - (0.55 - scale) * 0.75)
-                                .clamp(0.22, 0.45);
+                                0.40 * math.pow(distance, 0.6))
+                            .clamp(0.28, 1.0);
+                        // 透明度随尺寸线性浅衰减（0.55+0.45·scale）：远处
+                        // 行保持可读（系统边缘行几乎全亮），焦点行恰好
+                        // 为 1 省一层 saveLayer。
+                        final alpha = (0.55 + 0.45 * scale).clamp(0.0, 1.0);
                         return Center(
                           child: OverflowBox(
-                            // 焦点胶囊 51*s 高于档位 36*s：溢出档位居中
-                            // 放大（系统焦点行 25% 屏径 > 档距 18% 的做法）。
+                            // 焦点胶囊 53*s 高于档位 46*s：溢出档位居中
+                            // 放大（系统焦点行 > 档距的做法）。
                             minHeight: _capsuleH * s,
                             maxHeight: _capsuleH * s,
                             alignment: Alignment.center,
                             child: Padding(
-                              // 左右各 2.5% 屏径：焦点行占 95% 屏宽。
+                              // 左右各 3.75% 屏径：焦点行占 92.5% 屏宽，
+                              // 右缘避开滚动指示内缘（~97% 屏宽）。
                               padding: EdgeInsets.symmetric(
-                                  horizontal: 5.0 * s),
+                                  horizontal: 7.5 * s),
                               child: Transform.scale(
                                 scale: scale,
                                 // 焦点行不透明度为 1，直接省掉一层
@@ -311,9 +309,9 @@ class _ScrollThumbPainter extends CustomPainter {
     if (!pos.hasContentDimensions || pos.maxScrollExtent <= 0) return;
     const span = 110 * math.pi / 180;
     final total = pos.maxScrollExtent + pos.viewportDimension;
-    // One UI 式限短：亮弧长度限制在导轨的 2.5%~4%（用户校准：再短一半）；
-    // 暗导轨全程铺垫。
-    final thumbFrac = (pos.viewportDimension / total).clamp(0.025, 0.04);
+    // One UI 式限短：亮弧长度限制在导轨的 2%~2.5%（用户校准：再减半）；
+    // 暗导轨全程铺垫、极淡（0.05，仅提供位置参照不抢视觉）。
+    final thumbFrac = (pos.viewportDimension / total).clamp(0.02, 0.025);
     final off = (pos.pixels / pos.maxScrollExtent).clamp(0.0, 1.0);
     final thumb = span * thumbFrac;
     final start = -span / 2 + off * (span - thumb);
@@ -331,7 +329,7 @@ class _ScrollThumbPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = strokeWidth
         ..strokeCap = StrokeCap.round
-        ..color = Colors.white.withValues(alpha: 0.10),
+        ..color = Colors.white.withValues(alpha: 0.05),
     );
     canvas.drawArc(
       rect,
