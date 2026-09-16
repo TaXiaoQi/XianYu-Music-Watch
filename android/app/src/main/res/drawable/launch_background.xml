@@ -1,12 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 启动闪屏（方形屏兜底）：白底 + 居中品牌 logo（日间品牌色版，与手机端
-     日间启动图同源）。64dp 约占表盘 29%：过大在圆表上顶满屏缘。圆形屏由
-     drawable-round 提供同款启动图。 -->
+     日间启动图同源）。64dp ≈ 表盘 25%：不顶满屏缘。圆形屏由 drawable-round
+     提供同款启动图。
+     关键：bitmap 必须 gravity="fill" 拉进 item 的 64dp 容器——splash_logo
+     的密度桶按 148dp 基准制作，layer-list item 不裁剪子内容，不加 fill
+     时 bitmap 溢出容器按 148dp 绘制（小表上占 74% 屏径，观感即「logo 占
+     满屏幕」）。 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@color/splash_background" />
     <item android:gravity="center" android:width="64dp" android:height="64dp">
         <bitmap
             android:src="@drawable/splash_logo"
-            android:gravity="center" />
+            android:gravity="fill" />
     </item>
 </layer-list>

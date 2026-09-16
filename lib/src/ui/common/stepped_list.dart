@@ -8,7 +8,7 @@ import '../../core/watch_fit.dart';
 
 /// 圆屏阶梯列表（One UI 表盘同款观感，全部二级页与功能页统一适配）：
 /// 行为圆角胶囊卡片，一档一个条目、一屏只现约三行——居中焦点行最大
-/// 铺满中部，上下行逐级缩小变窄变淡（1.0 → 相邻 0.775 → 0.55 封底）；
+/// 铺满中部，上下行逐级缩小变窄变淡（1.0 → 相邻 0.73 → 0.50 → 0.35 封底）；
 /// 右缘有弧形滚动位置指示；表冠逐档滚动 + 档位振动。
 ///
 /// 性能：滚动监听下沉到每个条目的 AnimatedBuilder；[itemBuilder] 产出
@@ -44,14 +44,16 @@ class SteppedListView extends StatefulWidget {
 }
 
 class _SteppedListViewState extends State<SteppedListView> {
-  // 一档 46*s ≈ 23% 屏径（对齐系统量测修正：焦点行中心距 23.1%）；焦点
-  // 胶囊高 53*s（26.5%）经 OverflowBox 溢出档位居中放大，相邻行 0.60 后
-  // 高约 31.8*s——与焦点行间隙约 3.6*s（1.8% 屏径），紧凑但无重叠。
-  static const double _pitchBase = 46;
+  // 一档 57*s ≈ 28.5% 屏径（系统截图量测：三行可见时中心距 ~28.4%，
+  // 行间有明显空隙 ~3.5%——此前 23% 过密、三行整体偏小）；焦点胶囊高
+  // 57*s（28.5%）恰好占满档位，相邻行 0.73 后高约 41.6*s（20.8%），
+  // 行间空隙 = 57 − (57+41.6)/2 ≈ 7.7*s（3.8% 屏径），三行总占高
+  // ≈ 78% 屏径，与系统一致。
+  static const double _pitchBase = 57;
 
-  /// 胶囊标准高（53*s）：SteppedTile 自然高度（47 前导圆 + 2×2 内边距），
-  /// OverflowBox 用它突破档位约束。
-  static const double _capsuleH = 53;
+  /// 胶囊标准高（57*s）：SteppedTile 自然高度（40 前导圆 + 2×2 内边距），
+  /// OverflowBox 用它以紧约束撑满档位。
+  static const double _capsuleH = 57;
 
   final ScrollController _scroll = ScrollController();
   StreamSubscription<RotaryEvent>? _rotarySub;
@@ -165,6 +167,9 @@ class _SteppedListViewState extends State<SteppedListView> {
   Widget build(BuildContext context) {
     final s = context.watchScale();
     final pitch = _pitchBase * s;
+    // 屏形分支：圆屏 = 阶梯缩放 + 右缘弧形指示；方屏 = 全宽等大行 +
+    // 直线滚动条（四角不裁，无弧度可让）。
+    final round = context.isRoundWatch;
     final header = widget.header;
     final headerBand = header == null ? 0.0 : widget.headerExtent * s;
     return LayoutBuilder(
@@ -228,28 +233,33 @@ class _SteppedListViewState extends State<SteppedListView> {
                                 anchor)
                             .abs() /
                             pitch;
-                        // 幂曲线（0.6）：相邻 0.70（比主条小一点）、隔行
-                        // 0.545、边缘 0.38 封底——中段行放大后填挤间隙，
-                        // 远处行更实更近（用户校准）。
-                        final scale = (1.0 -
-                                0.30 * math.pow(distance, 0.6))
-                            .clamp(0.38, 1.0);
+                        // 圆屏：幂曲线（0.9）阶梯——相邻 0.73（高 20.8%
+                        // 屏径，对齐系统）、隔行 0.50、边缘 0.35 封底，
+                        // 行距放大后远处行收得更狠，把空间让给行间空隙。
+                        // 方屏：四角不裁，全部行等大（scale 恒 1）。
+                        final scale = round
+                            ? (1.0 - 0.27 * math.pow(distance, 0.9))
+                                .clamp(0.35, 1.0)
+                            : 1.0;
                         // 透明度随尺寸线性浅衰减（0.55+0.45·scale）：远处
                         // 行保持可读（系统边缘行几乎全亮），焦点行恰好
-                        // 为 1 省一层 saveLayer。
-                        final alpha = (0.55 + 0.45 * scale).clamp(0.0, 1.0);
+                        // 为 1 省一层 saveLayer。方屏恒 1。
+                        final alpha = round
+                            ? (0.55 + 0.45 * scale).clamp(0.0, 1.0)
+                            : 1.0;
                         return Center(
                           child: OverflowBox(
-                            // 焦点胶囊 53*s 高于档位 46*s：溢出档位居中
-                            // 放大（系统焦点行 > 档距的做法）。
+                            // 焦点胶囊 57*s 恰好占满档位 57*s；相邻行经
+                            // Transform.scale 缩小后自然留出行间空隙。
                             minHeight: _capsuleH * s,
                             maxHeight: _capsuleH * s,
                             alignment: Alignment.center,
                             child: Padding(
-                              // 左右各 3.75% 屏径：焦点行占 92.5% 屏宽，
-                              // 右缘避开滚动指示内缘（~97% 屏宽）。
+                              // 圆屏左右各 7.5% 屏径：焦点行占 85% 屏宽
+                              // （系统截图量测），相邻行随缩放进一步收窄；
+                              // 方屏四角不裁，全宽只留 3% 呼吸边。
                               padding: EdgeInsets.symmetric(
-                                  horizontal: 7.5 * s),
+                                  horizontal: (round ? 15.0 : 6.0) * s),
                               child: Transform.scale(
                                 scale: scale,
                                 // 焦点行不透明度为 1，直接省掉一层
@@ -279,6 +289,7 @@ class _SteppedListViewState extends State<SteppedListView> {
                     painter: _ScrollThumbPainter(
                       controller: _scroll,
                       strokeWidth: 3.5 * s,
+                      round: round,
                     ),
                   ),
                 ),
@@ -291,24 +302,52 @@ class _SteppedListViewState extends State<SteppedListView> {
   }
 }
 
-/// 右缘弧形滚动指示：110° 导轨贴圆屏右缘，亮弧长度 = 视口占内容比，
-/// 位置随滚动进度移动。重绘由 ScrollController 监听驱动。
+/// 右缘滚动位置指示：圆屏 = 110° 导轨贴圆屏右缘（亮弧长度 = 视口占内容
+/// 比，位置随滚动进度移动）；方屏 = 右缘竖直圆角短条贴直边。重绘由
+/// ScrollController 监听驱动。
 class _ScrollThumbPainter extends CustomPainter {
-  _ScrollThumbPainter({required this.controller, required this.strokeWidth})
-      : super(repaint: controller);
+  _ScrollThumbPainter({
+    required this.controller,
+    required this.strokeWidth,
+    required this.round,
+  }) : super(repaint: controller);
 
   final ScrollController controller;
   final double strokeWidth;
+
+  /// 圆屏画弧形导轨+亮弧；方屏画竖直圆角短条。
+  final bool round;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (controller.positions.isEmpty) return;
     final pos = controller.position;
     if (!pos.hasContentDimensions || pos.maxScrollExtent <= 0) return;
-    // 导轨总长 55°（用户校准：110° 减半）；亮弧长度 = 视口占内容比、
+    final total = pos.maxScrollExtent + pos.viewportDimension;
+    if (!round) {
+      // 方屏：右缘竖直圆角短条（贴直边），长度 = 视口占内容比、位置随
+      // 滚动进度在轨道（视口 42% 高）内移动；无暗轨（方屏系统样式裸条）。
+      final track = size.height * 0.42;
+      final bar = (track * pos.viewportDimension / total)
+          .clamp(track * 0.18, track)
+          .toDouble();
+      final y =
+          (pos.pixels / pos.maxScrollExtent).clamp(0.0, 1.0) * (track - bar);
+      final rect = Rect.fromLTWH(
+        size.width - strokeWidth * 1.8,
+        (size.height - track) / 2 + y,
+        strokeWidth,
+        bar,
+      );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(rect, Radius.circular(strokeWidth / 2)),
+        Paint()..color = Colors.white.withValues(alpha: 0.45),
+      );
+      return;
+    }
+    // 圆屏：导轨总长 55°（用户校准：110° 减半）；亮弧长度 = 视口占内容比、
     // 限制在导轨的 2%~2.5%；暗导轨全程铺垫、极淡（0.05，仅提供位置参照）。
     const span = 55 * math.pi / 180;
-    final total = pos.maxScrollExtent + pos.viewportDimension;
     final thumbFrac = (pos.viewportDimension / total).clamp(0.02, 0.025);
     final off = (pos.pixels / pos.maxScrollExtent).clamp(0.0, 1.0);
     final thumb = span * thumbFrac;
@@ -373,9 +412,9 @@ class SteppedPill extends StatelessWidget {
   }
 }
 
-/// 标准大号行（与 [SteppedListView] 配套）：胶囊卡 + 44*s 前导区 +
+/// 标准大号行（与 [SteppedListView] 配套）：胶囊卡 + 40*s 前导区 +
 /// 居中主标题 17*s / 副标题 12*s + 可选尾部控件；行高由列表按档位
-/// （64*s）以紧约束提供，焦点行铺满屏幕中部。
+/// （57*s）以紧约束提供，焦点行铺满屏幕中部。
 class SteppedTile extends StatelessWidget {
   const SteppedTile({
     super.key,
@@ -452,7 +491,7 @@ class SteppedTile extends StatelessWidget {
   }
 }
 
-/// 标准大号圆形封面/图标前导区（44*s），统一各列表行的视觉分量。
+/// 标准大号圆形封面/图标前导区（40*s），统一各列表行的视觉分量。
 class SteppedLeadCircle extends StatelessWidget {
   const SteppedLeadCircle({
     super.key,
@@ -467,9 +506,10 @@ class SteppedLeadCircle extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = context.watchScale();
     return Container(
-      // 47*s：接近撑满胶囊（52*s 可用高），对齐系统焦点行图标占比。
-      width: 47 * s,
-      height: 47 * s,
+      // 40*s ≈ 0.70 焦点行高：系统焦点行图标圆上下各留 ~5% 屏径空白，
+      // 不再接近撑满（旧 47*s 校准对应 53*s 行高已过时）。
+      width: 40 * s,
+      height: 40 * s,
       alignment: Alignment.center,
       decoration: BoxDecoration(color: color, shape: BoxShape.circle),
       child: child,

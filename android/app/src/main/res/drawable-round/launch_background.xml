@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 启动闪屏（圆形屏专用，round 资源限定符自动生效）：白底 + 居中品牌
-     logo（日间品牌色版，与方形屏/手机端同源），64dp 不顶满表盘。 -->
+     logo（日间品牌色版，与方形屏/手机端同源），64dp ≈ 表盘 25% 不顶满。
+     bitmap 必须 gravity="fill" 拉进 64dp 容器（splash_logo 密度桶按 148dp
+     基准制作，不加 fill 会溢出容器按 148dp 绘制、小表上占满屏缘）。 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@color/splash_background" />
     <item android:gravity="center" android:width="64dp" android:height="64dp">
         <bitmap
             android:src="@drawable/splash_logo"
-            android:gravity="center" />
+            android:gravity="fill" />
     </item>
 </layer-list>

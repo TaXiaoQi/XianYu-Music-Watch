@@ -6,12 +6,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app.dart';
 import 'src/core/rust_init.dart';
+import 'src/core/watch_fit.dart';
 import 'src/player/listen_stats.dart';
 import 'src/player/player_provider.dart'
     show WatchAudioHandler, activePlayerNotifier, audioHandler;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // 屏形探测（圆/方）须在首帧前落定：列表/页面按形状选布局，
+  // 通道往返 <10ms，await 避免方表首帧闪圆屏样式。
+  await WatchScreenShape.probe();
   final container = ProviderContainer();
   // 尽早触发 rust 初始化（与首帧渲染并行），缩短「打开→可交互」的等待。
   container.read(rustInitProvider);

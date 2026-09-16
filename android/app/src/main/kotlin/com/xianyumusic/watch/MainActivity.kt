@@ -133,6 +133,16 @@ class MainActivity : AudioServiceActivity() {
                     result.notImplemented()
                 }
             }
+        // 屏形探测（圆表/方表）：官方判定 resources.configuration.isScreenRound，
+        // Dart 侧据此切换圆屏阶梯列表 / 方屏全宽列表两套布局。
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "xianyu/screen_shape")
+            .setMethodCallHandler { call, result ->
+                if (call.method == "isRound") {
+                    result.success(resources.configuration.isScreenRound)
+                } else {
+                    result.notImplemented()
+                }
+            }
     }
 
     /** 表冠档位/点选确认轻脉冲（约 18ms）。返回 false = 设备无振动器。 */
