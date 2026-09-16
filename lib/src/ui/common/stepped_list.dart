@@ -7,13 +7,16 @@ import '../../core/haptics.dart';
 import '../../core/watch_fit.dart';
 
 /// 圆屏阶梯列表（One UI 表盘同款观感，全部二级页与功能页统一适配）：
-/// 行为圆角胶囊卡片，一档一个条目、一屏只现约三行——居中焦点行最大
-/// 铺满中部，上下行逐级缩小变窄变淡（1.0 → 相邻 0.73 → 0.50 → 0.35 封底）；
-/// 右缘有弧形滚动位置指示；表冠逐档滚动 + 档位振动。
+/// 行为圆角胶囊卡片，一档一个条目、一屏 3~4 行，三行外上下还各露一条
+/// 边缘行（系统同款）——居中焦点行最大铺满中部，上下行缓衰减缩小
+/// （1.0 → 相邻 0.79 → 隔行 ~0.75 → 缓降至 0.60 封底）；
+/// 右缘有弧形滚动位置指示；表冠逐档滚动 + 档位振动；触控拖动/甩动
+/// 由吸附物理直接落位最近档位（与表冠同一网格）。
 ///
 /// 性能：滚动监听下沉到每个条目的 AnimatedBuilder；[itemBuilder] 产出
-/// 的行实例在滚动帧间保持稳定（identical 短路），滚动帧只重建缩放/
-/// 透明包装；焦点行不包 Opacity，省一层 saveLayer。
+/// 的行实例在滚动帧间保持稳定（identical 短路），且包在 RepaintBoundary
+/// 内——行内容位图被栅格缓存，滚动帧只更新外层缩放矩阵/图层透明度，
+/// 文字不逐帧重栅格化；焦点行不包 Opacity，省一层 saveLayer。
 class SteppedListView extends StatefulWidget {
   const SteppedListView({
     super.key,
@@ -44,16 +47,16 @@ class SteppedListView extends StatefulWidget {
 }
 
 class _SteppedListViewState extends State<SteppedListView> {
-  // 一档 57*s ≈ 28.5% 屏径（系统截图量测：三行可见时中心距 ~28.4%，
-  // 行间有明显空隙 ~3.5%——此前 23% 过密、三行整体偏小）；焦点胶囊高
-  // 57*s（28.5%）恰好占满档位，相邻行 0.73 后高约 41.6*s（20.8%），
-  // 行间空隙 = 57 − (57+41.6)/2 ≈ 7.7*s（3.8% 屏径），三行总占高
-  // ≈ 78% 屏径，与系统一致。
-  static const double _pitchBase = 57;
+  // 一档 52*s ≈ 26% 屏径（系统设置截图量测：中心距 ~26%，行间空隙极小
+  // ~2-3%——用户校准：旧 28.5% 行距下最远两行间隔太远，要系统紧凑排布）；
+  // 焦点胶囊高 52*s（26%）恰好占满档位，相邻行 0.79 后高约 41*s（20.5%），
+  // 行间空隙 = 52 − (52+41)/2 ≈ 5.5*s（2.8% 屏径），一屏 3~4 行（系统同款）；
+  // 缓衰减曲线让三行外上下还各露一条边缘行。
+  static const double _pitchBase = 52;
 
-  /// 胶囊标准高（57*s）：SteppedTile 自然高度（40 前导圆 + 2×2 内边距），
+  /// 胶囊标准高（52*s）：SteppedTile 自然高度（40 前导圆 + 2×2 内边距），
   /// OverflowBox 用它以紧约束撑满档位。
-  static const double _capsuleH = 57;
+  static const double _capsuleH = 52;
 
   final ScrollController _scroll = ScrollController();
   StreamSubscription<RotaryEvent>? _rotarySub;
@@ -208,6 +211,10 @@ class _SteppedListViewState extends State<SteppedListView> {
               },
               child: ListView.builder(
                 controller: _scroll,
+                // 触控吸附物理：拖动松手/甩动由物理直接落位最近档位，
+                // 与表冠 debounce 吸附共用同一网格（表冠走 jumpTo +
+                // 定时器 animateTo，不经滚动物理，互不冲突）。
+                physics: _SnapPhysics(pitch: pitch, base: headerBand),
                 padding: EdgeInsets.fromLTRB(0, startSpacer, 0, endSpacer),
                 itemCount: widget.itemCount + (hasHeader ? 1 : 0),
                 itemBuilder: (context, i) {
@@ -223,7 +230,12 @@ class _SteppedListViewState extends State<SteppedListView> {
                     height: pitch,
                     child: AnimatedBuilder(
                       animation: _scroll,
-                      child: widget.itemBuilder(context, row),
+                      // RepaintBoundary 放在缩放/透明变换内侧：行内容
+                      // 位图在滚动帧间被栅格缓存，逐帧只更新外层变换
+                      // 矩阵与图层透明度，文字不重栅格化（低端表 GPU
+                      // 滚动流畅度的关键）。
+                      child: RepaintBoundary(
+                          child: widget.itemBuilder(context, row)),
                       builder: (context, child) {
                         final offset = _scroll.hasClients ? _scroll.offset : 0.0;
                         final anchor = offset + viewportH / 2;
@@ -233,13 +245,14 @@ class _SteppedListViewState extends State<SteppedListView> {
                                 anchor)
                             .abs() /
                             pitch;
-                        // 圆屏：幂曲线（0.9）阶梯——相邻 0.73（高 20.8%
-                        // 屏径，对齐系统）、隔行 0.50、边缘 0.35 封底，
-                        // 行距放大后远处行收得更狠，把空间让给行间空隙。
-                        // 方屏：四角不裁，全部行等大（scale 恒 1）。
+                        // 圆屏：幂曲线（0.25）缓衰减——相邻 0.79（高 20.5%
+                        // 屏径，系统量测 210/265），衰减随距离快速趋缓
+                        // （隔行 ~0.75），三行之外的上下两条边缘行保持较大
+                        // 且几乎全亮（系统同款）；0.60 封底防远处行缩没。
+                        // 方屏：四角不裁，全部行等大（恒 1）。
                         final scale = round
-                            ? (1.0 - 0.27 * math.pow(distance, 0.9))
-                                .clamp(0.35, 1.0)
+                            ? (1.0 - 0.21 * math.pow(distance, 0.25))
+                                .clamp(0.60, 1.0)
                             : 1.0;
                         // 透明度随尺寸线性浅衰减（0.55+0.45·scale）：远处
                         // 行保持可读（系统边缘行几乎全亮），焦点行恰好
@@ -255,11 +268,11 @@ class _SteppedListViewState extends State<SteppedListView> {
                             maxHeight: _capsuleH * s,
                             alignment: Alignment.center,
                             child: Padding(
-                              // 圆屏左右各 7.5% 屏径：焦点行占 85% 屏宽
-                              // （系统截图量测），相邻行随缩放进一步收窄；
-                              // 方屏四角不裁，全宽只留 3% 呼吸边。
+                              // 圆屏左右各 6% 屏径：焦点行占 88% 屏宽
+                              // （用户校准：比系统居中行再宽一点点），相邻
+                              // 行随缩放进一步收窄；方屏只留 3% 呼吸边。
                               padding: EdgeInsets.symmetric(
-                                  horizontal: (round ? 15.0 : 6.0) * s),
+                                  horizontal: (round ? 12.0 : 6.0) * s),
                               child: Transform.scale(
                                 scale: scale,
                                 // 焦点行不透明度为 1，直接省掉一层
@@ -299,6 +312,44 @@ class _SteppedListViewState extends State<SteppedListView> {
         );
       },
     );
+  }
+}
+
+/// 触控吸附物理：拖动松手/甩动结束后由滚动物理直接落位最近档位
+/// （表冠走自身 debounce 吸附，不经此路径）。甩动按速度投射自然滑行
+/// 距离并吸附到网格；静止松手就近落位；临界阻尼弹簧快速落位无回弹。
+class _SnapPhysics extends ClampingScrollPhysics {
+  const _SnapPhysics({required this.pitch, required this.base, super.parent});
+
+  /// 档位节距与网格基准（有 header 时网格线整体下移 headerBand）。
+  final double pitch;
+  final double base;
+
+  @override
+  _SnapPhysics applyTo(ScrollPhysics? ancestor) =>
+      _SnapPhysics(pitch: pitch, base: base, parent: buildParent(ancestor));
+
+  @override
+  SpringDescription get spring => SpringDescription.withDampingRatio(
+        mass: 0.5,
+        stiffness: 320.0,
+        ratio: 1.0,
+      );
+
+  double _gridOf(double pixels) =>
+      ((pixels + base) / pitch).roundToDouble() * pitch - base;
+
+  @override
+  Simulation? createBallisticSimulation(
+      ScrollMetrics position, double velocity) {
+    final double projected = velocity.abs() > toleranceFor(position).velocity
+        ? position.pixels + velocity * 0.12 // 甩动投射：快甩多走几档
+        : position.pixels;
+    final double target = _gridOf(projected)
+        .clamp(position.minScrollExtent, position.maxScrollExtent)
+        .toDouble();
+    if ((target - position.pixels).abs() < 0.5) return null;
+    return ScrollSpringSimulation(spring, position.pixels, target, velocity);
   }
 }
 
