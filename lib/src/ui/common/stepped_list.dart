@@ -60,13 +60,9 @@ class _SteppedListViewState extends State<SteppedListView> {
   /// 连续滚动位移——原生的「滑动」手感，而非一格跳一行。
   double _rotaryAcc = 0;
 
-  /// 上次振动所在行线：跨行才振一次，把振动节奏绑在滚过距离上（原生
-  /// CLOCK_TICK 式稀疏反馈），而非每个棘轮都振。
+  /// 上次吸附落定的行：吸附后行变化才振一次（用户校准：转过去没滚到
+  /// 下一行又转回来 = 行没变 = 不振；只有真正切到新行才反馈）。
   int _hapticRow = 0;
-
-  /// 上次振动时刻：振动限速（华为事件风暴下跨行极频，无限速会变成
-  /// 持续连振），最快约 8Hz。
-  DateTime _lastHapticAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   /// 最近一次表冠事件时刻：ScrollEnd 吸附的门——表冠滚动中 jumpTo 与
   /// 吸附动画会往复拉锯（跨行线反复触发振动=持续震动的根因），滚动中
@@ -133,27 +129,21 @@ class _SteppedListViewState extends State<SteppedListView> {
     // 停转 150ms 后主动吸附：否则列表停在任意偏移上，正中行错档缩小
     // （「中间不放大」的根因）。
     _settleTimer?.cancel();
+    final headerBand =
+        widget.header == null ? 0.0 : widget.headerExtent * s;
     _settleTimer = Timer(
-        const Duration(milliseconds: 150), () => _settleToGrid(pitch));
-    // 跨过行线才振一次（按滚过距离稀疏反馈，原生节奏）+ 限速防连振；
-    // 限速跳过时同样推进行线基准，快转多行只振一次。
-    final row = (target / pitch).floor();
-    if (row != _hapticRow) {
-      _hapticRow = row;
-      final now = DateTime.now();
-      if (now.difference(_lastHapticAt) >=
-          const Duration(milliseconds: 120)) {
-        _lastHapticAt = now;
-        Haptics.tick();
-      }
-    }
+        const Duration(milliseconds: 150), () => _settleToGrid(pitch, headerBand));
   }
 
   /// 吸附到最近档位：保证有一行精确停在正中、以完整尺寸居中放大。
-  void _settleToGrid(double pitch) {
+  /// [base] 为头部条带偏移：有 header 时行网格线整体下移（居中
+  /// offset = row×pitch − headerBand），不修正会吸附偏一截（触控
+  /// 「没有居中」的来源之一）。
+  void _settleToGrid(double pitch, double base) {
     if (!mounted || !_scroll.hasClients) return;
     final max = _scroll.position.maxScrollExtent;
-    final grid = (_scroll.offset / pitch).round() * pitch;
+    final grid =
+        ((_scroll.offset + base) / pitch).round() * pitch - base;
     final target = grid.clamp(0.0, max);
     if ((target - _scroll.offset).abs() > 0.5) {
       _scroll.animateTo(
@@ -162,7 +152,13 @@ class _SteppedListViewState extends State<SteppedListView> {
         curve: Curves.easeOutCubic,
       );
     }
-    _hapticRow = (target / pitch).floor();
+    // 落定行变化才振：滚动途中不振（转过去又转回来行没变 = 无反馈），
+    // 只有吸附后真正停在新的一行才给一次轻触觉确认。
+    final row = (target / pitch).floor();
+    if (row != _hapticRow) {
+      _hapticRow = row;
+      Haptics.tick();
+    }
   }
 
   @override
@@ -200,8 +196,9 @@ class _SteppedListViewState extends State<SteppedListView> {
                     const Duration(milliseconds: 200)) {
                   return false;
                 }
-                final pitch = _pitchBase * context.watchScale();
-                _settleToGrid(pitch);
+                final s2 = context.watchScale();
+                _settleToGrid(_pitchBase * s2,
+                    header == null ? 0.0 : widget.headerExtent * s2);
                 return false;
               },
               child: ListView.builder(
@@ -231,11 +228,12 @@ class _SteppedListViewState extends State<SteppedListView> {
                                 anchor)
                             .abs() /
                             pitch;
-                        // 幂曲线（0.6）：相邻 0.60、隔行 0.40、更远 0.28
-                        // 封底——焦点行明显放大、相邻骤缩，系统的层级感。
+                        // 幂曲线（0.6）：相邻 0.70（比主条小一点）、隔行
+                        // 0.545、边缘 0.38 封底——中段行放大后填挤间隙，
+                        // 远处行更实更近（用户校准）。
                         final scale = (1.0 -
-                                0.40 * math.pow(distance, 0.6))
-                            .clamp(0.28, 1.0);
+                                0.30 * math.pow(distance, 0.6))
+                            .clamp(0.38, 1.0);
                         // 透明度随尺寸线性浅衰减（0.55+0.45·scale）：远处
                         // 行保持可读（系统边缘行几乎全亮），焦点行恰好
                         // 为 1 省一层 saveLayer。
@@ -307,10 +305,10 @@ class _ScrollThumbPainter extends CustomPainter {
     if (controller.positions.isEmpty) return;
     final pos = controller.position;
     if (!pos.hasContentDimensions || pos.maxScrollExtent <= 0) return;
-    const span = 110 * math.pi / 180;
+    // 导轨总长 55°（用户校准：110° 减半）；亮弧长度 = 视口占内容比、
+    // 限制在导轨的 2%~2.5%；暗导轨全程铺垫、极淡（0.05，仅提供位置参照）。
+    const span = 55 * math.pi / 180;
     final total = pos.maxScrollExtent + pos.viewportDimension;
-    // One UI 式限短：亮弧长度限制在导轨的 2%~2.5%（用户校准：再减半）；
-    // 暗导轨全程铺垫、极淡（0.05，仅提供位置参照不抢视觉）。
     final thumbFrac = (pos.viewportDimension / total).clamp(0.02, 0.025);
     final off = (pos.pixels / pos.maxScrollExtent).clamp(0.0, 1.0);
     final thumb = span * thumbFrac;
@@ -319,7 +317,7 @@ class _ScrollThumbPainter extends CustomPainter {
       center: size.center(Offset.zero),
       radius: size.shortestSide / 2 - strokeWidth * 1.6,
     );
-    // 暗导轨：全程 110° 淡弧，亮弧在其上滑动（系统样式）。
+    // 暗导轨：全程淡弧，亮弧在其上滑动（系统样式）。
     canvas.drawArc(
       rect,
       -span / 2,
@@ -404,10 +402,9 @@ class SteppedTile extends StatelessWidget {
     return SteppedPill(
       onTap: onTap,
       child: Padding(
-          // 纵向 2：档位 58*s 内要装下胶囊（行 Padding 3*s×2 → 胶囊上限
-          // 52*s）。47*s 前导圆 + 2*s×2 内边距 = 51*s，留 1*s 余量；
-          // 中文行高由下方 height 锁定，防止顶爆胶囊出溢出警告条。
-          padding: EdgeInsets.symmetric(horizontal: 14 * s, vertical: 2 * s),
+          // 横向 3：图标几乎贴胶囊左缘（系统样式，用户校准去缝隙）；
+          // 纵向 2：档位内装下胶囊。中文行高由下方 height 锁定。
+          padding: EdgeInsets.symmetric(horizontal: 3 * s, vertical: 2 * s),
           child: Row(
             children: [
               ?leading,

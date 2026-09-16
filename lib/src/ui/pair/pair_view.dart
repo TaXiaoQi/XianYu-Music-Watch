@@ -1,12 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:wearable_rotary/wearable_rotary.dart';
 
 import '../../core/watch_fit.dart';
 import '../../link/link_provider.dart';
 import '../../link/rfcomm_client.dart';
 
 /// 设备选择页：列出系统已配对蓝牙设备，点选即连接并持久化。
-/// 首次进入若无权限，先引导授予「附近设备」权限。
+/// 首次进入若无权限，先引导授予「附近设备」权限。表冠滚动设备列表。
 class PairView extends ConsumerStatefulWidget {
   const PairView({super.key});
 
@@ -19,10 +22,37 @@ class _PairViewState extends ConsumerState<PairView> {
   bool _needsPermission = false;
   bool _loading = true;
 
+  final ScrollController _scroll = ScrollController();
+  StreamSubscription<RotaryEvent>? _rotarySub;
+  double _rotaryAcc = 0;
+
   @override
   void initState() {
     super.initState();
     _reload();
+    _rotarySub = rotaryEvents.listen(_onRotary);
+  }
+
+  /// 表冠滚动设备列表：连续位移跟手（内容页无档位网格，不吸附不振动）。
+  void _onRotary(RotaryEvent event) {
+    if (!mounted || !_scroll.hasClients) return;
+    if (ModalRoute.of(context)?.isCurrent != true) return;
+    final dir = event.direction == RotaryDirection.clockwise ? 1.0 : -1.0;
+    final m = (event.magnitude ?? 48).clamp(0.0, 64.0).toDouble();
+    if (dir * _rotaryAcc < 0) _rotaryAcc = 0; // 换向清账
+    _rotaryAcc += dir * m;
+    final delta = _rotaryAcc * 0.6;
+    _rotaryAcc = 0;
+    final target = (_scroll.offset + delta)
+        .clamp(0.0, _scroll.position.maxScrollExtent);
+    if ((target - _scroll.offset).abs() >= 0.5) _scroll.jumpTo(target);
+  }
+
+  @override
+  void dispose() {
+    _rotarySub?.cancel();
+    _scroll.dispose();
+    super.dispose();
   }
 
   Future<void> _reload() async {
@@ -114,6 +144,7 @@ class _PairViewState extends ConsumerState<PairView> {
                           ),
                         )
                       : ListView.builder(
+                          controller: _scroll,
                           itemCount: _devices!.length,
                           itemBuilder: (_, i) {
                             final dev = _devices![i];

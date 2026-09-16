@@ -7,7 +7,9 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../core/watch_fit.dart';
 import '../../auth/auth_provider.dart';
+import '../../player/listen_stats.dart';
 import '../../sync/sync_provider.dart';
+import '../common/full_dialog.dart';
 
 /// 账号页：未登录 → 默认扫码登录（桌面端同款 generate_tv_login_code，
 /// 手机 App 扫码确认），可切弦予号密码登录；已登录 → 资料展示 + 退出。
@@ -104,6 +106,8 @@ class _AccountViewState extends ConsumerState<AccountView> {
               style: TextStyle(
                   fontSize: 11 * s, color: Colors.white.withValues(alpha: 0.4))),
         SizedBox(height: 16 * s),
+        const _ListenStatsCard(),
+        SizedBox(height: 10 * s),
         const _SyncCard(),
         SizedBox(height: 14 * s),
         OutlinedButton.icon(
@@ -135,25 +139,91 @@ class _AccountViewState extends ConsumerState<AccountView> {
 
   /// 注销引导：需要密码+邮箱验证码双重确认，腕上端输入不便，指到手机/桌面端。
   void _showDeleteAccountGuide() {
-    final s = context.watchScale();
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1C1C1E),
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(14 * s)),
-        title: Text('注销账号',
-            style: TextStyle(fontSize: 15 * s, fontWeight: FontWeight.w700)),
-        content: Text(
+    showFullConfirm(
+      context,
+      title: '注销账号',
+      message:
           '注销需密码和邮箱验证码双重确认，请到手机端或桌面端操作：\n\n手机端 · 账号页 → 注销账号\n桌面端 · 账号设置 → 注销账号',
-          style: TextStyle(fontSize: 12 * s, height: 1.5),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('知道了',
-                style: TextStyle(color: Color(0xFFFF8FA3))),
+      okLabel: '知道了',
+      okOnly: true,
+    );
+  }
+}
+
+/// 听歌时长卡：今日 / 本周 / 累计三项，数据与服务端对齐
+/// （增量上报回传的真源值 + 本端未上报增量），与手机/桌面端一致。
+class _ListenStatsCard extends ConsumerStatefulWidget {
+  const _ListenStatsCard();
+
+  @override
+  ConsumerState<_ListenStatsCard> createState() => _ListenStatsCardState();
+}
+
+class _ListenStatsCardState extends ConsumerState<_ListenStatsCard> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ref.read(listenStatsProvider.notifier).refresh();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.watchScale();
+    final stats = ref.watch(listenStatsProvider);
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(horizontal: 12 * s, vertical: 10 * s),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(12 * s),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.graphic_eq_rounded,
+                  size: 15 * s, color: const Color(0xFFFF8FA3)),
+              SizedBox(width: 6 * s),
+              Text('听歌时长',
+                  style: TextStyle(
+                      fontSize: 13 * s, fontWeight: FontWeight.w600)),
+            ],
           ),
+          SizedBox(height: 8 * s),
+          Row(
+            children: [
+              _statItem('今日',
+                  formatListenDuration(stats.displayDaily), s),
+              _statItem('本周',
+                  formatListenDuration(stats.displayWeekly), s),
+              _statItem('累计',
+                  formatListenDuration(stats.displayTotal), s),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _statItem(String label, String value, double s) {
+    return Expanded(
+      child: Column(
+        children: [
+          Text(value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                  fontSize: 12.5 * s,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white.withValues(alpha: 0.92))),
+          SizedBox(height: 2 * s),
+          Text(label,
+              style: TextStyle(
+                  fontSize: 10 * s,
+                  color: Colors.white.withValues(alpha: 0.5))),
         ],
       ),
     );

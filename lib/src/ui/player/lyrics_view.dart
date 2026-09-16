@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:wearable_rotary/wearable_rotary.dart';
 
 import '../../core/ambient.dart';
 import '../../core/settings.dart';
 import '../../core/watch_fit.dart';
 import '../../lyrics/lyric_model.dart';
+import '../../core/haptics.dart';
 import 'play_page_body.dart' show kPlayerAccent;
 
 /// 歌词页视图（网易云手表版形态）：全屏滚动歌词，当前行主题色高亮 +
@@ -12,7 +16,8 @@ import 'play_page_body.dart' show kPlayerAccent;
 /// （OLED 防烧屏）。
 ///
 /// 行高固定（单行主词 + 可选单行翻译）且随 [watchScale] 等比适配，
-/// 保证居中滚动可按行号直算。
+/// 保证居中滚动可按行号直算。表冠旋转手动浏览歌词（跨行轻振动），
+/// 手动滚动后暂停自动跟随 4s 再恢复。
 class LyricsView extends ConsumerStatefulWidget {
   const LyricsView({
     super.key,
@@ -21,6 +26,7 @@ class LyricsView extends ConsumerStatefulWidget {
     required this.isPlaying,
     this.onSeek,
     this.emptyText = '暂无歌词',
+    this.rotaryGuard,
   });
 
   final List<LyricLine> lines;
@@ -31,6 +37,9 @@ class LyricsView extends ConsumerStatefulWidget {
   final bool isPlaying;
   final ValueChanged<double>? onSeek;
   final String emptyText;
+
+  /// 表冠事件门禁（如 PageView 宿主仅当前页响应）；不传 = 总是响应。
+  final bool Function()? rotaryGuard;
 
   @override
   ConsumerState<LyricsView> createState() => _LyricsViewState();
@@ -45,9 +54,22 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
   double _vPad = 0;
 
   final ScrollController _scroll = ScrollController();
+  StreamSubscription<RotaryEvent>? _rotarySub;
   TimingNavigator? _navigator;
   List<LyricLine> _lines = const [];
   int _currentIndex = -1;
+
+  /// 表冠位移预算（带符号像素）：换向清账，逐事件消费为连续滚动位移。
+  double _rotaryAcc = 0;
+
+  /// 上次落定的行 + 停转判定定时器：停转 150ms 后行变化才振一次
+  /// （同阶梯列表——转过去没滚到下一行又转回来 = 行没变 = 不振）。
+  int _hapticRow = 0;
+  Timer? _hapticDebounce;
+
+  /// 手动浏览截止时刻：表冠/触控滚动歌词后暂停自动跟随 4s（系统行为：
+  /// 手动浏览不被自动滚动抢走），到期后恢复居中当前行。
+  DateTime _manualUntil = DateTime.fromMillisecondsSinceEpoch(0);
 
   /// 歌词同步偏移毫秒（build 里随设置刷新，供 tick 路径读取）。
   int _offsetMs = 0;
@@ -59,6 +81,7 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
   void initState() {
     super.initState();
     _syncLines();
+    _rotarySub = rotaryEvents.listen(_onRotary);
   }
 
   @override
@@ -72,14 +95,47 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
 
   @override
   void dispose() {
+    _rotarySub?.cancel();
+    _hapticDebounce?.cancel();
     _scroll.dispose();
     super.dispose();
+  }
+
+  /// 表冠手动浏览歌词：位移跟手（一格棘轮 ≈ 半行），停转后行变化才振；
+  /// 手动滚动后 4s 内不自动居中。
+  void _onRotary(RotaryEvent event) {
+    if (!mounted || !_scroll.hasClients) return;
+    if (ModalRoute.of(context)?.isCurrent != true) return;
+    final guard = widget.rotaryGuard;
+    if (guard != null && !guard()) return;
+    final dir = event.direction == RotaryDirection.clockwise ? 1.0 : -1.0;
+    final m = (event.magnitude ?? 48).clamp(0.0, 64.0).toDouble();
+    if (dir * _rotaryAcc < 0) _rotaryAcc = 0; // 换向清账
+    _rotaryAcc += dir * m;
+    final delta = _rotaryAcc * 0.5;
+    _rotaryAcc = 0;
+    final target = (_scroll.offset + delta)
+        .clamp(0.0, _scroll.position.maxScrollExtent);
+    if ((target - _scroll.offset).abs() < 0.5) return; // 已到边不空振
+    _scroll.jumpTo(target);
+    _manualUntil = DateTime.now().add(const Duration(seconds: 4));
+    // 停转 150ms 后落定行变化才振（滚动途中与往返不振）。
+    _hapticDebounce?.cancel();
+    _hapticDebounce = Timer(const Duration(milliseconds: 150), () {
+      if (!mounted || !_scroll.hasClients) return;
+      final row = (_scroll.offset / _rowExtent).floor();
+      if (row != _hapticRow) {
+        _hapticRow = row;
+        Haptics.tick();
+      }
+    });
   }
 
   void _syncLines() {
     _lines = widget.lines;
     _navigator = _lines.isEmpty ? null : TimingNavigator(_lines);
     _currentIndex = -1;
+    _hapticRow = 0;
   }
 
   void _applyPosition() {
@@ -91,6 +147,8 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
     if (idx == _currentIndex) return;
     _currentIndex = idx;
     if (idx < 0) return;
+    // 手动浏览窗口内只更新高亮，不抢滚动位置。
+    if (DateTime.now().isBefore(_manualUntil)) return;
     _centerOn(idx);
   }
 
@@ -146,7 +204,20 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
       );
     }
 
-    return ShaderMask(
+    return NotificationListener<ScrollNotification>(
+      onNotification: (n) {
+        // 触控滚动歌词 → 手动浏览窗口（与表冠同待遇）：手指拖拽中、
+        // 惯性结束都算手动操作，4s 内自动跟随让位。表冠 jumpTo 的通知
+        // 无 dragDetails，不会在这里重复计时（_onRotary 自行计时）。
+        final manual = (n is ScrollUpdateNotification &&
+                n.dragDetails != null) ||
+            n is ScrollEndNotification;
+        if (manual) {
+          _manualUntil = DateTime.now().add(const Duration(seconds: 4));
+        }
+        return false;
+      },
+      child: ShaderMask(
       // 上下缘淡出（网易云歌词页样式）：边缘行渐隐，视觉聚焦当前行。
       shaderCallback: (rect) => const LinearGradient(
         begin: Alignment.topCenter,
@@ -212,6 +283,7 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
             ),
           );
         },
+        ),
       ),
     );
   }

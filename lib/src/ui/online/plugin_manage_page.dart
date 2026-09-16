@@ -6,6 +6,7 @@ import '../../plugin/plugin_models.dart';
 import '../../plugin/plugin_provider.dart';
 import '../../plugin/plugin_subscriptions.dart';
 import '../../plugin/plugin_updates.dart';
+import '../common/full_dialog.dart';
 import '../common/stepped_list.dart';
 
 /// 插件管理页：已安装列表（启用开关/删除）+ 检测全部更新（有更新标红，
@@ -107,35 +108,12 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
   }
 
   Future<void> _addPlugin() async {
-    final url = await showDialog<String>(
-      context: context,
-      builder: (context) {
-        final s = context.watchScale(); // 屏径等比缩放
-        final c = TextEditingController();
-        return AlertDialog(
-          title: Text('添加插件', style: TextStyle(fontSize: 15 * s)),
-          content: TextField(
-            controller: c,
-            autofocus: true,
-            style: TextStyle(fontSize: 13 * s),
-            decoration: const InputDecoration(
-              hintText: '插件脚本/订阅 URL',
-              isDense: true,
-            ),
-            keyboardType: TextInputType.url,
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('取消', style: TextStyle(fontSize: 13 * s)),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, c.text.trim()),
-              child: Text('安装', style: TextStyle(fontSize: 13 * s)),
-            ),
-          ],
-        );
-      },
+    final url = await showFullInput(
+      context,
+      title: '添加插件',
+      hint: '插件脚本/订阅 URL',
+      okLabel: '安装',
+      keyboardType: TextInputType.url,
     );
     if (url == null || url.isEmpty || !mounted) return;
     try {
@@ -259,7 +237,7 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
     return SteppedPill(
       child: ListTile(
         dense: true,
-        contentPadding: EdgeInsets.symmetric(horizontal: 14 * s),
+        contentPadding: EdgeInsets.symmetric(horizontal: 3 * s),
       leading: Container(
         width: 44 * s,
         height: 44 * s,

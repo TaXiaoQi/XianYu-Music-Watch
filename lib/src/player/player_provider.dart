@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../auth/auth_provider.dart';
 import '../favorites/favorites_provider.dart';
 
 import '../core/db_path.dart';
@@ -41,6 +42,8 @@ class QueueItem {
   final String? source;
   /// 在线搜索元数据 JSON（LX 插件歌歌词兜底用，Rust LyricSongInfo 格式）。
   final String? onlineInfoJson;
+  /// 来自每日推荐队列：播放页据此显示「不喜欢」按钮（跳过并上报负反馈）。
+  final bool fromDailyRecommend;
   const QueueItem({
     required this.path,
     required this.title,
@@ -53,6 +56,7 @@ class QueueItem {
     this.onlineQuality,
     this.source,
     this.onlineInfoJson,
+    this.fromDailyRecommend = false,
   });
 
   QueueItem copyWith(
@@ -69,6 +73,7 @@ class QueueItem {
         onlineQuality: onlineQuality,
         source: source,
         onlineInfoJson: onlineInfoJson,
+        fromDailyRecommend: fromDailyRecommend,
       );
 }
 
@@ -955,6 +960,28 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
           onlineInfoJson: item.onlineInfoJson,
           addedAt: DateTime.now().millisecondsSinceEpoch,
         ));
+  }
+
+  /// 「不喜欢」日推歌：上报负反馈后跳到下一首（同移动端播放页口径）。
+  /// 返回 false = 无曲目或未登录未执行（UI 据此提示）；上报失败不阻断跳歌。
+  Future<bool> dislikeDaily() async {
+    final item = state.current;
+    if (item == null) return false;
+    final ciyuanxiId =
+        _ref.read(authProvider).user?.ciyuanxiId?.trim() ?? '';
+    if (ciyuanxiId.isEmpty) return false;
+    try {
+      await _ref.read(authProvider.notifier).requestAction(
+        'report_daily_dislike',
+        {
+          'ciyuanxi_id': ciyuanxiId,
+          'song_name': item.title,
+          'singer': item.artist,
+        },
+      );
+    } catch (_) {}
+    await next();
+    return true;
   }
 
   @override

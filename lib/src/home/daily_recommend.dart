@@ -155,6 +155,7 @@ class DailyRecommendItem {
       // LX 插件歌词兜底：走 Rust 内置各源直连歌词；musicfree 不附加。
       source: isMf ? null : src,
       onlineInfoJson: isMf ? null : jsonEncode(song),
+      fromDailyRecommend: true,
     );
   }
 }

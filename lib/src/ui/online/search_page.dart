@@ -6,6 +6,7 @@ import '../../player/player_provider.dart';
 import '../../plugin/plugin_models.dart';
 import '../../plugin/plugin_provider.dart';
 import '../../plugin/plugin_search.dart';
+import '../common/full_dialog.dart';
 import '../common/stepped_list.dart';
 import '../local/local_music_hub.dart';
 
@@ -61,35 +62,12 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
   }
 
   Future<void> _addPlugin() async {
-    final url = await showDialog<String>(
-      context: context,
-      builder: (context) {
-        final s = context.watchScale(); // 屏径等比缩放
-        final c = TextEditingController();
-        return AlertDialog(
-          title: Text('添加插件', style: TextStyle(fontSize: 15 * s)),
-          content: TextField(
-            controller: c,
-            autofocus: true,
-            style: TextStyle(fontSize: 13 * s),
-            decoration: const InputDecoration(
-              hintText: '插件脚本 URL',
-              isDense: true,
-            ),
-            keyboardType: TextInputType.url,
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('取消', style: TextStyle(fontSize: 13 * s)),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, c.text.trim()),
-              child: Text('安装', style: TextStyle(fontSize: 13 * s)),
-            ),
-          ],
-        );
-      },
+    final url = await showFullInput(
+      context,
+      title: '添加插件',
+      hint: '插件脚本 URL',
+      okLabel: '安装',
+      keyboardType: TextInputType.url,
     );
     if (url == null || url.isEmpty || !mounted) return;
     setState(() => _installing = true);
@@ -215,7 +193,7 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
       tiles.add(Align(
         alignment: Alignment.centerLeft,
         child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: 14 * s),
+          padding: EdgeInsets.symmetric(horizontal: 3 * s),
           child: Text(
             src.name,
             style: TextStyle(

@@ -190,7 +190,7 @@ Widget _linkStatusRow(
               )
           : null,
       child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: 14 * s),
+        padding: EdgeInsets.symmetric(horizontal: 3 * s),
         child: child,
       ),
     ),
@@ -269,7 +269,7 @@ Widget _linkActionsRow(
     height: pitch,
     child: SteppedPill(
       child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: 14 * s),
+        padding: EdgeInsets.symmetric(horizontal: 3 * s),
         child: Row(children: [
           for (var i = 0; i < buttons.length; i++) ...[
             if (i > 0) SizedBox(width: 6 * s),
@@ -293,7 +293,7 @@ Widget _switchRow({
     height: 64 * s,
     child: SteppedPill(
       child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: 14 * s),
+        padding: EdgeInsets.symmetric(horizontal: 3 * s),
         child: Row(
           children: [
             Expanded(

@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app.dart';
 import 'src/core/rust_init.dart';
+import 'src/player/listen_stats.dart';
 import 'src/player/player_provider.dart'
     show WatchAudioHandler, activePlayerNotifier, audioHandler;
 
@@ -14,6 +15,8 @@ Future<void> main() async {
   final container = ProviderContainer();
   // 尽早触发 rust 初始化（与首帧渲染并行），缩短「打开→可交互」的等待。
   container.read(rustInitProvider);
+  // 听歌时长统计（独立播放 position 增量结算 + delta 上报），常驻计时。
+  container.read(listenStatsProvider);
   // 后台初始化系统 MediaSession / 媒体通知服务（独立播放灭屏/切走不被杀），
   // 不阻塞首帧；init 完成后补绑 PlayerNotifier（见 _initAudioService）。
   _initAudioService();

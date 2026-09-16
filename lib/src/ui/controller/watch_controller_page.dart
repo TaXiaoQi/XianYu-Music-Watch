@@ -105,6 +105,8 @@ class _WatchControllerPageState extends ConsumerState<WatchControllerPage> {
                 isPlaying: link.isPlaying,
                 onSeek: (secs) =>
                     ref.read(linkControllerProvider.notifier).seek(secs),
+                // 表冠门禁：仅歌词页是 PageView 当前页时才滚动歌词。
+                rotaryGuard: () => _page == 1,
               ),
             ],
           ),

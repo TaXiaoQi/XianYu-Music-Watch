@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/app_version.dart';
 import '../../core/settings.dart';
+import '../common/full_dialog.dart';
 import '../../core/watch_fit.dart';
 import '../../library/library_provider.dart';
 import '../../player/stream_cache.dart';
@@ -197,72 +198,31 @@ class _PlaybackPage extends ConsumerWidget {
 
 /// 默认音量：滑杆点选（5% 步进），写设置即全链路生效。
 Future<void> _pickVolume(BuildContext context, AppSettings s) async {
-  final sc = context.watchScale();
   final container = ProviderScope.containerOf(context, listen: false);
   var value = s.volume.clamp(0.0, 1.0);
-  final ok = await showDialog<bool>(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: Text('默认音量', style: TextStyle(fontSize: 15 * sc)),
-      content: StatefulBuilder(
-        builder: (context, setDialogState) => Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('${(value * 100).round()}%',
-                style: TextStyle(fontSize: 20 * sc, fontWeight: FontWeight.w700)),
-            Slider(
-              value: value,
-              divisions: 20,
-              activeColor: const Color(0xFFFF4D6E),
-              onChanged: (v) => setDialogState(() => value = v),
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text('取消', style: TextStyle(fontSize: 13 * sc)),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, true),
-          child: Text('确定', style: TextStyle(fontSize: 13 * sc)),
-        ),
-      ],
-    ),
+  final ok = await showFullSlider(
+    context,
+    title: '默认音量',
+    initial: value,
+    min: 0,
+    max: 1,
+    divisions: 20,
+    label: (v) => '${(v * 100).round()}%',
   );
-  if (ok == true) {
-    await container.read(settingsProvider.notifier).setVolume(value);
+  if (ok != null) {
+    await container.read(settingsProvider.notifier).setVolume(ok);
   }
 }
 
 /// 播放模式：三选一（0 顺序 / 1 单曲循环 / 2 随机）。
 Future<void> _pickPlayMode(BuildContext context, AppSettings s) async {
-  final sc = context.watchScale();
   final container = ProviderScope.containerOf(context, listen: false);
   const labels = ['顺序循环', '单曲循环', '随机播放'];
-  final v = await showDialog<int>(
-    context: context,
-    builder: (context) => SimpleDialog(
-      title: Text('播放模式', style: TextStyle(fontSize: 15 * sc)),
-      children: [
-        for (var i = 0; i < labels.length; i++)
-          SimpleDialogOption(
-            onPressed: () => Navigator.pop(context, i),
-            child: Row(
-              children: [
-                if (s.playMode == i)
-                  Icon(Icons.check_rounded,
-                      size: 16 * sc, color: const Color(0xFFFF4D6E))
-                else
-                  SizedBox(width: 16 * sc),
-                SizedBox(width: 8 * sc),
-                Text(labels[i], style: TextStyle(fontSize: 13 * sc)),
-              ],
-            ),
-          ),
-      ],
-    ),
+  final v = await showFullPicker<int>(
+    context,
+    title: '播放模式',
+    current: s.playMode,
+    options: [for (var i = 0; i < labels.length; i++) (i, labels[i])],
   );
   if (v != null) {
     await container.read(settingsProvider.notifier).setPlayMode(v);
@@ -271,33 +231,15 @@ Future<void> _pickPlayMode(BuildContext context, AppSettings s) async {
 
 /// 播放倍速：五档点选（与播放页「更多」面板一致）。
 Future<void> _pickSpeed(BuildContext context, AppSettings s) async {
-  final sc = context.watchScale();
   final container = ProviderScope.containerOf(context, listen: false);
   const steps = [0.75, 1.0, 1.25, 1.5, 2.0];
   String label(double v) =>
       v == v.truncateToDouble() ? v.toStringAsFixed(1) : v.toString();
-  final v = await showDialog<double>(
-    context: context,
-    builder: (context) => SimpleDialog(
-      title: Text('播放倍速', style: TextStyle(fontSize: 15 * sc)),
-      children: [
-        for (final step in steps)
-          SimpleDialogOption(
-            onPressed: () => Navigator.pop(context, step),
-            child: Row(
-              children: [
-                if ((s.playbackSpeed - step).abs() < 0.01)
-                  Icon(Icons.check_rounded,
-                      size: 16 * sc, color: const Color(0xFFFF4D6E))
-                else
-                  SizedBox(width: 16 * sc),
-                SizedBox(width: 8 * sc),
-                Text('${label(step)}x', style: TextStyle(fontSize: 13 * sc)),
-              ],
-            ),
-          ),
-      ],
-    ),
+  final v = await showFullPicker<double>(
+    context,
+    title: '播放倍速',
+    current: s.playbackSpeed,
+    options: [for (final step in steps) (step, '${label(step)}x')],
   );
   if (v != null) {
     await container.read(settingsProvider.notifier).setPlaybackSpeed(v);
@@ -358,32 +300,14 @@ class _LyricsPage extends ConsumerWidget {
 
 /// 歌词字号：四档点选（小/标准/大/特大）。
 Future<void> _pickLyricFontSize(BuildContext context, AppSettings s) async {
-  final sc = context.watchScale();
   // 跨 async 不能再用 context，先取容器。
   final container = ProviderScope.containerOf(context, listen: false);
   const labels = ['小', '标准', '大', '特大'];
-  final v = await showDialog<int>(
-    context: context,
-    builder: (context) => SimpleDialog(
-      title: Text('歌词字号', style: TextStyle(fontSize: 15 * sc)),
-      children: [
-        for (var i = 0; i < labels.length; i++)
-          SimpleDialogOption(
-            onPressed: () => Navigator.pop(context, i),
-            child: Row(
-              children: [
-                if (s.lyricFontSize == i)
-                  Icon(Icons.check_rounded,
-                      size: 16 * sc, color: const Color(0xFFFF4D6E))
-                else
-                  SizedBox(width: 16 * sc),
-                SizedBox(width: 8 * sc),
-                Text(labels[i], style: TextStyle(fontSize: 13 * sc)),
-              ],
-            ),
-          ),
-      ],
-    ),
+  final v = await showFullPicker<int>(
+    context,
+    title: '歌词字号',
+    current: s.lyricFontSize,
+    options: [for (var i = 0; i < labels.length; i++) (i, labels[i])],
   );
   if (v != null) {
     await container.read(settingsProvider.notifier).setLyricFontSize(v);
@@ -392,86 +316,40 @@ Future<void> _pickLyricFontSize(BuildContext context, AppSettings s) async {
 
 /// 歌词同步偏移：滑杆 -100~+100ms（5ms 步进），正=歌词更晚（同移动端）。
 Future<void> _pickLyricOffset(BuildContext context, AppSettings s) async {
-  final sc = context.watchScale();
   // 跨 async 不能再用 context，先取容器。
   final container = ProviderScope.containerOf(context, listen: false);
   var value = s.lyricOffsetMs.toDouble();
-  final ok = await showDialog<bool>(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: Text('同步偏移', style: TextStyle(fontSize: 15 * sc)),
-      content: StatefulBuilder(
-        builder: (context, setDialogState) => Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              value.round() > 0
-                  ? '+${value.round()} ms'
-                  : value.round() < 0
-                      ? '${value.round()} ms'
-                      : '0 ms',
-              style: TextStyle(fontSize: 20 * sc, fontWeight: FontWeight.w700),
-            ),
-            Text('正=歌词更晚，负=歌词更早',
-                style: TextStyle(
-                    fontSize: 11 * sc,
-                    color: Colors.white.withValues(alpha: 0.5))),
-            Slider(
-              value: value,
-              min: -100,
-              max: 100,
-              divisions: 40, // 200/40 = 5ms 步进，同移动端
-              activeColor: const Color(0xFFFF4D6E),
-              onChanged: (v) => setDialogState(() => value = v),
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text('取消', style: TextStyle(fontSize: 13 * sc)),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, true),
-          child: Text('确定', style: TextStyle(fontSize: 13 * sc)),
-        ),
-      ],
-    ),
+  final ok = await showFullSlider(
+    context,
+    title: '同步偏移',
+    initial: value,
+    min: -100,
+    max: 100,
+    divisions: 40, // 200/40 = 5ms 步进，同移动端
+    label: (v) => v.round() > 0
+        ? '+${v.round()} ms'
+        : v.round() < 0
+            ? '${v.round()} ms'
+            : '0 ms',
+    hint: '正=歌词更晚，负=歌词更早',
   );
-  if (ok == true) {
-    await container.read(settingsProvider.notifier).setLyricOffsetMs(value.round());
+  if (ok != null) {
+    await container
+        .read(settingsProvider.notifier)
+        .setLyricOffsetMs(ok.round());
   }
 }
 
 /// 起播失败行为：自动换源 / 停止（同移动端 onlineFailureBehavior）。
 Future<void> _pickFailureBehavior(BuildContext context, AppSettings s) async {
-  final sc = context.watchScale();
   // 跨 async 不能再用 context，先取容器。
   final container = ProviderScope.containerOf(context, listen: false);
   const options = [('autoswitch', '自动换源'), ('stop', '停止播放')];
-  final v = await showDialog<String>(
-    context: context,
-    builder: (context) => SimpleDialog(
-      title: Text('起播失败', style: TextStyle(fontSize: 15 * sc)),
-      children: [
-        for (final (val, label) in options)
-          SimpleDialogOption(
-            onPressed: () => Navigator.pop(context, val),
-            child: Row(
-              children: [
-                if (s.onlineFailureBehavior == val)
-                  Icon(Icons.check_rounded,
-                      size: 16 * sc, color: const Color(0xFFFF4D6E))
-                else
-                  SizedBox(width: 16 * sc),
-                SizedBox(width: 8 * sc),
-                Text(label, style: TextStyle(fontSize: 13 * sc)),
-              ],
-            ),
-          ),
-      ],
-    ),
+  final v = await showFullPicker<String>(
+    context,
+    title: '起播失败',
+    current: s.onlineFailureBehavior,
+    options: options,
   );
   if (v != null) {
     await container
@@ -482,32 +360,14 @@ Future<void> _pickFailureBehavior(BuildContext context, AppSettings s) async {
 
 /// 流缓存预算：关闭 / 100 / 200 / 500 MB（表端默认 200）。
 Future<void> _pickStreamCache(BuildContext context, AppSettings s) async {
-  final sc = context.watchScale();
   // 跨 async 不能再用 context，先取容器。
   final container = ProviderScope.containerOf(context, listen: false);
   const options = [(0, '关闭'), (100, '100 MB'), (200, '200 MB'), (500, '500 MB')];
-  final v = await showDialog<int>(
-    context: context,
-    builder: (context) => SimpleDialog(
-      title: Text('流缓存', style: TextStyle(fontSize: 15 * sc)),
-      children: [
-        for (final (mb, label) in options)
-          SimpleDialogOption(
-            onPressed: () => Navigator.pop(context, mb),
-            child: Row(
-              children: [
-                if (s.streamCacheSizeMB == mb)
-                  Icon(Icons.check_rounded,
-                      size: 16 * sc, color: const Color(0xFFFF4D6E))
-                else
-                  SizedBox(width: 16 * sc),
-                SizedBox(width: 8 * sc),
-                Text(label, style: TextStyle(fontSize: 13 * sc)),
-              ],
-            ),
-          ),
-      ],
-    ),
+  final v = await showFullPicker<int>(
+    context,
+    title: '流缓存',
+    current: s.streamCacheSizeMB,
+    options: options,
   );
   if (v != null) {
     await container.read(settingsProvider.notifier).setStreamCacheSizeMB(v);
@@ -685,7 +545,7 @@ Widget _categoryRow({
   return SteppedPill(
     onTap: onTap,
     child: Padding(
-      padding: EdgeInsets.symmetric(horizontal: 14 * s),
+      padding: EdgeInsets.symmetric(horizontal: 3 * s),
       child: Row(
         children: [
           Container(
@@ -737,7 +597,7 @@ Widget _switchRow({
   return InkWell(
     onTap: () => onChanged(!value),
     child: Padding(
-      padding: EdgeInsets.symmetric(horizontal: 14 * s),
+      padding: EdgeInsets.symmetric(horizontal: 3 * s),
       child: Row(
         children: [
           Expanded(
@@ -785,7 +645,7 @@ Widget _actionRow({
   return SteppedPill(
     onTap: onTap,
     child: Padding(
-      padding: EdgeInsets.symmetric(horizontal: 14 * s),
+      padding: EdgeInsets.symmetric(horizontal: 3 * s),
       child: Row(
         children: [
           icon,
@@ -827,42 +687,38 @@ Future<void> _pickScanFormats(BuildContext context, AppSettings s) async {
   // 跨 async 不能再用 context，先取容器。
   final container = ProviderScope.containerOf(context, listen: false);
   final selected = {...s.scanFormats};
-  final ok = await showDialog<bool>(
+  final ok = await showFullDialog<bool>(
     context: context,
-    builder: (context) => AlertDialog(
-      title: Text('扫描格式', style: TextStyle(fontSize: 15 * sc)),
-      // 233dp 圆屏上 260 固定宽必裁边，收敛到 200 并随屏径缩放。
-      content: SizedBox(
-        width: 200 * sc,
-        child: StatefulBuilder(
-          builder: (context, setDialogState) => SingleChildScrollView(
-            child: Wrap(
-              spacing: 6 * sc,
-              runSpacing: 0,
-              children: [
-                for (final f in kSupportedScanFormats)
-                  FilterChip(
-                    label: Text(f, style: TextStyle(fontSize: 12 * sc)),
-                    selected: selected.contains(f),
-                    onSelected: (v) => setDialogState(() {
-                      v ? selected.add(f) : selected.remove(f);
-                    }),
-                  ),
-              ],
-            ),
+    builder: (context) => StatefulBuilder(
+      builder: (context, setState) => FullDialogScaffold(
+        title: '扫描格式',
+        content: Wrap(
+          spacing: 6 * sc,
+          runSpacing: 8 * sc,
+          alignment: WrapAlignment.center,
+          children: [
+            for (final f in kSupportedScanFormats)
+              FilterChip(
+                label: Text(f, style: TextStyle(fontSize: 12 * sc)),
+                selected: selected.contains(f),
+                onSelected: (v) => setState(() {
+                  v ? selected.add(f) : selected.remove(f);
+                }),
+              ),
+          ],
+        ),
+        actions: [
+          FullDialogButton(
+            label: '取消',
+            onPressed: () => Navigator.pop(context),
           ),
-        ),
+          FullDialogButton(
+            label: '确定',
+            primary: true,
+            onPressed: () => Navigator.pop(context, true),
+          ),
+        ],
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text('取消', style: TextStyle(fontSize: 13 * sc)),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, true),
-          child: Text('确定', style: TextStyle(fontSize: 13 * sc)),
-        ),
-      ],
     ),
   );
   if (ok == true) {
@@ -877,32 +733,14 @@ Future<void> _pickScanFormats(BuildContext context, AppSettings s) async {
 }
 
 Future<void> _pickMinDuration(BuildContext context, AppSettings s) async {
-  final sc = context.watchScale();
   // 跨 async 不能再用 context，先取容器。
   final container = ProviderScope.containerOf(context, listen: false);
   const options = [(0, '不过滤'), (30, '30 秒以上'), (60, '1 分钟以上'), (120, '2 分钟以上')];
-  final v = await showDialog<int>(
-    context: context,
-    builder: (context) => SimpleDialog(
-      title: Text('最短时长', style: TextStyle(fontSize: 15 * sc)),
-      children: [
-        for (final (secs, label) in options)
-          SimpleDialogOption(
-            onPressed: () => Navigator.pop(context, secs),
-            child: Row(
-              children: [
-                if (s.libraryMinDurationSeconds == secs)
-                  Icon(Icons.check_rounded,
-                      size: 16 * sc, color: const Color(0xFFFF4D6E))
-                else
-                  SizedBox(width: 16 * sc),
-                SizedBox(width: 8 * sc),
-                Text(label, style: TextStyle(fontSize: 13 * sc)),
-              ],
-            ),
-          ),
-      ],
-    ),
+  final v = await showFullPicker<int>(
+    context,
+    title: '最短时长',
+    current: s.libraryMinDurationSeconds,
+    options: options,
   );
   if (v != null) {
     await container
@@ -912,32 +750,14 @@ Future<void> _pickMinDuration(BuildContext context, AppSettings s) async {
 }
 
 Future<void> _pickQuality(BuildContext context, AppSettings s) async {
-  final sc = context.watchScale();
   // 跨 async 不能再用 context，先取容器。
   final container = ProviderScope.containerOf(context, listen: false);
   const options = [('320k', '标准 320kbps'), ('flac', '无损 FLAC')];
-  final v = await showDialog<String>(
-    context: context,
-    builder: (context) => SimpleDialog(
-      title: Text('在线音质', style: TextStyle(fontSize: 15 * sc)),
-      children: [
-        for (final (q, label) in options)
-          SimpleDialogOption(
-            onPressed: () => Navigator.pop(context, q),
-            child: Row(
-              children: [
-                if (s.onlineQuality == q)
-                  Icon(Icons.check_rounded,
-                      size: 16 * sc, color: const Color(0xFFFF4D6E))
-                else
-                  SizedBox(width: 16 * sc),
-                SizedBox(width: 8 * sc),
-                Text(label, style: TextStyle(fontSize: 13 * sc)),
-              ],
-            ),
-          ),
-      ],
-    ),
+  final v = await showFullPicker<String>(
+    context,
+    title: '在线音质',
+    current: s.onlineQuality,
+    options: options,
   );
   if (v != null) {
     await container.read(settingsProvider.notifier).setOnlineQuality(v);

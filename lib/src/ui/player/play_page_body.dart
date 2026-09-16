@@ -7,6 +7,7 @@ import 'package:wearable_rotary/wearable_rotary.dart';
 
 import '../../core/haptics.dart';
 import '../../core/watch_fit.dart';
+import '../common/full_dialog.dart';
 import '../common/rotary_input.dart';
 import 'player_source.dart';
 
@@ -151,95 +152,93 @@ class _PlayPageBodyState extends State<PlayPageBody> {
   void _openMoreSheet() {
     Haptics.tick();
     final s = context.watchScale();
-    showModalBottomSheet<void>(
+    // 全屏「播放设置」页（腕上不做浮层）：模式/倍速 chips 点选即时生效，
+    // 页面保持打开便于连续调整，返回手势/back 退出。内容居中、超高可滚。
+    showFullDialog<void>(
       context: context,
-      backgroundColor: const Color(0xFF17171C),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(18 * s)),
-      ),
       builder: (sheetCtx) => StatefulBuilder(
         builder: (sheetCtx, setSheet) {
           final src = widget.sourceBuilder();
-          return SafeArea(
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(16 * s, 12 * s, 16 * s, 10 * s),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _sheetLabel('播放模式', s),
-                  SizedBox(height: 7 * s),
-                  Wrap(
-                    spacing: 7 * s,
-                    runSpacing: 7 * s,
-                    children: [
-                      for (var m = 0; m < 3; m++)
-                        _sheetChip(
-                          s: s,
-                          active: src.playMode == m,
-                          onTap: () {
-                            src.setMode(m);
-                            Haptics.tick();
-                            setSheet(() {});
-                          },
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                _modeIcon(m),
-                                size: 14.5 * s,
-                                color: src.playMode == m
-                                    ? kPlayerAccent
-                                    : Colors.white.withValues(alpha: 0.7),
-                              ),
-                              SizedBox(width: 4.5 * s),
-                              Text(
-                                _modeLabel(m),
-                                style: TextStyle(
-                                  fontSize: 11.5 * s,
-                                  color: src.playMode == m
-                                      ? kPlayerAccent
-                                      : Colors.white.withValues(alpha: 0.85),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                    ],
-                  ),
-                  if (src.speed != null) ...[
-                    SizedBox(height: 13 * s),
-                    _sheetLabel('倍速', s),
-                    SizedBox(height: 7 * s),
-                    Wrap(
-                      spacing: 7 * s,
-                      runSpacing: 7 * s,
-                      children: [
-                        for (final v in _speedSteps)
-                          _sheetChip(
-                            s: s,
-                            active: (src.speed! - v).abs() < 0.01,
-                            onTap: () {
-                              src.setSpeed(v);
-                              Haptics.tick();
-                              setSheet(() {});
-                            },
-                            child: Text(
-                              _speedLabel(v),
+          return FullDialogScaffold(
+            title: '播放设置',
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                _sheetLabel('播放模式', s),
+                SizedBox(height: 7 * s),
+                Wrap(
+                  spacing: 7 * s,
+                  runSpacing: 7 * s,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    for (var m = 0; m < 3; m++)
+                      _sheetChip(
+                        s: s,
+                        active: src.playMode == m,
+                        onTap: () {
+                          src.setMode(m);
+                          Haptics.tick();
+                          setSheet(() {});
+                        },
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _modeIcon(m),
+                              size: 14.5 * s,
+                              color: src.playMode == m
+                                  ? kPlayerAccent
+                                  : Colors.white.withValues(alpha: 0.7),
+                            ),
+                            SizedBox(width: 4.5 * s),
+                            Text(
+                              _modeLabel(m),
                               style: TextStyle(
                                 fontSize: 11.5 * s,
-                                fontWeight: FontWeight.w600,
-                                color: (src.speed! - v).abs() < 0.01
+                                color: src.playMode == m
                                     ? kPlayerAccent
                                     : Colors.white.withValues(alpha: 0.85),
                               ),
                             ),
-                          ),
-                      ],
-                    ),
+                          ],
+                        ),
+                      ),
                   ],
+                ),
+                if (src.speed != null) ...[
+                  SizedBox(height: 13 * s),
+                  _sheetLabel('倍速', s),
+                  SizedBox(height: 7 * s),
+                  Wrap(
+                    spacing: 7 * s,
+                    runSpacing: 7 * s,
+                    alignment: WrapAlignment.center,
+                    children: [
+                      for (final v in _speedSteps)
+                        _sheetChip(
+                          s: s,
+                          active: (src.speed! - v).abs() < 0.01,
+                          onTap: () {
+                            src.setSpeed(v);
+                            Haptics.tick();
+                            setSheet(() {});
+                          },
+                          child: Text(
+                            _speedLabel(v),
+                            style: TextStyle(
+                              fontSize: 11.5 * s,
+                              fontWeight: FontWeight.w600,
+                              color: (src.speed! - v).abs() < 0.01
+                                  ? kPlayerAccent
+                                  : Colors.white.withValues(alpha: 0.85),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ],
-              ),
+              ],
             ),
           );
         },
@@ -570,6 +569,38 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                           onTap: src.like,
                           tooltip: '喜欢',
                         ),
+                      // 日推歌专属「不喜欢」：上报负反馈并跳下一首（与移动端对齐）。
+                      if (src.fromDaily)
+                        _bottomBtn(
+                          s: s,
+                          iconWidget: SizedBox(
+                            width: 21 * s,
+                            height: 21 * s,
+                            // 样式：收藏爱心 + 一条贯穿斜线（不喜欢）。
+                            child: CustomPaint(
+                              painter: _DislikeStrokePainter(
+                                color: Colors.white.withValues(alpha: 0.85),
+                              ),
+                              child: Icon(
+                                Icons.favorite_border_rounded,
+                                size: 19 * s,
+                                color: Colors.white.withValues(alpha: 0.85),
+                              ),
+                            ),
+                          ),
+                          onTap: () async {
+                            final ok = await src.dislike();
+                            if (!context.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                    ok ? '已减少此类推荐' : '请先登录后使用每日推荐'),
+                                duration: const Duration(seconds: 1),
+                              ),
+                            );
+                          },
+                          tooltip: '不喜欢',
+                        ),
                       _bottomBtn(
                         s: s,
                         icon: (_volume ?? src.volume) <= 0
@@ -675,19 +706,45 @@ class _PlayPageBodyState extends State<PlayPageBody> {
 
   Widget _bottomBtn({
     required double s,
-    required IconData icon,
+    IconData? icon,
+    Widget? iconWidget,
     required VoidCallback onTap,
     Color color = Colors.white,
     String? tooltip,
   }) {
     return IconButton(
       onPressed: onTap,
-      icon: Icon(icon, size: 21 * s, color: color),
+      icon: iconWidget ?? Icon(icon, size: 21 * s, color: color),
       tooltip: tooltip,
       padding: EdgeInsets.all(6 * s),
       constraints: BoxConstraints(minWidth: 44 * s, minHeight: 44 * s),
     );
   }
+}
+
+/// 「不喜欢」图标：在爱心上叠加一条贯穿斜线（左上 → 右下），
+/// 与收藏爱心形成同源对比，表达「不想要此类推荐」（与移动端一致）。
+class _DislikeStrokePainter extends CustomPainter {
+  final Color color;
+  const _DislikeStrokePainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round;
+    // 斜线稍微超出爱心边缘，确保「贯穿」观感。
+    canvas.drawLine(
+      Offset(size.width * 0.14, size.height * 0.14),
+      Offset(size.width * 0.86, size.height * 0.86),
+      paint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _DislikeStrokePainter old) =>
+      old.color != color;
 }
 
 /// 封面占位：暗色圆底 + 音符。

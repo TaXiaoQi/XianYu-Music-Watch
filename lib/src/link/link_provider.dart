@@ -27,6 +27,7 @@ class LinkNowPlaying {
     required this.album,
     this.cover,
     required this.duration,
+    this.daily = false,
   });
 
   final String id;
@@ -35,6 +36,9 @@ class LinkNowPlaying {
   final String album;
   final String? cover;
   final double duration;
+
+  /// 是否来自日推队列（播放页据此显示「不喜欢」按钮）。
+  final bool daily;
 
   /// 封面是否为本地文件路径（否则按 http URL 渲染）。
   bool get coverIsFile =>
@@ -47,6 +51,7 @@ class LinkNowPlaying {
         album: p['album'] as String? ?? '',
         cover: p['cover'] as String?,
         duration: (p['duration'] as num?)?.toDouble() ?? 0,
+        daily: p['daily'] as bool? ?? false,
       );
 
   LinkNowPlaying copyWith({String? cover}) => LinkNowPlaying(
@@ -56,6 +61,7 @@ class LinkNowPlaying {
         album: album,
         cover: cover ?? this.cover,
         duration: duration,
+        daily: daily,
       );
 }
 
@@ -314,6 +320,7 @@ class LinkController extends StateNotifier<LinkState> {
   void next() => _sendCmd(LinkCmdAction.next);
   void prev() => _sendCmd(LinkCmdAction.prev);
   void like() => _sendCmd(LinkCmdAction.like);
+  void dislike() => _sendCmd(LinkCmdAction.dislike);
   void cycleMode() => _sendCmd(LinkCmdAction.mode);
   void seek(double pos) =>
       _sendCmd(LinkCmdAction.seek, arg: {'pos': pos});

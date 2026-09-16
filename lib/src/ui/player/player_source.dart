@@ -36,6 +36,9 @@ abstract class PlayerViewSource {
   /// 喜欢状态；null = 来源不支持喜欢（播放页隐藏喜欢键）。
   bool? get liked;
 
+  /// 是否来自日推队列（播放页据此显示「不喜欢」按钮）。
+  bool get fromDaily;
+
   /// 播放模式：0 顺序 / 1 单曲循环 / 2 随机。
   int get playMode;
 
@@ -51,6 +54,10 @@ abstract class PlayerViewSource {
   void seekTo(double secs);
   void cycleMode();
   void like();
+
+  /// 「不喜欢」日推歌：上报负反馈并跳下一首（仅 fromDaily 时会被调用）。
+  /// 返回 false = 未登录/无曲目未执行（UI 据此提示）。
+  Future<bool> dislike();
   void setVolume(double v);
 
   /// 循环切换倍速（仅 speed 非 null 时会被调用）。
@@ -97,6 +104,9 @@ class LinkPlayerSource implements PlayerViewSource {
   bool? get liked => _link.liked;
 
   @override
+  bool get fromDaily => _link.now?.daily ?? false;
+
+  @override
   int get playMode => switch (_link.playMode) {
         LinkPlayMode.shuffle => 2,
         LinkPlayMode.one => 1,
@@ -126,6 +136,12 @@ class LinkPlayerSource implements PlayerViewSource {
 
   @override
   void like() => _ctrl.like();
+
+  @override
+  Future<bool> dislike() async {
+    _ctrl.dislike(); // 发 cmd 即返回；上报与跳歌由手机端完成
+    return true; // 手机端负责上报（登录语义由手机侧处理），始终视为已执行
+  }
 
   @override
   void cycleSpeed() {} // 联动模式不支持倍速
@@ -186,6 +202,9 @@ class LocalPlayerSource implements PlayerViewSource {
   bool? get liked => _liked;
 
   @override
+  bool get fromDaily => _st.current?.fromDailyRecommend ?? false;
+
+  @override
   int get playMode => _st.playMode;
 
   @override
@@ -208,6 +227,9 @@ class LocalPlayerSource implements PlayerViewSource {
 
   @override
   void like() => _ctrl.toggleFavorite();
+
+  @override
+  Future<bool> dislike() => _ctrl.dislikeDaily();
 
   @override
   void cycleSpeed() => _ctrl.cycleSpeed();
