@@ -2,7 +2,7 @@ name: xianyu_watch
 description: "弦予音乐腕上版（Wear OS）：连接手机时为延伸控制器，独立时支持本地/在线播放。"
 publish_to: 'none'
 
-version: 0.1.0-beta2+10000
+version: 0.1.0-beta3+10000
 
 environment:
   sdk: ^3.13.0
