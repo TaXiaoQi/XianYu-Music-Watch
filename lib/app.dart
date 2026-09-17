@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'src/core/ambient.dart';
+import 'src/core/app_mode.dart';
 import 'src/core/keep_alive.dart' show LinkKeepAlive;
 import 'src/core/settings.dart';
 import 'src/core/watch_fit.dart';
@@ -16,15 +17,11 @@ import 'src/ui/link/linkage_home.dart';
 /// 弦予腕上版入口：全屏音乐页（左侧功能列表 ↔ 中间播放 ↔ 右侧歌词横移），
 /// 开屏落在播放页；设置/账号从左侧功能列表进入（插件管理并入设置）。
 ///
-/// 联动建立（含后台通知拉起）时自动跳转播放控制页，返回后停在原处。
-///
-/// [linkMode] 联动模式直连 [LinkageHome]（三页：功能/播放/歌词，低占用、
-/// 常驻后台、手机一播放即推送），不自动跳转控制器；否则独立模式
-/// [LinkHome]（完整独立播放，联动建立时自动进控制器）。
+/// 主页随运行模式动态切换（热切，不重启进程）：联动模式 [LinkageHome]
+/// （三页：功能/播放/歌词，低占用、常驻后台、手机一播放即推送）；
+/// 独立模式 [LinkHome]（完整独立播放，联动仅保留手动入口）。
 class XianYuWatchApp extends ConsumerStatefulWidget {
-  const XianYuWatchApp({super.key, required this.linkMode});
-
-  final bool linkMode;
+  const XianYuWatchApp({super.key});
 
   @override
   ConsumerState<XianYuWatchApp> createState() => _XianYuWatchAppState();
@@ -39,15 +36,21 @@ class _XianYuWatchAppState extends ConsumerState<XianYuWatchApp> {
   @override
   void initState() {
     super.initState();
+    // 模式热切换：首页随 appModeProvider 重建后，清掉残留的二级页路由
+    // 栈（切换入口在设置/设备联动等二级页内），保证落在新模式首页。
+    ref.listenManual(appModeProvider, (prev, next) {
+      if (prev != null && prev != next) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _navKey.currentState?.popUntil((route) => route.isFirst);
+        });
+      }
+    });
     // 链路初始化（读配对地址 → 自动连接 / 退避重连 / 心跳）+ 账号凭证恢复。
     Future.microtask(() {
       // 先创建 SyncNotifier 注册登录态监听：登录/凭证恢复后自动触发首次云同步。
       ref.read(syncProvider.notifier);
       ref.read(linkControllerProvider.notifier).init();
       ref.read(authProvider.notifier).init();
-      // 联动模式顺带请求原生低占用前台保活（退后台后链路仍在，手机播放
-      // 可快速拉起）；独立模式不申请，保持最小占用。
-      if (widget.linkMode) LinkKeepAlive.start();
     });
     // Wear OS 环境模式监听（进出 ambient 压暗 UI + 暂停刷新）。
     initAmbientListener(ref);
@@ -107,7 +110,17 @@ class _XianYuWatchAppState extends ConsumerState<XianYuWatchApp> {
           );
         },
       ),
-      home: widget.linkMode ? const LinkageHome() : const LinkHome(),
+      home: Consumer(
+        builder: (context, ref, _) {
+          final mode = ref.watch(appModeProvider);
+          // 联动模式顺带请求原生低占用前台保活（退后台后链路仍在，手机播放
+          // 可快速拉起）；独立模式不申请，保持最小占用。
+          if (mode == appModeLink) LinkKeepAlive.start();
+          return mode == appModeLink
+              ? const LinkageHome()
+              : const LinkHome();
+        },
+      ),
     );
   }
 }

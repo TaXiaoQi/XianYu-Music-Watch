@@ -108,7 +108,13 @@ class _SteppedListViewState extends State<SteppedListView> {
   static const double _capsuleH = 52;
 
   /// scale 封底（远处行最小倍率）。
-  static const double _minScale = 0.60;
+  static const double _minScale = 0.55;
+
+  /// 指数衰减半径（档）：距焦点越近降得越快——焦点 1.0 → 相邻 ~0.75 →
+  /// 隔行 ~0.64 → 远场缓趋 [_minScale]，形成清晰的中间最大、上下梯形递减。
+  /// 相比原幂曲线（<1 幂），指数在焦点邻近更陡，避免「只有焦点行放大、
+  /// 其余平板等大」的观感。
+  static const double _decayTau = 1.2;
 
   /// 行高呼吸系数：行高 = 胶囊高×scale×(1+[_rowGapFactor])，等比地给
   /// 每行保留少量上下间隙（越小的条间隙越小），并随槽位一起贴合条大小。
@@ -224,7 +230,9 @@ class _SteppedListViewState extends State<SteppedListView> {
     final rowTop = row * _nomPitch + _startPad + _headerBand;
     final center = rowTop + 0.5 * _nomPitch;
     final dist = ((center - (offset + _viewportH / 2)).abs()) / _nomPitch;
-    return (1.0 - 0.21 * math.pow(dist, 0.25)).clamp(_minScale, 1.0).toDouble();
+    // 指数衰减：近场陡（焦点突出）、远场缓趋封底（远处行仍可读）。
+    final t = math.exp(-dist / _decayTau);
+    return (_minScale + (1 - _minScale) * t).clamp(_minScale, 1.0).toDouble();
   }
 
   /// 某行真实行高 = 焦点槽（52*s）×scale×（1+呼吸系数）：条越小槽越小，

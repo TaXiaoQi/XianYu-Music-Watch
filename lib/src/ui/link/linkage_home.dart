@@ -23,18 +23,18 @@ class LinkageHome extends ConsumerStatefulWidget {
 }
 
 class _LinkageHomeState extends ConsumerState<LinkageHome> {
-  /// 启动独立模式：二次确认 → 落盘模式 → 原生重启进完整服务。
+  /// 启动独立模式：二次确认 → 热切换（落盘 + 补初始化，不重启进程，
+  /// 自动回到完整独立服务首页）。
   Future<void> _toStandalone() async {
     final ok = await showFullConfirm(
       context,
       title: '切换到独立模式',
-      message: '将停止联动、重启应用并进入完整的独立音乐服务。当前手机联动'
-          '会话会被中断。',
-      okLabel: '重启进入',
+      message: '将停止联动并进入完整的独立音乐服务。当前手机联动会话会被'
+          '中断。',
+      okLabel: '立即切换',
     );
     if (ok != true || !mounted) return;
-    await writeAppMode(appModeStandalone);
-    const MethodChannel('xianyu/system_nav').invokeMethod('restartApp');
+    await ref.read(appModeProvider.notifier).change(appModeStandalone);
   }
 
   /// 最左「功能」页：设备联动入口 + 启动独立模式。

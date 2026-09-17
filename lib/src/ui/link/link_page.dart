@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/app_mode.dart';
@@ -78,7 +77,7 @@ class LinkagePage extends ConsumerWidget {
     // 独立模式下此页多一行「切换到联动模式」（设置里已移除该入口，
     // 切换统一收进设备联动页）。
     final isStandalone =
-        ref.watch(appModeProvider).valueOrNull == appModeStandalone;
+        ref.watch(appModeProvider) == appModeStandalone;
     final rows = <Widget>[
       _switchRow(
         s: s,
@@ -89,7 +88,7 @@ class LinkagePage extends ConsumerWidget {
         onChanged: (v) =>
             ref.read(settingsProvider.notifier).setWatchLinkageEnabled(v),
       ),
-      if (isStandalone) _toLinkModeRow(context, s),
+      if (isStandalone) _toLinkModeRow(context, ref, s),
       ..._linkRows(context, ref, link, s),
     ];
     return Scaffold(
@@ -176,7 +175,7 @@ List<Widget> _linkRows(
 
 /// 独立模式 → 切回联动：二次确认 → 写模式字段 → 原生杀掉重启进轻量联动。
 /// 入口收在设备联动页（设置里已移除同功能入口）。
-Widget _toLinkModeRow(BuildContext context, double s) {
+Widget _toLinkModeRow(BuildContext context, WidgetRef ref, double s) {
   return SteppedTile(
     leading: SteppedLeadCircle(
       color: const Color(0xFF3DB98A),
@@ -189,21 +188,22 @@ Widget _toLinkModeRow(BuildContext context, double s) {
       size: 22 * s,
       color: Colors.white.withValues(alpha: 0.38),
     ),
-    onTap: () => _switchToLinkMode(context),
+    onTap: () => _switchToLinkMode(context, ref),
   );
 }
 
-Future<void> _switchToLinkMode(BuildContext context) async {
+Future<void> _switchToLinkMode(
+    BuildContext context, WidgetRef ref) async {
   final ok = await showFullConfirm(
     context,
     title: '切换到联动模式',
-    message: '将重启应用并进入轻量联动模式。该模式更省电、常驻后台，手'
-        '机一播放即可推送到手表；独立播放功能需在联动页切换回来。',
-    okLabel: '重启进入',
+    message: '将进入轻量联动模式。该模式更省电、常驻后台，手机一播放即可'
+        '推送到手表；独立播放功能需在联动页切换回来。',
+    okLabel: '立即切换',
   );
   if (ok != true || !context.mounted) return;
-  await writeAppMode(appModeLink);
-  const MethodChannel('xianyu/system_nav').invokeMethod('restartApp');
+  // 热切换：不重启进程，落盘 + 补齐/状态更新，自动回新模式首页。
+  await ref.read(appModeProvider.notifier).change(appModeLink);
 }
 
 /// 已连接行：点击进入设备页（仨操作收纳在此页）。
