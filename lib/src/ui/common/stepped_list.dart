@@ -6,17 +6,68 @@ import 'package:wearable_rotary/wearable_rotary.dart';
 import '../../core/haptics.dart';
 import '../../core/watch_fit.dart';
 
+/// 统一页头（表头）：标题居中，左/右侧等宽占位保证几何居中（系统设置同款）。
+/// 配合 [SteppedListView.header] 使用（做进滚动内容最顶部，随列表滚走，
+/// 圆弧适配完整）。宿主若已有左上角悬浮返回键，则 [showBack] 传 false，
+/// 避免双返回入口。
+class PageTitleHeader extends StatelessWidget {
+  const PageTitleHeader(this.title,
+      {super.key, this.showBack = false, this.trailing});
+
+  final String title;
+  final bool showBack;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.watchScale();
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: 4 * s),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 48 * s,
+            child: showBack ? const BackButton() : null,
+          ),
+          Expanded(
+            child: Text(
+              title,
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 15 * s,
+                fontWeight: FontWeight.w700,
+                color: Colors.white.withValues(alpha: 0.9),
+              ),
+            ),
+          ),
+          SizedBox(width: 48 * s, child: trailing ?? const SizedBox.shrink()),
+        ],
+      ),
+    );
+  }
+}
+
 /// 圆屏阶梯列表（One UI 表盘同款观感，全部二级页与功能页统一适配）：
-/// 行为圆角胶囊卡片，一档一个条目、一屏 3~4 行，三行外上下还各露一条
-/// 边缘行（系统同款）——居中焦点行最大铺满中部，上下行缓衰减缩小
-/// （1.0 → 相邻 0.79 → 隔行 ~0.75 → 缓降至 0.60 封底）；
-/// 右缘有弧形滚动位置指示；表冠逐档滚动 + 档位振动；触控拖动/甩动
-/// 由吸附物理直接落位最近档位（与表冠同一网格）。
+/// 行为圆角胶囊卡片，一档一个条目——居中焦点行最大铺满中部，上下行
+/// 缓衰减缩小（1.0 → 相邻 0.79 → 隔行 ~0.75 → 缓降至 0.60 封底）。
 ///
-/// 性能：滚动监听下沉到每个条目的 AnimatedBuilder；[itemBuilder] 产出
-/// 的行实例在滚动帧间保持稳定（identical 短路），且包在 RepaintBoundary
-/// 内——行内容位图被栅格缓存，滚动帧只更新外层缩放矩阵/图层透明度，
-/// 文字不逐帧重栅格化；焦点行不包 Opacity，省一层 saveLayer。
+/// 间距跟随条大小等比收缩（用户校准，聚焦自洽）：远处行不仅条本身缩小，
+/// 其上下占用的**行高槽位也同步缩小**（行高 = 胶囊高×scale×1.1），于是
+/// 越小的条上下空隙越小、整体紧凑堆叠成密度均匀的阶梯，不再出现「条已
+/// 压缩到最小、行距仍按标准档位留白」的大片空隙。焦点最大槽占满屏中部，
+/// 相邻 0.79 槽 ~0.87，远处 ~0.66；右缘有弧形滚动位置指示；表冠逐档滚动 +
+/// 档位振动；触控拖动/甩动由吸附物理直接落位最近档位。
+///
+/// 距离/缩放用「名义均匀档距」（_pitchBase）计算（与偏移量一一对应、无
+/// 依赖环），行高/吸附则按实际测量槽位累加计算——两者在图层面解耦，保证
+/// 表冠吸附、甩动吸附、振动都用同一套「最近档位」判定。
+///
+/// 性能：滚动监听下沉到每个条目的 AnimatedBuilder；[itemBuilder] 产出的
+/// 行实例在滚动帧间保持稳定（identical 短路），且包在 RepaintBoundary
+/// 内——行内容位图被栅格缓存，滚动帧只更新外层缩放矩阵/图层透明度/
+/// 行高，文字不逐帧重栅格化；焦点行不包 Opacity，省一层 saveLayer。
 class SteppedListView extends StatefulWidget {
   const SteppedListView({
     super.key,
@@ -47,16 +98,25 @@ class SteppedListView extends StatefulWidget {
 }
 
 class _SteppedListViewState extends State<SteppedListView> {
-  // 一档 52*s ≈ 26% 屏径（系统设置截图量测：中心距 ~26%，行间空隙极小
-  // ~2-3%——用户校准：旧 28.5% 行距下最远两行间隔太远，要系统紧凑排布）；
-  // 焦点胶囊高 52*s（26%）恰好占满档位，相邻行 0.79 后高约 41*s（20.5%），
-  // 行间空隙 = 52 − (52+41)/2 ≈ 5.5*s（2.8% 屏径），一屏 3~4 行（系统同款）；
-  // 缓衰减曲线让三行外上下还各露一条边缘行。
+  // 名义均匀档距 52*s ≈ 26% 屏径：仅用于「距离→缩放」的被矢距曲线（焦点
+  // 1.0 → 相邻 0.79 → 隔行 ~0.75 → 缓降至 0.60 封底）。注意它只是「虚拟
+  // 档距」，不再是每行的真实行高——真实行高由 _rowH 按缩放等比收缩，于是
+  // 远处行的槽位随之变小、空隙按比例收窄，列表整体紧凑堆叠。
   static const double _pitchBase = 52;
 
-  /// 胶囊标准高（52*s）：SteppedTile 自然高度（40 前导圆 + 2×2 内边距），
-  /// OverflowBox 用它以紧约束撑满档位。
+  /// 胶囊标准高（52*s）：焦点行满高基准，其余行高 = 该值 ×scale×1.1。
   static const double _capsuleH = 52;
+
+  /// scale 封底（远处行最小倍率）。
+  static const double _minScale = 0.60;
+
+  /// 行高呼吸系数：行高 = 胶囊高×scale×(1+[_rowGapFactor])，等比地给
+  /// 每行保留少量上下间隙（越小的条间隙越小），并随槽位一起贴合条大小。
+  static const double _rowGapFactor = 0.10;
+
+  /// build/LayoutBuilder 里确定的视口与顶部留白（供几何辅助方法读取）。
+  double _viewportH = 0;
+  double _startPad = 0;
 
   final ScrollController _scroll = ScrollController();
   StreamSubscription<RotaryEvent>? _rotarySub;
@@ -116,8 +176,7 @@ class _SteppedListViewState extends State<SteppedListView> {
     if (ModalRoute.of(context)?.isCurrent != true) return;
     final guard = widget.rotaryGuard;
     if (guard != null && !guard()) return;
-    final s = context.watchScale();
-    final pitch = _pitchBase * s;
+    final pitch = _nomPitch;
     final max = _scroll.position.maxScrollExtent;
     // 位移模式：一格棘轮（48-64px 预算）≈ 滚半行，跟手连续；华为兼容层
     // 的事件风暴自然摊成平滑小步。预算上限 1.5 行防尖峰风暴。
@@ -134,22 +193,104 @@ class _SteppedListViewState extends State<SteppedListView> {
     // 停转 150ms 后主动吸附：否则列表停在任意偏移上，正中行错档缩小
     // （「中间不放大」的根因）。
     _settleTimer?.cancel();
-    final headerBand =
-        widget.header == null ? 0.0 : widget.headerExtent * s;
-    _settleTimer = Timer(
-        const Duration(milliseconds: 150), () => _settleToGrid(pitch, headerBand));
+    _settleTimer =
+        Timer(const Duration(milliseconds: 150), _settleToGrid);
   }
 
-  /// 吸附到最近档位：保证有一行精确停在正中、以完整尺寸居中放大。
-  /// [base] 为头部条带偏移：有 header 时行网格线整体下移（居中
-  /// offset = row×pitch − headerBand），不修正会吸附偏一截（触控
-  /// 「没有居中」的来源之一）。
-  void _settleToGrid(double pitch, double base) {
+  // ── 变高行几何 ─────────────────────────────────────────────
+  // 距离/缩放用「名义均匀档距」计算，行高/吸附用「实测槽位」累加计算：
+  // 缩放曲线与界面偏移一一对应（无依赖环），行高则由条大小等比收缩。
+
+  /// 是否走圆表阶梯布局。默认与全局探测一致；若通道把圆表误报成方表
+  /// （ohos Flutter 对未注册通道 resolve false），用本帧 MediaQuery 的逻辑
+  /// 尺寸比例兜底——圆表逻辑分辨率必为 1:1（Watch 3 466×466），方表为长条
+  /// （Watch Fit 456×280），比值差 8% 内判圆表。MediaQuery 构建时必然可用，
+  /// 比 platformDispatcher 兜底更强（鸿蒙虚拟视口下 physicalSize 可能取不到）。
+  bool get _round {
+    if (context.isRoundWatch) return true;
+    final mq = MediaQuery.sizeOf(context);
+    return mq.width > 0 &&
+        mq.height > 0 &&
+        ((mq.width / mq.height) - 1).abs() < 0.08;
+  }
+  bool get _hasHeader => widget.header != null;
+  double get _headerBand => (_hasHeader ? widget.headerExtent : 0.0) * _s;
+  double get _s => context.watchScale();
+  double get _nomPitch => _pitchBase * _s;
+
+  /// scale 封底以上：距离 → 缩放（方屏恒 1，四角不裁全宽等大行）。
+  double _scaleFor(int row, double offset) {
+    if (!_round) return 1.0;
+    final rowTop = row * _nomPitch + _startPad + _headerBand;
+    final center = rowTop + 0.5 * _nomPitch;
+    final dist = ((center - (offset + _viewportH / 2)).abs()) / _nomPitch;
+    return (1.0 - 0.21 * math.pow(dist, 0.25)).clamp(_minScale, 1.0).toDouble();
+  }
+
+  /// 某行真实行高 = 焦点槽（52*s）×scale×（1+呼吸系数）：条越小槽越小，
+  /// 空隙随条大小等比收缩 → 远处行紧凑堆叠、不再留标准档位的大片空白。
+  /// 方屏恒为标称槽高，维持全宽等大行。
+  double _rowH(double scale) =>
+      _round ? _capsuleH * _s * scale * (1 + _rowGapFactor) : _nomPitch;
+
+  /// 一次性算出每个数据行的实测槽高与其内容顶部坐标（含顶部留白与头部
+  /// 条带，即从视口 0 算起的桌面坐标，减去 offset 才是屏幕坐标）。
+  /// 两个辅助方法合用这一遍 O(n) 布局，避免反复累积造成 O(n²)（长列表
+  /// 吸附时卡顿的隐患）。
+  ({List<double> tops, List<double> heights}) _layoutAt(double offset) {
+    final n = widget.itemCount;
+    final heights = List<double>.filled(n, 0);
+    final tops = List<double>.filled(n, 0);
+    var acc = _startPad + _headerBand;
+    for (var i = 0; i < n; i++) {
+      tops[i] = acc;
+      heights[i] = _rowH(_scaleFor(i, offset));
+      acc += heights[i];
+    }
+    return (tops: tops, heights: heights);
+  }
+
+  /// 最近档位：以「实测槽位中心」距视口中线最近者为准（与缩放共用同一套
+  /// 判定，保证吸附/振动/表冠都落位到同一条）。
+  int _focusRow(double offset) {
+    final lay = _layoutAt(offset);
+    final anchor = offset + _viewportH / 2;
+    var best = 0;
+    var bestD = double.infinity;
+    for (var d = 0; d < widget.itemCount; d++) {
+      final c = lay.tops[d] + lay.heights[d] / 2;
+      final dd = (c - anchor).abs();
+      if (dd < bestD) {
+        bestD = dd;
+        best = d;
+      }
+    }
+    return best;
+  }
+
+  /// 让焦点行 [row] 精确停在中线的滚动偏移（以名义中心为初值，迭代 3 次
+  /// 收敛到实测槽位中心；行高是偏移的平滑函数，数轮即收敛）。
+  double _snapFor(int row) {
+    var offset =
+        (row + 0.5) * _nomPitch + _startPad + _headerBand - _viewportH / 2;
+    for (var i = 0; i < 3; i++) {
+      final lay = _layoutAt(offset);
+      final next = lay.tops[row] + lay.heights[row] / 2 - _viewportH / 2;
+      if ((next - offset).abs() < 0.1) {
+        offset = next;
+        break;
+      }
+      offset = next;
+    }
+    return offset;
+  }
+
+  /// 吸附到最近档位：保证有一条精确停在正中、以完整尺寸居中放大。
+  void _settleToGrid() {
     if (!mounted || !_scroll.hasClients) return;
     final max = _scroll.position.maxScrollExtent;
-    final grid =
-        ((_scroll.offset + base) / pitch).round() * pitch - base;
-    final target = grid.clamp(0.0, max);
+    final row = _focusRow(_scroll.offset);
+    final target = _snapFor(row).clamp(0.0, max).toDouble();
     if ((target - _scroll.offset).abs() > 0.5) {
       _scroll.animateTo(
         target,
@@ -159,7 +300,6 @@ class _SteppedListViewState extends State<SteppedListView> {
     }
     // 落定行变化才振：滚动途中不振（转过去又转回来行没变 = 无反馈），
     // 只有吸附后真正停在新的一行才给一次轻触觉确认。
-    final row = (target / pitch).floor();
     if (row != _hapticRow) {
       _hapticRow = row;
       Haptics.tick();
@@ -169,20 +309,23 @@ class _SteppedListViewState extends State<SteppedListView> {
   @override
   Widget build(BuildContext context) {
     final s = context.watchScale();
-    final pitch = _pitchBase * s;
     // 屏形分支：圆屏 = 阶梯缩放 + 右缘弧形指示；方屏 = 全宽等大行 +
     // 直线滚动条（四角不裁，无弧度可让）。
     final round = context.isRoundWatch;
     final header = widget.header;
     final headerBand = header == null ? 0.0 : widget.headerExtent * s;
+    final nomPitch = _pitchBase * s;
     return LayoutBuilder(
       builder: (context, constraints) {
-        // 首尾留白：底部补 (视口高-节距)/2，最后一行精确停在正中；
+        // 首尾留白：底部补 (视口高-名义档距)/2，最后一行精确停在正中；
         // 顶部在同基础上扣除头部条带——第一行停正中、页面头恰好露在
         // 顶端（One UI 式：标题在最上，随列表滚走）。
         final viewportH = constraints.maxHeight;
-        final endSpacer = ((viewportH - pitch) / 2).clamp(0.0, double.infinity);
-        final startSpacer = math.max(0.0, endSpacer - headerBand);
+        final endPad =
+            ((viewportH - nomPitch) / 2).clamp(0.0, double.infinity);
+        final startPad = math.max(0.0, endPad - headerBand);
+        _viewportH = viewportH;
+        _startPad = startPad;
         final hasHeader = header != null;
         return Stack(
           children: [
@@ -204,9 +347,7 @@ class _SteppedListViewState extends State<SteppedListView> {
                     const Duration(milliseconds: 200)) {
                   return false;
                 }
-                final s2 = context.watchScale();
-                _settleToGrid(_pitchBase * s2,
-                    header == null ? 0.0 : widget.headerExtent * s2);
+                _settleToGrid();
                 return false;
               },
               child: ListView.builder(
@@ -214,8 +355,8 @@ class _SteppedListViewState extends State<SteppedListView> {
                 // 触控吸附物理：拖动松手/甩动由物理直接落位最近档位，
                 // 与表冠 debounce 吸附共用同一网格（表冠走 jumpTo +
                 // 定时器 animateTo，不经滚动物理，互不冲突）。
-                physics: _SnapPhysics(pitch: pitch, base: headerBand),
-                padding: EdgeInsets.fromLTRB(0, startSpacer, 0, endSpacer),
+                physics: _SnapPhysics(snap: _nearestGridOffset),
+                padding: EdgeInsets.fromLTRB(0, startPad, 0, endPad),
                 itemCount: widget.itemCount + (hasHeader ? 1 : 0),
                 itemBuilder: (context, i) {
                   if (hasHeader && i == 0) {
@@ -226,57 +367,45 @@ class _SteppedListViewState extends State<SteppedListView> {
                     );
                   }
                   final row = hasHeader ? i - 1 : i;
-                  return SizedBox(
-                    height: pitch,
-                    child: AnimatedBuilder(
-                      animation: _scroll,
-                      // RepaintBoundary 放在缩放/透明变换内侧：行内容
-                      // 位图在滚动帧间被栅格缓存，逐帧只更新外层变换
-                      // 矩阵与图层透明度，文字不重栅格化（低端表 GPU
-                      // 滚动流畅度的关键）。
-                      child: RepaintBoundary(
-                          child: widget.itemBuilder(context, row)),
-                      builder: (context, child) {
-                        final offset = _scroll.hasClients ? _scroll.offset : 0.0;
-                        final anchor = offset + viewportH / 2;
-                        final distance = ((row + 0.5) * pitch +
-                                startSpacer +
-                                headerBand -
-                                anchor)
-                            .abs() /
-                            pitch;
-                        // 圆屏：幂曲线（0.25）缓衰减——相邻 0.79（高 20.5%
-                        // 屏径，系统量测 210/265），衰减随距离快速趋缓
-                        // （隔行 ~0.75），三行之外的上下两条边缘行保持较大
-                        // 且几乎全亮（系统同款）；0.60 封底防远处行缩没。
-                        // 方屏：四角不裁，全部行等大（恒 1）。
-                        final scale = round
-                            ? (1.0 - 0.21 * math.pow(distance, 0.25))
-                                .clamp(0.60, 1.0)
-                            : 1.0;
-                        // 透明度随尺寸线性浅衰减（0.55+0.45·scale）：远处
-                        // 行保持可读（系统边缘行几乎全亮），焦点行恰好
-                        // 为 1 省一层 saveLayer。方屏恒 1。
-                        final alpha = round
-                            ? (0.55 + 0.45 * scale).clamp(0.0, 1.0)
-                            : 1.0;
-                        return Center(
-                          child: OverflowBox(
-                            // 焦点胶囊 57*s 恰好占满档位 57*s；相邻行经
-                            // Transform.scale 缩小后自然留出行间空隙。
-                            minHeight: _capsuleH * s,
-                            maxHeight: _capsuleH * s,
-                            alignment: Alignment.center,
-                            child: Padding(
-                              // 圆屏左右各 6% 屏径：焦点行占 88% 屏宽
-                              // （用户校准：比系统居中行再宽一点点），相邻
-                              // 行随缩放进一步收窄；方屏只留 3% 呼吸边。
-                              padding: EdgeInsets.symmetric(
-                                  horizontal: (round ? 12.0 : 6.0) * s),
-                              child: Transform.scale(
-                                scale: scale,
-                                // 焦点行不透明度为 1，直接省掉一层
-                                // saveLayer。
+                  return AnimatedBuilder(
+                    animation: _scroll,
+                    // RepaintBoundary 放在缩放/透明度变换内侧：行内容
+                    // 位图在滚动帧间被栅格缓存，逐帧只更新外层变换
+                    // 矩阵与图层透明度/行高，文字不重栅格化（低端表
+                    // GPU 滚动流畅度的关键）。
+                    child:
+                        RepaintBoundary(child: widget.itemBuilder(context, row)),
+                    builder: (context, child) {
+                      final offset =
+                          _scroll.hasClients ? _scroll.offset : 0.0;
+                      final scale = _scaleFor(row, offset);
+                      // 行高随条大小等比收缩：焦点槽最大，远处槽变小，
+                      // 空隙不再按标准档位留白。方屏全宽等大恒一。
+                      final rowH = _rowH(scale);
+                      // 圆屏：幂曲线（0.25）缓衰减——相邻 0.79、隔行
+                      // ~0.75，0.60 封底防远处行缩没；方屏恒 1。
+                      // 透明度随尺寸线性浅衰减（0.55+0.45·scale）：远处
+                      // 行保持可读（系统边缘行几乎全亮），焦点行恰好
+                      // 为 1 省一层 saveLayer。方屏恒 1。
+                      final alpha = round
+                          ? (0.55 + 0.45 * scale).clamp(0.0, 1.0)
+                          : 1.0;
+                      return SizedBox(
+                        height: rowH,
+                        child: Center(
+                          child: Padding(
+                            // 圆屏左右各 6% 屏径：焦点行占 88% 屏宽
+                            // （用户校准：比系统居中行再宽一点点），相邻
+                            // 行随缩放进一步收窄；方屏只留 3% 呼吸边。
+                            padding: EdgeInsets.symmetric(
+                                horizontal: (round ? 12.0 : 6.0) * s),
+                            child: Transform.scale(
+                              scale: scale,
+                              // 前置锁定内容帧高 = 胶囊标准高，保证所有行
+                              // 缩放前等大（条高统一），缩放后 = 标准高×
+                              // scale，与 _rowH 几何一致 → 吸附/焦点判定准确。
+                              child: SizedBox(
+                                height: _capsuleH * s,
                                 child: alpha >= 1
                                     ? child
                                     : Opacity(
@@ -284,15 +413,13 @@ class _SteppedListViewState extends State<SteppedListView> {
                               ),
                             ),
                           ),
-                        );
-                      },
-                    ),
+                        ),
+                      );
+                    },
                   );
                 },
               ),
             ),
-            // One UI 式右缘弧形滚动指示：短亮弧在右侧导轨上随位置移动，
-            // 内容不溢出时不画；滚动停止约 900ms 后整体淡出（系统行为）。
             Positioned.fill(
               child: IgnorePointer(
                 child: AnimatedOpacity(
@@ -313,21 +440,30 @@ class _SteppedListViewState extends State<SteppedListView> {
       },
     );
   }
+
+  /// 甩动物理用的网格函数：把任意投影偏移落到最近档位的吸附偏移。
+  double _nearestGridOffset(double offset) {
+    if (!_scroll.hasClients) return offset;
+    final row = _focusRow(offset);
+    return _snapFor(row)
+        .clamp(0.0, _scroll.position.maxScrollExtent)
+        .toDouble();
+  }
 }
 
 /// 触控吸附物理：拖动松手/甩动结束后由滚动物理直接落位最近档位
 /// （表冠走自身 debounce 吸附，不经此路径）。甩动按速度投射自然滑行
 /// 距离并吸附到网格；静止松手就近落位；临界阻尼弹簧快速落位无回弹。
 class _SnapPhysics extends ClampingScrollPhysics {
-  const _SnapPhysics({required this.pitch, required this.base, super.parent});
+  const _SnapPhysics({required this.snap, super.parent});
 
-  /// 档位节距与网格基准（有 header 时网格线整体下移 headerBand）。
-  final double pitch;
-  final double base;
+  /// 把任意投影偏移映射到「最近档位」的吸附偏移（SteppedListView 提供，
+  /// 基于实测变高槽位判定焦点行再迭代出居中偏移）。
+  final double Function(double pixels) snap;
 
   @override
   _SnapPhysics applyTo(ScrollPhysics? ancestor) =>
-      _SnapPhysics(pitch: pitch, base: base, parent: buildParent(ancestor));
+      _SnapPhysics(snap: snap, parent: buildParent(ancestor));
 
   @override
   SpringDescription get spring => SpringDescription.withDampingRatio(
@@ -336,16 +472,13 @@ class _SnapPhysics extends ClampingScrollPhysics {
         ratio: 1.0,
       );
 
-  double _gridOf(double pixels) =>
-      ((pixels + base) / pitch).roundToDouble() * pitch - base;
-
   @override
   Simulation? createBallisticSimulation(
       ScrollMetrics position, double velocity) {
     final double projected = velocity.abs() > toleranceFor(position).velocity
         ? position.pixels + velocity * 0.12 // 甩动投射：快甩多走几档
         : position.pixels;
-    final double target = _gridOf(projected)
+    final double target = snap(projected)
         .clamp(position.minScrollExtent, position.maxScrollExtent)
         .toDouble();
     if ((target - position.pixels).abs() < 0.5) return null;

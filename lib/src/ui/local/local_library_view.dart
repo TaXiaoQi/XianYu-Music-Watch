@@ -80,6 +80,7 @@ class _LocalLibraryViewState extends ConsumerState<LocalLibraryView> {
       backgroundColor: Colors.black,
       body: SafeArea(
         child: SteppedListView(
+      header: PageTitleHeader('本地音乐', showBack: false),
       itemCount: songs.length + 1,
       itemBuilder: (context, i) {
         if (i == 0) {

@@ -38,6 +38,19 @@ class WatchScreenShape {
     } catch (_) {
       // 非 Android 宿主 / 通道缺失：保持圆表兜底。
     }
+    // 通道误报兜底：ohos Flutter 对未注册通道可能 resolve 为 false（而非抛
+    // MissingPluginException），圆表分辨率必为 1:1（如 Watch 3 466×466），
+    // 据此纠正误判；方表分辨率非 1:1（如 Watch Fit 456×280）不受影响。
+    if (!isRound) {
+      final views = WidgetsBinding.instance.platformDispatcher.views;
+      if (views.isNotEmpty) {
+        final s = views.first.physicalSize;
+        if (s.width > 0 && s.height > 0 &&
+            ((s.width / s.height) - 1).abs() < 0.08) {
+          isRound = true;
+        }
+      }
+    }
   }
 }
 
