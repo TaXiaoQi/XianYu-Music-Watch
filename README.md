@@ -54,6 +54,8 @@
 | **Rust** | Stable 稳定版（构建钩子自动编译，与移动端同机制） |
 | **JDK** | **必须是 21**（JDK 25 会让 Kotlin daemon 崩溃，见下方构建环境说明） |
 | **Android** | Android SDK + NDK；compileSdk 36 / targetSdk 34 / minSdk 28；真机开启 USB 调试 |
+| **DevEco Studio** | 6+（鸿蒙构建；先「自动生成签名」一次，签名四件套落盘 `~/.ohos/config`） |
+| **Flutter-OH（鸿蒙 fork）** | 与官方同 3.44.9 引擎 / Dart 3.12.2，仅多 ohos 目标；由 flutter 包装函数自动路由，无需手动配置 |
 
 ### 运行与调试
 
@@ -116,6 +118,35 @@ flutter build apk --release
 - 正式签名已配独立 keystore（alias `xianyu_watch`，材料 gitignore）；`key.properties` 缺失时回退 debug 签名，保证 CI 可构建
 
 > 开发调试 `flutter run` 不需要这些参数：Flutter 按连接设备的 ABI 自动选择（32 位表自动 `android-arm`），Rust 钩子默认双 ABI 编译、缓存增量生效。
+
+#### HarmonyOS（.hap / .app）
+
+前置：安装 DevEco Studio 6+ 并完成一次「自动生成签名」（签名四件套落盘 `~/.ohos/config`，Bundle name 为正式包名 `com.xianyumusic.watch`）；Rust 工具链 `rustup target add aarch64-unknown-linux-ohos`。构建命令见下，**在腕上端根目录内执行**。
+
+```powershell
+flutter hap                # 鸿蒙调试运行（fork flutter run，热重载 r / 热重启 R，-d 选设备）
+flutter build hap          # 鸿蒙安装包 HAP（默认 --release + 仅 ohos-arm64，瘦身优先）
+flutter build app          # 鸿蒙商店包 APP（= build hap + assembleApp 签名，AppGallery 上架用）
+flutter build hap --target-platform ohos-x64   # 模拟器包（x86_64，无 Rust core，仅跑通 UI/链路）
+.\scripts\ohos\build-ohos.ps1                  # 完整自动化：编 Rust + 构建 + 归档 releases\ohos
+.\scripts\ohos\build-ohos.ps1 -AppPack         # 同上 + 出上架 AppGallery 的 .app
+```
+
+> **flutter 命令路由（PowerShell profile 包装函数）**：本工程目录内，`flutter hap`（调试运行）、`flutter build app` / `build hap`（正式构建）、`pub get` 自动切到 Flutter-OH fork（与官方同引擎，仅多 ohos 目标），并注入 `PUB_CACHE=D:\pub-cache`（hvigor 插件要求 pub 缓存与工程同盘）与 DevEco ohpm/hvigor/node 工具，命令结束自动恢复环境，路由时终端显示浅灰 `[flutter-ohos]` 提示；**裸 `flutter run` 与 `flutter build apk` 始终走官方 SDK（安卓）**，安卓+鸿蒙设备同时在线互不干扰。构建前自动做 rust 陈旧检测（rust 源码新于 `ohos/entry/libs/*.so` 时先编译，`XIANMU_SKIP_RUST=1` 跳过）。
+>
+> **依赖态驻留模型**：ohos 命令进入时由 `scripts\ohos\pub-state.ps1` 写入 `pubspec_overrides.yaml`（fork 解析态），命令结束仅释放互斥、依赖态驻留 ohos（DevEco/hvigor 的 FlutterTask 需要 fork 态 package_config 才能编译）；裸 `flutter run` / `build apk` 遇残留 overrides 会自动还原 android 态并重新 pub get，互不劫持。
+>
+> build-ohos.ps1 参数：`-Abi x64|arm64` 显式指定 CPU 架构（不传自动探测在线设备；模拟器是 x86_64，真机是 arm64）；`-Device` 等其余参数透传 flutter。**构建默认 `--release` 正式包**（测试用 `-Run`，无 debug 归档），产物自动归档到 `releases\ohos\弦予音乐v<版本>-Watch-<架构>.hap`——版本号原样取自 `version.ts` 的 `APP_VERSION`，架构后缀 arm64 真机 → `-arm64`、x86_64 模拟器 → `-x86`，与安卓命名体系一致；`-AppPack` 的 .app 同规则。装机：`hdc install -r <HAP>`。
+>
+> **注意：构建期间必须完全关闭 DevEco Studio**——它会对工程做 ohpm 重装（用未打补丁的 embedding 实例导致编译失败）并回写 `build-profile.json5`（清掉签名材料），与构建脚本互相破坏。
+
+与安卓同款发版体验（构建即正式版，测试走 `flutter hap`）：
+
+- **版本号自动同步**：`version.ts` → `pubspec.yaml` / `app_version.dart`（改版本只需改 `version.ts`）
+- 产物自动归档到 `releases/ohos/弦予音乐v<版本>-Watch-arm64.hap`（arm64 单架构 + `.so` 包内压缩，约 17.8MB；预发布版本名自带 -betaN 后缀）
+- `flutter build app` 额外归档 `弦予音乐v<版本>-Watch.app`（App Pack，AppGallery 上传用；HAP 不支持用户侧直接安装，分发一律走 AGC 上架/开放测试）
+- 调试直接 `hdc install -r` 归档产物或 `build\ohos\hap\entry-default-signed.hap`
+- 构建全流程自动化（主工程内完成，无镜像拷贝）：版本同步 → 依赖覆盖（`scripts/ohos/pubspec-ohos-overrides.yaml`）→ Rust `.so` → hvigor 打包签名
 
 ### ⚠️ 构建环境已知坑（这台机器踩平的）
 
@@ -187,4 +218,4 @@ graph TD
 
 ---
 
-*更新日期：2026-09-13*
+*更新日期：2026-09-17*

@@ -44,6 +44,47 @@ $MirrorDir   = if ($env:XIANYU_OHOS_MIRROR) { $env:XIANYU_OHOS_MIRROR } else { $
 $InPlace     = $MirrorDir -ieq $ProjectRoot
 . (Join-Path $ScriptDir 'pub-state.ps1')   # Enter/Exit-XianyuOhosPubState
 
+# ---- signing password auto-encryption (aligned with the mobile project) ----
+# hvigor ALWAYS reads storePassword/keyPassword as an ENCRYPTED hex blob
+# (DecipherUtil.decryptPwd): an even, >=32-char plain-text password passes the
+# length checks but then fails with 00304032 "Signing materials <dir> is an
+# empty directory" because it looks for the material key tree. This helper
+# re-encodes a PLAIN password to the DevEco encrypted hex using the machine-wide
+# material tree at <storeFile parent>\material before the canonical write.
+function Invoke-EncryptSignPassword {
+    param([string]$StoreFile, [string]$Password)
+    if (-not $Password) { return '' }
+    # already-encrypted blobs are long & pure hex -> leave untouched
+    if ($Password -match '^[0-9a-fA-F]+$' -and $Password.Length -ge 64 -and ($Password.Length % 2) -eq 0) {
+        return $Password
+    }
+    $nodeJs = Get-Command node -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
+    if (-not $nodeJs) { throw 'node not found - required to encrypt the signing password' }
+    $helper  = Join-Path $ScriptDir 'ohos-sign-password.mjs'
+    $materialDir = Split-Path $StoreFile -Parent
+    $out = & $nodeJs $helper $materialDir $Password 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0 -or $out -notmatch 'encryptedHex:\s*([0-9a-fA-F]+)') {
+        throw "signing password encryption failed (storeFile=$StoreFile): $($out.Trim())"
+    }
+    return $Matches[1].Trim()
+}
+
+function Update-SigningPasswords {
+    param([string]$SignJson)
+    if (-not $SignJson -or $SignJson -eq '[]') { return $SignJson }
+    try { $arr = $SignJson | ConvertFrom-Json } catch { return $SignJson }
+    foreach ($cfg in $arr) {
+        $m = $cfg.material
+        if (-not $m -or -not $m.storeFile) { continue }
+        foreach ($f in @('storePassword','keyPassword')) {
+            if ($m.PSObject.Properties.Name -contains $f) {
+                $m.$f = Invoke-EncryptSignPassword -StoreFile $m.storeFile -Password $m.$f
+            }
+        }
+    }
+    return (ConvertTo-Json -InputObject $arr.PSObject.BaseObject -Depth 8 -Compress)
+}
+
 # ---- 1. session -> Flutter-OH toolchain ----
 . (Join-Path $ScriptDir 'env-ohos.ps1')
 
@@ -120,6 +161,11 @@ try {
                 Write-Host "[ohos] signingConfigs imported from $($src.Label)"
             }
         }
+    }
+    # auto-encrypt PLAIN signing passwords -> DevEco encrypted hex (aligned
+    # with the mobile project; already-encrypted blobs pass through untouched)
+    if ($sign -ne '[]') {
+        $sign = Update-SigningPasswords -SignJson $sign
     }
     $hasSigning = $sign -ne '[]' -and $sign -ne ''
     if (Test-Path $bpJson5) {
@@ -265,10 +311,14 @@ try {
         # pubspec.yaml (single version source; build number never in filenames,
         # matching the Android/三端 naming convention). Explicit --debug builds
         # are NOT archived.
-        $buildMode = 'debug'
+        # 与 flutter build hap 的默认一致：未显式指定 mode 时是 release
+        # （buildArgs 自动补 --release），assembleApp 必须用同一 mode，
+        # 否则 debug 模式产物（kernel_blob + 双 ABI 引擎）会混进 .app。
+        $buildMode = 'release'
         foreach ($a in $FlutterArgs) {
             if ($a -eq '--release') { $buildMode = 'release' }
             elseif ($a -eq '--profile') { $buildMode = 'profile' }
+            elseif ($a -eq '--debug') { $buildMode = 'debug' }
         }
         $appVersion = '0.0.0'
         $pubspecTxt = [System.IO.File]::ReadAllText((Join-Path $ProjectRoot 'pubspec.yaml'))
@@ -299,7 +349,9 @@ try {
                 $apps = Get-ChildItem (Join-Path $MirrorDir 'ohos\build\outputs') -Recurse -Filter '*signed.app' -ErrorAction SilentlyContinue
                 foreach ($a2 in $apps) {
                     Write-Host ("  APP: {0}  ({1:N1} MB)" -f $a2.FullName, ($a2.Length / 1MB)) -ForegroundColor Green
-                    if ($buildMode -ne 'debug') {
+                    # '*signed.app' 通配符会连 -unsigned.app 一起匹配
+                    # （unsigned 以 signed.app 结尾），必须排除，归档只留签名版
+                    if ($buildMode -ne 'debug' -and $a2.Name -notmatch 'unsigned') {
                         $dst = Join-Path $relDir ("弦予音乐v{0}-Watch.app" -f $appVersion)
                         Copy-Item $a2.FullName $dst -Force
                         Write-Host ("  archived: {0}" -f $dst) -ForegroundColor Green

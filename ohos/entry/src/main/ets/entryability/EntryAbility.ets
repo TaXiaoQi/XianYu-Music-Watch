@@ -1,6 +1,6 @@
 
-import { common, Want } from '@kit.AbilityKit';
-import { backgroundTaskManager, wantAgent } from '@kit.BackgroundTasksKit';
+import { common, Want, wantAgent } from '@kit.AbilityKit';
+import { backgroundTaskManager } from '@kit.BackgroundTasksKit';
 import { display } from '@kit.ArkUI';
 import { FlutterAbility, FlutterEngine, MethodChannel } from '@ohos/flutter_ohos';
 import { GeneratedPluginRegistrant } from '../plugins/GeneratedPluginRegistrant';
@@ -69,7 +69,7 @@ export default class EntryAbility extends FlutterAbility {
                 Math.abs(w - h) / Math.max(w, h) < 0.1
               result.success(isRound)
             })
-            .catch((err) => result.error('probe_failed', String(err), null))
+            .catch((err: Error) => result.error('probe_failed', String(err), null))
         } else {
           result.notImplemented()
         }
@@ -89,7 +89,7 @@ export default class EntryAbility extends FlutterAbility {
         if (call.method === 'start') {
           this.startKeepAlive()
             .then(() => result.success(true))
-            .catch((err) => result.error('keepalive_failed', String(err), null))
+            .catch((err: Error) => result.error('keepalive_failed', String(err), null))
         } else {
           result.notImplemented()
         }

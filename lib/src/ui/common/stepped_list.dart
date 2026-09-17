@@ -51,14 +51,16 @@ class PageTitleHeader extends StatelessWidget {
 
 /// 圆屏阶梯列表（One UI 表盘同款观感，全部二级页与功能页统一适配）：
 /// 行为圆角胶囊卡片，一档一个条目——居中焦点行最大铺满中部，上下行
-/// 缓衰减缩小（1.0 → 相邻 0.79 → 隔行 ~0.75 → 缓降至 0.60 封底）。
+/// 陡衰减缩小（1.0 → 相邻 ~0.78 → 隔行 ~0.62 → 快速降至 0.60 封底），
+/// 复刻 WearOS 原版梯形列表。
 ///
-/// 间距跟随条大小等比收缩（用户校准，聚焦自洽）：远处行不仅条本身缩小，
-/// 其上下占用的**行高槽位也同步缩小**（行高 = 胶囊高×scale×1.1），于是
-/// 越小的条上下空隙越小、整体紧凑堆叠成密度均匀的阶梯，不再出现「条已
-/// 压缩到最小、行距仍按标准档位留白」的大片空隙。焦点最大槽占满屏中部，
-/// 相邻 0.79 槽 ~0.87，远处 ~0.66；右缘有弧形滚动位置指示；表冠逐档滚动 +
-/// 档位振动；触控拖动/甩动由吸附物理直接落位最近档位。
+/// 间距跟随条大小等比缩放（用户澄清，WearOS 原版观感）：远处行不仅条
+/// 本身缩小，其上下占用的**行高槽位也同步缩小**（行高 = 胶囊高×scale×
+/// 1.1，缝隙随条等比缩放）——梯形列表若用固定大小间距，远处条已压缩
+/// 到最小、间距仍是标准大小，会出现「远处行距拉得很开」的大空隙 bug；
+/// 等比缝让整体紧凑堆叠成密度均匀的阶梯。焦点最大槽占满屏中部，相邻
+/// 0.78 槽，远处 ~0.6；右缘有弧形滚动位置指示；表冠逐档滚动 + 档位
+/// 振动；触控拖动/甩动由吸附物理直接落位最近档位。
 ///
 /// 距离/缩放用「名义均匀档距」（_pitchBase）计算（与偏移量一一对应、无
 /// 依赖环），行高/吸附则按实际测量槽位累加计算——两者在图层面解耦，保证
@@ -98,31 +100,39 @@ class SteppedListView extends StatefulWidget {
 }
 
 class _SteppedListViewState extends State<SteppedListView> {
-  // 名义均匀档距 52*s ≈ 26% 屏径：仅用于「距离→缩放」的被矢距曲线（焦点
-  // 1.0 → 相邻 0.79 → 隔行 ~0.75 → 缓降至 0.60 封底）。注意它只是「虚拟
-  // 档距」，不再是每行的真实行高——真实行高由 _rowH 按缩放等比收缩，于是
-  // 远处行的槽位随之变小、空隙按比例收窄，列表整体紧凑堆叠。
-  static const double _pitchBase = 52;
+  // 名义均匀档距 56*s：仅用于「距离→缩放」的归一化（焦点 1.0 →
+  // 相邻 ~0.78 → 隔行 ~0.62 → 快速降至 0.60 封底）与行高基准。注意它
+  // 只是「虚拟档距」，真实行高在 _rowH 里额外乘 _rowSpacing 留呼吸缝。
+  static const double _pitchBase = 56;
 
-  /// 胶囊标准高（52*s）：焦点行满高基准，其余行高 = 该值 ×scale×1.1。
-  static const double _capsuleH = 52;
+  /// 胶囊标准高（56*s）：焦点行满高基准，其余行高 = 该值 ×scale×1.1。
+  static const double _capsuleH = 56;
+
+  /// 行高相对卡片高的间距系数：行高 = 卡片高×1.1，卡片上下各留 5%
+  /// 呼吸缝——缝隙必须随卡片大小等比缩放（用户澄清：梯形列表若用
+  /// 固定缝，远处条已缩到最小、间距仍是标准大小 → 远处行距拉得很开
+  /// 的大空隙 bug；WearOS 原版即等比缝，整体密度均匀）。
+  static const double _rowSpacing = 1.1;
 
   /// scale 封底（远处行最小倍率）。
   static const double _minScale = 0.55;
 
-  /// 指数衰减半径（档）：距焦点越近降得越快——焦点 1.0 → 相邻 ~0.75 →
-  /// 隔行 ~0.64 → 远场缓趋 [_minScale]，形成清晰的中间最大、上下梯形递减。
-  /// 相比原幂曲线（<1 幂），指数在焦点邻近更陡，避免「只有焦点行放大、
-  /// 其余平板等大」的观感。
-  static const double _decayTau = 1.2;
-
-  /// 行高呼吸系数：行高 = 胶囊高×scale×(1+[_rowGapFactor])，等比地给
-  /// 每行保留少量上下间隙（越小的条间隙越小），并随槽位一起贴合条大小。
-  static const double _rowGapFactor = 0.10;
+  /// 陡降幂（>1）与半高半径：Lorentzian 幂曲线 scale = min + (1-min)/
+  /// (1+(d/τ)^p)——近场高台、远场陡降，复刻 WearOS 原版梯形列表：焦点
+  /// 1.0 → 相邻 ~0.78 → 隔行 ~0.62 → 再外 ~0.58 → 缓趋 [_minScale]。
+  /// 纯指数衰减无法两头兼顾：τ 调大近场变大时远场跟着一起放大，观感
+  /// 变成整页放大而非中间突出（用户反馈校准）。
+  static const double _decayTau = 1.0;
+  static const double _decayPow = 2.5;
 
   /// build/LayoutBuilder 里确定的视口与顶部留白（供几何辅助方法读取）。
   double _viewportH = 0;
   double _startPad = 0;
+
+  /// 收敛布局缓存：同一滚动帧内各行共用整列布局（避免每行重算 O(n)）。
+  double _layoutCacheOffset = double.negativeInfinity;
+  ({List<double> tops, List<double> heights, List<double> scales})?
+      _layoutCache;
 
   final ScrollController _scroll = ScrollController();
   StreamSubscription<RotaryEvent>? _rotarySub;
@@ -140,8 +150,9 @@ class _SteppedListViewState extends State<SteppedListView> {
   /// 跳过吸附，停转后由 debounce 定时器兜底对齐。
   DateTime _lastRotaryAt = DateTime.fromMillisecondsSinceEpoch(0);
 
-  /// 表冠停转吸附定时器：表冠 jumpTo 位移可停在任意位置，停转 150ms
-  /// 后主动对齐最近档位（ScrollEnd 门控会漏掉最后一次 jumpTo，这里兜底）。
+  /// 表冠停转吸附定时器：表冠 jumpTo 位移可停在任意位置，停转 60ms
+  /// 后主动对齐最近档位（ScrollEnd 门控会漏掉最后一次 jumpTo，这里兜底；
+  /// 60ms 短延迟 = 焦点行偏离正中的窗口极小，观感始终「锁定在中线」）。
   Timer? _settleTimer;
 
   /// 右缘滚动指示显隐：滚动时出现，停止约 900ms 后淡出（系统行为）。
@@ -196,11 +207,10 @@ class _SteppedListViewState extends State<SteppedListView> {
     if ((target - _scroll.offset).abs() < 0.5) return; // 已到边不空振
     _scroll.jumpTo(target); // 跟手位移；停转后由 debounce 吸附回网格
     _lastRotaryAt = DateTime.now();
-    // 停转 150ms 后主动吸附：否则列表停在任意偏移上，正中行错档缩小
-    // （「中间不放大」的根因）。
+    // 停转 60ms 后主动吸附：否则列表停在任意偏移上，正中行错档缩小
+    // （「中间不放大」的根因）；短延迟让焦点行几乎总锁在中线。
     _settleTimer?.cancel();
-    _settleTimer =
-        Timer(const Duration(milliseconds: 150), _settleToGrid);
+    _settleTimer = Timer(const Duration(milliseconds: 60), _settleToGrid);
   }
 
   // ── 变高行几何 ─────────────────────────────────────────────
@@ -224,44 +234,60 @@ class _SteppedListViewState extends State<SteppedListView> {
   double get _s => context.watchScale();
   double get _nomPitch => _pitchBase * _s;
 
-  /// scale 封底以上：距离 → 缩放（方屏恒 1，四角不裁全宽等大行）。
-  double _scaleFor(int row, double offset) {
-    if (!_round) return 1.0;
-    final rowTop = row * _nomPitch + _startPad + _headerBand;
-    final center = rowTop + 0.5 * _nomPitch;
-    final dist = ((center - (offset + _viewportH / 2)).abs()) / _nomPitch;
-    // 指数衰减：近场陡（焦点突出）、远场缓趋封底（远处行仍可读）。
-    final t = math.exp(-dist / _decayTau);
-    return (_minScale + (1 - _minScale) * t).clamp(_minScale, 1.0).toDouble();
-  }
+  /// 距离 → 缩放（方屏恒 1）：Lorentzian 幂曲线，近场高台（中间三条
+  /// 突出）、远场陡降封底（梯形层级清晰，不会整页一起放大）。
+  double _scaleFromDist(double d) =>
+      (_minScale +
+              (1 - _minScale) /
+                  (1 + math.pow(d / _decayTau, _decayPow).toDouble()))
+          .clamp(_minScale, 1.0)
+          .toDouble();
 
-  /// 某行真实行高 = 焦点槽（52*s）×scale×（1+呼吸系数）：条越小槽越小，
-  /// 空隙随条大小等比收缩 → 远处行紧凑堆叠、不再留标准档位的大片空白。
-  /// 方屏恒为标称槽高，维持全宽等大行。
+  /// 单行缩放：读收敛布局（该行实测中心距屏中之距），方屏恒 1。
+  double _scaleFor(int row, double offset) =>
+      _round ? _layout(offset).scales[row] : 1.0;
+
+  /// 行高 = 名义档距 × 缩放 × 间距系数（焦点槽 = 满档 ×1.1 → 首行/焦点行
+  /// 精确居中；缝隙随卡片大小等比缩放——固定缝会让远处行距过大，用户
+  /// 澄清校准）。方屏全宽等大恒满档。
   double _rowH(double scale) =>
-      _round ? _capsuleH * _s * scale * (1 + _rowGapFactor) : _nomPitch;
+      _round ? _nomPitch * scale * _rowSpacing : _nomPitch;
 
-  /// 一次性算出每个数据行的实测槽高与其内容顶部坐标（含顶部留白与头部
-  /// 条带，即从视口 0 算起的桌面坐标，减去 offset 才是屏幕坐标）。
-  /// 两个辅助方法合用这一遍 O(n) 布局，避免反复累积造成 O(n²)（长列表
-  /// 吸附时卡顿的隐患）。
-  ({List<double> tops, List<double> heights}) _layoutAt(double offset) {
-    final n = widget.itemCount;
-    final heights = List<double>.filled(n, 0);
-    final tops = List<double>.filled(n, 0);
-    var acc = _startPad + _headerBand;
-    for (var i = 0; i < n; i++) {
-      tops[i] = acc;
-      heights[i] = _rowH(_scaleFor(i, offset));
-      acc += heights[i];
+  /// 收敛布局：迭代让「缩放 ↔ 槽位」自洽（行高依赖缩放、缩放依赖位置，
+  /// 数轮收敛），得每行实测 top/height/scale。同一滚动帧共用一份缓存，
+  /// 只算一遍整列（O(n)）。
+  ({List<double> tops, List<double> heights, List<double> scales}) _layout(
+      double offset) {
+    if (_layoutCacheOffset == offset && _layoutCache != null) {
+      return _layoutCache!;
     }
-    return (tops: tops, heights: heights);
+    final n = widget.itemCount;
+    var scales = List<double>.filled(n, 1.0);
+    var tops = List<double>.filled(n, 0.0);
+    var heights = List<double>.filled(n, 0.0);
+    for (var it = 0; it < 4; it++) {
+      var acc = _startPad + _headerBand;
+      for (var i = 0; i < n; i++) {
+        tops[i] = acc;
+        heights[i] = _rowH(scales[i]);
+        acc += heights[i];
+      }
+      if (it == 3) break;
+      for (var i = 0; i < n; i++) {
+        final center = tops[i] + heights[i] / 2;
+        final d = ((center - (offset + _viewportH / 2)).abs()) / _nomPitch;
+        scales[i] = _scaleFromDist(d);
+      }
+    }
+    _layoutCache = (tops: tops, heights: heights, scales: scales);
+    _layoutCacheOffset = offset;
+    return _layoutCache!;
   }
 
   /// 最近档位：以「实测槽位中心」距视口中线最近者为准（与缩放共用同一套
-  /// 判定，保证吸附/振动/表冠都落位到同一条）。
+  /// 收敛几何，保证吸附/振动/表冠都落位到同一条）。
   int _focusRow(double offset) {
-    final lay = _layoutAt(offset);
+    final lay = _layout(offset);
     final anchor = offset + _viewportH / 2;
     var best = 0;
     var bestD = double.infinity;
@@ -276,13 +302,15 @@ class _SteppedListViewState extends State<SteppedListView> {
     return best;
   }
 
-  /// 让焦点行 [row] 精确停在中线的滚动偏移（以名义中心为初值，迭代 3 次
+  /// 让焦点行 [row] 精确停在中线的滚动偏移（以实际行高为初值，迭代 3 次
   /// 收敛到实测槽位中心；行高是偏移的平滑函数，数轮即收敛）。
   double _snapFor(int row) {
-    var offset =
-        (row + 0.5) * _nomPitch + _startPad + _headerBand - _viewportH / 2;
+    var offset = (row + 0.5) * _nomPitch * _rowSpacing +
+        _startPad +
+        _headerBand -
+        _viewportH / 2;
     for (var i = 0; i < 3; i++) {
-      final lay = _layoutAt(offset);
+      final lay = _layout(offset);
       final next = lay.tops[row] + lay.heights[row] / 2 - _viewportH / 2;
       if ((next - offset).abs() < 0.1) {
         offset = next;
@@ -300,10 +328,12 @@ class _SteppedListViewState extends State<SteppedListView> {
     final row = _focusRow(_scroll.offset);
     final target = _snapFor(row).clamp(0.0, max).toDouble();
     if ((target - _scroll.offset).abs() > 0.5) {
+      // 90ms 硬曲线快拉回：吸附干脆（原版「咔哒」锁定感），不留
+      // 拖泥带水的回中动画——吸附窗口越短，焦点行越像始终卡在正中。
       _scroll.animateTo(
         target,
-        duration: const Duration(milliseconds: 160),
-        curve: Curves.easeOutCubic,
+        duration: const Duration(milliseconds: 90),
+        curve: Curves.easeOutQuad,
       );
     }
     // 落定行变化才振：滚动途中不振（转过去又转回来行没变 = 无反馈），
@@ -325,12 +355,14 @@ class _SteppedListViewState extends State<SteppedListView> {
     final nomPitch = _pitchBase * s;
     return LayoutBuilder(
       builder: (context, constraints) {
-        // 首尾留白：底部补 (视口高-名义档距)/2，最后一行精确停在正中；
+        // 首尾留白：底部补 (视口高-焦点行高)/2，最后一行精确停在正中；
         // 顶部在同基础上扣除头部条带——第一行停正中、页面头恰好露在
-        // 顶端（One UI 式：标题在最上，随列表滚走）。
+        // 顶端（One UI 式：标题在最上，随列表滚走）。居中基准必须用
+        // 实际焦点行高（名义档距×间距系数），用虚拟档距会让首帧/短列表
+        // 焦点行中心偏下 (1.1-1)/2×档距（用户反馈校准）。
         final viewportH = constraints.maxHeight;
-        final endPad =
-            ((viewportH - nomPitch) / 2).clamp(0.0, double.infinity);
+        final endPad = ((viewportH - nomPitch * _rowSpacing) / 2)
+            .clamp(0.0, double.infinity);
         final startPad = math.max(0.0, endPad - headerBand);
         _viewportH = viewportH;
         _startPad = startPad;
@@ -390,8 +422,8 @@ class _SteppedListViewState extends State<SteppedListView> {
                       // 行高随条大小等比收缩：焦点槽最大，远处槽变小，
                       // 空隙不再按标准档位留白。方屏全宽等大恒一。
                       final rowH = _rowH(scale);
-                      // 圆屏：幂曲线（0.25）缓衰减——相邻 0.79、隔行
-                      // ~0.75，0.60 封底防远处行缩没；方屏恒 1。
+                      // 圆屏：Lorentzian 幂曲线——相邻 ~0.78、隔行
+                      // ~0.62，0.55 封底防远处行缩没；方屏恒 1。
                       // 透明度随尺寸线性浅衰减（0.55+0.45·scale）：远处
                       // 行保持可读（系统边缘行几乎全亮），焦点行恰好
                       // 为 1 省一层 saveLayer。方屏恒 1。
@@ -476,7 +508,7 @@ class _SnapPhysics extends ClampingScrollPhysics {
   @override
   SpringDescription get spring => SpringDescription.withDampingRatio(
         mass: 0.5,
-        stiffness: 320.0,
+        stiffness: 420.0, // 高刚度：甩动落位干脆，无软绵绵的回弹感
         ratio: 1.0,
       );
 
@@ -606,7 +638,7 @@ class SteppedPill extends StatelessWidget {
 
 /// 标准大号行（与 [SteppedListView] 配套）：胶囊卡 + 40*s 前导区 +
 /// 居中主标题 17*s / 副标题 12*s + 可选尾部控件；行高由列表按档位
-/// （57*s）以紧约束提供，焦点行铺满屏幕中部。
+/// （62*s = 胶囊 56×1.1）以紧约束提供，焦点行铺满屏幕中部。
 class SteppedTile extends StatelessWidget {
   const SteppedTile({
     super.key,
