@@ -17,6 +17,8 @@
     <!-- audio_service 后台媒体前台服务（独立播放灭屏/切走不被杀） -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- 联动模式低占用常驻前台保活（connectedDevice 类型，API 34+ 需专属权限） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- 表冠/点选触觉反馈：Vibrator 直振不走 View.performHapticFeedback，
          需要普通权限 VIBRATE（安装即授予）。 -->
@@ -59,6 +61,11 @@
                 <action android:name="android.media.browse.MediaBrowserService"/>
             </intent-filter>
         </service>
+
+        <!-- 联动模式低占用常驻前台保活服务 -->
+        <service android:name=".KeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
 
         <!-- audio_service 控制中心/媒体按键广播接收器 -->
         <receiver android:name="com.ryanheise.audioservice.MediaButtonReceiver"

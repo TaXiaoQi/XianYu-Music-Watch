@@ -75,7 +75,7 @@ class SettingsView extends ConsumerWidget {
       ),
     ];
 
-    return _SteppedPage(rows: rows);
+    return _SteppedPage(title: '设置', rows: rows);
   }
 
   /// 插件分类副标题：已启用数/总数（对齐移动端插件入口）。
@@ -99,7 +99,7 @@ class _PlaybackPage extends ConsumerWidget {
     final s = context.watchScale();
     final settings =
         ref.watch(settingsProvider).valueOrNull ?? const AppSettings();
-    return _SteppedPage(rows: [
+    return _SteppedPage(title: '播放', rows: [
       _switchRow(
         s: s,
         title: '保持屏幕常亮',
@@ -258,7 +258,7 @@ class _LyricsPage extends ConsumerWidget {
     final s = context.watchScale();
     final settings =
         ref.watch(settingsProvider).valueOrNull ?? const AppSettings();
-    return _SteppedPage(rows: [
+    return _SteppedPage(title: '歌词', rows: [
       _switchRow(
         s: s,
         title: '显示翻译',
@@ -424,7 +424,7 @@ class _LibraryPageState extends ConsumerState<_LibraryPage> {
     final s = context.watchScale();
     final settings =
         ref.watch(settingsProvider).valueOrNull ?? const AppSettings();
-    return _SteppedPage(rows: [
+    return _SteppedPage(title: '本地库', rows: [
       _actionRow(
         s: s,
         icon: _scanning
@@ -470,7 +470,7 @@ class _AboutPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final s = context.watchScale();
-    return _SteppedPage(rows: [
+    return _SteppedPage(title: '关于', rows: [
       _actionRow(
         s: s,
         icon: Icon(Icons.music_note_rounded, size: 24 * s),
@@ -485,7 +485,10 @@ class _AboutPage extends ConsumerWidget {
 /// （与功能页同款：一屏约三行，焦点行最大铺满中部、上下行缩小变淡），
 /// 本骨架只叠加返回键浮层，rows 由宿主页传入，宿主重建即刷新。
 class _SteppedPage extends StatelessWidget {
-  const _SteppedPage({required this.rows});
+  const _SteppedPage({this.title = '', required this.rows});
+
+  /// 表头标题（居中，One UI 系统设置同款）；传空则无表头。
+  final String title;
 
   final List<Widget> rows;
 
@@ -499,6 +502,9 @@ class _SteppedPage extends StatelessWidget {
             SteppedListView(
               itemCount: rows.length,
               itemBuilder: (context, i) => rows[i],
+              header: title.isEmpty
+                  ? null
+                  : PageTitleHeader(title, showBack: false),
             ),
             // 返回键浮层：阶梯列表占满全屏，返回键固定悬浮左上角。
             Positioned(

@@ -4,20 +4,27 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'src/core/ambient.dart';
+import 'src/core/keep_alive.dart' show LinkKeepAlive;
 import 'src/core/settings.dart';
 import 'src/core/watch_fit.dart';
 import 'src/auth/auth_provider.dart';
 import 'src/link/link_provider.dart';
 import 'src/sync/sync_provider.dart';
-import 'src/ui/controller/watch_controller_page.dart';
 import 'src/ui/local/local_music_hub.dart';
+import 'src/ui/link/linkage_home.dart';
 
 /// 弦予腕上版入口：全屏音乐页（左侧功能列表 ↔ 中间播放 ↔ 右侧歌词横移），
 /// 开屏落在播放页；设置/账号从左侧功能列表进入（插件管理并入设置）。
 ///
 /// 联动建立（含后台通知拉起）时自动跳转播放控制页，返回后停在原处。
+///
+/// [linkMode] 联动模式直连 [LinkageHome]（三页：功能/播放/歌词，低占用、
+/// 常驻后台、手机一播放即推送），不自动跳转控制器；否则独立模式
+/// [LinkHome]（完整独立播放，联动建立时自动进控制器）。
 class XianYuWatchApp extends ConsumerStatefulWidget {
-  const XianYuWatchApp({super.key});
+  const XianYuWatchApp({super.key, required this.linkMode});
+
+  final bool linkMode;
 
   @override
   ConsumerState<XianYuWatchApp> createState() => _XianYuWatchAppState();
@@ -38,6 +45,9 @@ class _XianYuWatchAppState extends ConsumerState<XianYuWatchApp> {
       ref.read(syncProvider.notifier);
       ref.read(linkControllerProvider.notifier).init();
       ref.read(authProvider.notifier).init();
+      // 联动模式顺带请求原生低占用前台保活（退后台后链路仍在，手机播放
+      // 可快速拉起）；独立模式不申请，保持最小占用。
+      if (widget.linkMode) LinkKeepAlive.start();
     });
     // Wear OS 环境模式监听（进出 ambient 压暗 UI + 暂停刷新）。
     initAmbientListener(ref);
@@ -97,11 +107,14 @@ class _XianYuWatchAppState extends ConsumerState<XianYuWatchApp> {
           );
         },
       ),
-      home: const LinkHome(),
+      home: widget.linkMode ? const LinkageHome() : const LinkHome(),
     );
   }
 }
 
+/// 独立模式主页：完整独立播放壳（选择/播放/歌词三页），不再在联动建立时
+/// 自动跳转播放控制页——联动仅保留手动入口（选择页首位「设备联动」），
+/// 设置里可一键切回联动模式。
 class LinkHome extends ConsumerStatefulWidget {
   const LinkHome({super.key});
 
@@ -110,25 +123,6 @@ class LinkHome extends ConsumerStatefulWidget {
 }
 
 class _LinkHomeState extends ConsumerState<LinkHome> {
-  bool _pushingController = false;
-
-  @override
-  void initState() {
-    super.initState();
-    // 联动建立（含冷启动自动连接、后台通知拉起）→ 自动进入播放控制页。
-    ref.listenManual(linkControllerProvider, (prev, next) {
-      if (_pushingController || !mounted) return;
-      if (next.phase != LinkPhase.connected) return;
-      if (prev?.phase == LinkPhase.connected) return;
-      _pushingController = true;
-      Navigator.of(context)
-          .push(
-        MaterialPageRoute<void>(builder: (_) => const WatchControllerPage()),
-      )
-          .whenComplete(() => _pushingController = false);
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     // 手表左滑返回手势（由 _EdgeBackStrip 从左缘触发）：根路由（三页横移

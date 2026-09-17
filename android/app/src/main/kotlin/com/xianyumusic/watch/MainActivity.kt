@@ -1,8 +1,12 @@
 package com.xianyumusic.watch
 
+import android.app.AlarmManager
+import android.app.PendingIntent
+import android.content.Intent
 import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
+import android.os.Process
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -95,13 +99,36 @@ class MainActivity : AudioServiceActivity() {
         // 重开要冷启动）。
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "xianyu/system_nav")
             .setMethodCallHandler { call, result ->
-                if (call.method == "moveTaskToBack") {
-                    runOnUiThread {
-                        moveTaskToBack(true)
-                        result.success(null)
+                when (call.method) {
+                    "moveTaskToBack" -> {
+                        runOnUiThread {
+                            moveTaskToBack(true)
+                            result.success(null)
+                        }
                     }
-                } else {
-                    result.notImplemented()
+                    // 联动↔独立模式切换：Dart 已落盘新模式，此处杀掉进程并由
+                    // AlarmManager 150ms 后拉起启动 Intent——进程彻底重拉、
+                    // 新进程按新模式初始化。等价 ohos 的 restartApp。
+                    "restartApp" -> {
+                        runOnUiThread {
+                            val launch = packageManager.getLaunchIntentForPackage(packageName)
+                            val pending = PendingIntent.getActivity(
+                                this,
+                                0,
+                                launch,
+                                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                            )
+                            getSystemService(AlarmManager::class.java).set(
+                                AlarmManager.RTC,
+                                System.currentTimeMillis() + 150,
+                                pending,
+                            )
+                            Process.killProcess(Process.myPid())
+                            // 进程即将死亡，result 大概率送不到 Dart，无碍。
+                            result.success(null)
+                        }
+                    }
+                    else -> result.notImplemented()
                 }
             }
         // 屏幕常亮开关（设置-播放）：FLAG_KEEP_SCREEN_ON 仅作用于本窗口。
@@ -139,6 +166,24 @@ class MainActivity : AudioServiceActivity() {
             .setMethodCallHandler { call, result ->
                 if (call.method == "isRound") {
                     result.success(resources.configuration.isScreenRound)
+                } else {
+                    result.notImplemented()
+                }
+            }
+        // 联动模式低占用常驻保活：联动进程启动时经此启动前台服务，把进程
+        // 提到前台服务级驻留，退后台后蓝牙/云链路仍存活。startForegroundService
+        // 可能受后台限制抛异常（SecurityException/IllegalStateException），
+        // 返回 false 让 Dart 静默，不阻断联动启动。
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "xianyu/keep_alive")
+            .setMethodCallHandler { call, result ->
+                if (call.method == "start") {
+                    runOnUiThread {
+                        val ok = runCatching {
+                            startForegroundService(Intent(this, KeepAliveService::class.java))
+                            true
+                        }.getOrDefault(false)
+                        result.success(ok)
+                    }
                 } else {
                     result.notImplemented()
                 }

@@ -389,6 +389,9 @@ object WatchLinkClient {
         }
     }
 
+    /** 主 Activity 是否仍存活于进程（进程被系统回收重建后为 false）。 */
+    fun hasActivity(): Boolean = activity != null
+
     private fun emitConnection(connected: Boolean, name: String) {
         mainHandler.post {
             runCatching {
