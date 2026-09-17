@@ -337,15 +337,26 @@ class LinkController extends StateNotifier<LinkState> {
     _attemptConnect();
   }
 
-  /// 采纳手机端发起的配对请求（确认弹窗「允许」）。
-  void acceptIncoming() {
+  /// 采纳手机端发起的配对请求（确认弹窗「允许」）：把手机地址持久化为
+  /// 配对设备——否则进程重启（手动打开/被杀复活/切模式重启）后回到未
+  /// 配对态，必须重新配对。写入完成后再 accept，连接建立时已落盘。
+  Future<void> acceptIncoming() async {
     _reconnect?.cancel();
     _backoff = _minBackoff;
+    final addr = state.incomingAddress;
+    final name = state.incomingName;
     state = state.copyWith(
       phase: LinkPhase.connecting,
+      pairedAddress: addr.isEmpty ? state.pairedAddress : addr,
+      pairedName: name.isEmpty ? state.pairedName : name,
       incomingName: '',
       incomingAddress: '',
     );
+    if (addr.isNotEmpty) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('watch.pairedAddress', addr);
+      await prefs.setString('watch.pairedName', name);
+    }
     _channel.acceptPair();
   }
 
