@@ -198,6 +198,8 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
       body: SafeArea(
         child: SteppedListView(
           itemCount: specs.length + 1,
+          // 表头「功能」（One UI 系统设置样式，与设置页等二级页统一）。
+          header: const PageTitleHeader('功能'),
           // 本页在 PageView 中：表冠是全局流，仅第 0 页且无上层推送页时
           // 才归本页，否则隐藏页会误滚动误振动。
           rotaryGuard: () => ref.read(localHubPageProvider) == 0,

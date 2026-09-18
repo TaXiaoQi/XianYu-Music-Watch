@@ -20,26 +20,15 @@ class DailyRecommendPage extends ConsumerWidget {
     final async = ref.watch(dailyRecommendProvider);
     final s = context.watchScale(); // 屏径等比缩放
 
-    // 页面头：做进滚动内容最顶部（One UI 式，随列表滚走，圆弧适配完整）。
-    final headerRow = Padding(
-      padding: EdgeInsets.symmetric(horizontal: 4 * s),
-      child: Row(
-        children: [
-          const BackButton(),
-          SizedBox(width: 2 * s),
-          Text('每日推荐',
-              style: TextStyle(
-                  fontSize: 15 * s,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white.withValues(alpha: 0.9))),
-          const Spacer(),
-          IconButton(
-            tooltip: '换一批',
-            onPressed: () =>
-                ref.read(dailyRecommendProvider.notifier).refresh(),
-            icon: Icon(Icons.casino_rounded, size: 20 * s),
-          ),
-        ],
+    // 页面头：做进滚动内容最顶部，居中标题 + 左上角返回 + 右侧换一批
+    // （One UI 式，随列表滚走，圆弧适配完整）。
+    final headerRow = PageTitleHeader(
+      '每日推荐',
+      showBack: true,
+      trailing: IconButton(
+        tooltip: '换一批',
+        onPressed: () => ref.read(dailyRecommendProvider.notifier).refresh(),
+        icon: Icon(Icons.casino_rounded, size: 20 * s),
       ),
     );
     // 无列表状态（加载/错误/未登录/空）自行渲染头部，保持标题可见。

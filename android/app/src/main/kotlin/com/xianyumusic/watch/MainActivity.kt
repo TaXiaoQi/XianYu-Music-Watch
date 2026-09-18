@@ -190,7 +190,9 @@ class MainActivity : AudioServiceActivity() {
             }
     }
 
-    /** 表冠档位/点选确认轻脉冲（约 18ms）。返回 false = 设备无振动器。 */
+    /** 表冠档位/点选轻刻度（系统级轻微，类似触摸反馈，时长 ~10ms、振幅
+     * ~36/255 ≈ 14%，贴近 WearOS CLOCK_TICK 的极轻单脉冲）。返回
+     * false = 设备无振动器。 */
     private fun hapticTick(): Boolean {
         val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             (getSystemService(VIBRATOR_MANAGER_SERVICE) as? VibratorManager)?.defaultVibrator
@@ -202,11 +204,11 @@ class MainActivity : AudioServiceActivity() {
         return runCatching {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 val amplitude =
-                    if (vibrator.hasAmplitudeControl()) 96 else VibrationEffect.DEFAULT_AMPLITUDE
-                vibrator.vibrate(VibrationEffect.createOneShot(18, amplitude))
+                    if (vibrator.hasAmplitudeControl()) 36 else VibrationEffect.DEFAULT_AMPLITUDE
+                vibrator.vibrate(VibrationEffect.createOneShot(10, amplitude))
             } else {
                 @Suppress("DEPRECATION")
-                vibrator.vibrate(18)
+                vibrator.vibrate(10)
             }
             true
         }.getOrDefault(false)

@@ -540,6 +540,8 @@ Widget _backChip(double s) {
 
 /// 分类入口行：彩色圆图标 + 标题/副标题 + 箭头（移动端分类页风格，
 /// 分量对齐功能页大号行：44*s 圆标 + 16*s 标题）。
+/// 文字对齐整胶囊几何中线（与 SteppedTile 同款三层结构，用户校准：
+/// 图标贴左后文字不能跟着在剩余空间里偏移，否则整行重心偏移）。
 Widget _categoryRow({
   required double s,
   required Color color,
@@ -552,39 +554,60 @@ Widget _categoryRow({
     onTap: onTap,
     child: Padding(
       padding: EdgeInsets.symmetric(horizontal: 3 * s),
-      child: Row(
+      child: Stack(
         children: [
-          Container(
-            width: 44 * s,
-            height: 44 * s,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-            child: Icon(icon, size: 22 * s, color: Colors.white),
+          // 文字层：对称预留 56s（盖住 44s 圆标 + 12s 缝）→ 中心严格居中。
+          Positioned.fill(
+            child: Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 56 * s),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Text(title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                            fontSize: 16 * s, fontWeight: FontWeight.w600)),
+                    SizedBox(height: 2 * s),
+                    Text(subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                            fontSize: 11.5 * s,
+                            color: Colors.white.withValues(alpha: 0.5))),
+                  ],
+                ),
+              ),
+            ),
           ),
-          SizedBox(width: 12 * s),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
+          // 图标层：贴胶囊左缘。
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Text(title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                        fontSize: 16 * s, fontWeight: FontWeight.w600)),
-                SizedBox(height: 2 * s),
-                Text(subtitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                        fontSize: 11.5 * s,
-                        color: Colors.white.withValues(alpha: 0.5))),
+                Container(
+                  width: 44 * s,
+                  height: 44 * s,
+                  decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+                  child: Icon(icon, size: 22 * s, color: Colors.white),
+                ),
+                SizedBox(width: 12 * s),
               ],
             ),
           ),
-          Icon(
-            Icons.chevron_right_rounded,
-            size: 22 * s,
-            color: Colors.white.withValues(alpha: 0.38),
+          // 尾部层：贴胶囊右缘。
+          Align(
+            alignment: Alignment.centerRight,
+            child: Icon(
+              Icons.chevron_right_rounded,
+              size: 22 * s,
+              color: Colors.white.withValues(alpha: 0.38),
+            ),
           ),
         ],
       ),
@@ -593,6 +616,8 @@ Widget _categoryRow({
 }
 
 /// 开关行：整行可点切换，Switch 靠右。
+/// 文字对齐整行几何中线（对称预留 56s 盖住 48s Switch 位——Expanded
+/// 剩余空间居中会把文字挤偏左，用户校准）。
 Widget _switchRow({
   required double s,
   required String title,
@@ -604,34 +629,46 @@ Widget _switchRow({
     onTap: () => onChanged(!value),
     child: Padding(
       padding: EdgeInsets.symmetric(horizontal: 3 * s),
-      child: Row(
+      child: Stack(
         children: [
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                        fontSize: 16 * s, fontWeight: FontWeight.w600)),
-                SizedBox(height: 2 * s),
-                Text(subtitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                        fontSize: 11.5 * s,
-                        color: Colors.white.withValues(alpha: 0.5))),
-              ],
+          // 文字层：铺满整行后几何居中，不随右侧 Switch 偏移。
+          Positioned.fill(
+            child: Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 56 * s),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Text(title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                            fontSize: 16 * s, fontWeight: FontWeight.w600)),
+                    SizedBox(height: 2 * s),
+                    Text(subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                            fontSize: 11.5 * s,
+                            color: Colors.white.withValues(alpha: 0.5))),
+                  ],
+                ),
+              ),
             ),
           ),
-          SizedBox(
-            width: 48 * s,
-            child: Switch(
-                value: value,
-                activeThumbColor: const Color(0xFFFF4D6E),
-                onChanged: onChanged),
+          // 尾部层：Switch 贴右缘（Stack 内可正常点击）。
+          Align(
+            alignment: Alignment.centerRight,
+            child: SizedBox(
+              width: 48 * s,
+              child: Switch(
+                  value: value,
+                  activeThumbColor: const Color(0xFFFF4D6E),
+                  onChanged: onChanged),
+            ),
           ),
         ],
       ),
@@ -640,6 +677,7 @@ Widget _switchRow({
 }
 
 /// 普通设置行：图标 + 标题/副标题 + 可选右侧值，整行可点。
+/// 文字对齐整胶囊几何中线（与 SteppedTile 同款三层结构，用户校准）。
 Widget _actionRow({
   required double s,
   required Widget icon,
@@ -652,36 +690,52 @@ Widget _actionRow({
     onTap: onTap,
     child: Padding(
       padding: EdgeInsets.symmetric(horizontal: 3 * s),
-      child: Row(
+      child: Stack(
         children: [
-          icon,
-          SizedBox(width: 12 * s),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                        fontSize: 16 * s, fontWeight: FontWeight.w600)),
-                ...?subtitle == null
-                    ? null
-                    : [
-                        SizedBox(height: 2 * s),
-                        Text(subtitle,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                                fontSize: 11.5 * s,
-                                color:
-                                    Colors.white.withValues(alpha: 0.5))),
-                      ],
-              ],
+          // 文字层：对称预留 56s（盖住图标区 + 12s 缝）→ 中心严格居中。
+          Positioned.fill(
+            child: Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 56 * s),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Text(title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                            fontSize: 16 * s, fontWeight: FontWeight.w600)),
+                    ...?subtitle == null
+                        ? null
+                        : [
+                            SizedBox(height: 2 * s),
+                            Text(subtitle,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                    fontSize: 11.5 * s,
+                                    color: Colors.white
+                                        .withValues(alpha: 0.5))),
+                          ],
+                  ],
+                ),
+              ),
             ),
           ),
-          ?trailing,
+          // 图标层：贴胶囊左缘。
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [icon, SizedBox(width: 12 * s)],
+            ),
+          ),
+          // 尾部层：贴胶囊右缘。
+          if (trailing != null)
+            Align(alignment: Alignment.centerRight, child: trailing),
         ],
       ),
     ),

@@ -40,21 +40,9 @@ class _CloudPlaylistsPageState extends ConsumerState<CloudPlaylistsPage> {
   @override
   Widget build(BuildContext context) {
     final s = context.watchScale(); // 屏径等比缩放
-    // 页面头：做进滚动内容最顶部（One UI 式，随列表滚走，圆弧适配完整）。
-    final headerRow = Padding(
-      padding: EdgeInsets.symmetric(horizontal: 4 * s),
-      child: Row(
-        children: [
-          const BackButton(),
-          SizedBox(width: 2 * s),
-          Text('我的歌单',
-              style: TextStyle(
-                  fontSize: 15 * s,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white.withValues(alpha: 0.9))),
-        ],
-      ),
-    );
+    // 页面头：做进滚动内容最顶部（One UI 式，随列表滚走，圆弧适配完整。
+    // 与设备联动等二级页统一的居中表头 + 左上角返回键）。
+    final headerRow = const PageTitleHeader('我的歌单', showBack: true);
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
@@ -155,23 +143,8 @@ class _CloudPlaylistDetailPage extends StatelessWidget {
       backgroundColor: Colors.black,
       body: SafeArea(
         child: SteppedListView(
-          // 页面头：歌单名随列表滚走（One UI 式，圆弧适配完整）。
-          header: Padding(
-            padding: EdgeInsets.symmetric(horizontal: 4 * s),
-            child: Row(
-              children: [
-                const BackButton(),
-                SizedBox(width: 8 * s),
-                Expanded(
-                  child: Text(playlist.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          fontSize: 14 * s, fontWeight: FontWeight.w600)),
-                ),
-              ],
-            ),
-          ),
+          // 页面头：歌单名随列表滚走，居中 + 左上角返回（One UI 式）。
+          header: PageTitleHeader(playlist.name, showBack: true),
           itemCount: playlist.songs.length,
         itemBuilder: (context, i) {
           // 局部变量改名为 song，避免遮蔽缩放系数 s。

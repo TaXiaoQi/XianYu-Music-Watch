@@ -117,7 +117,7 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
     final s = context.watchScale(); // 屏径等比缩放
     return Scaffold(
       appBar: AppBar(
-        title: Text('在线搜索', style: TextStyle(fontSize: 15 * s)),
+        title: Text('搜索', style: TextStyle(fontSize: 15 * s)),
         actions: [
           IconButton(
             onPressed: _installing ? null : _addPlugin,

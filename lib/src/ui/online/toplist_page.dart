@@ -79,25 +79,15 @@ class _TopListPageState extends ConsumerState<TopListPage> {
   @override
   Widget build(BuildContext context) {
     final s = context.watchScale(); // 屏径等比缩放
-    // 页面头：做进滚动内容最顶部（One UI 式，随列表滚走，圆弧适配完整）。
-    final headerRow = Padding(
-      padding: EdgeInsets.symmetric(horizontal: 4 * s),
-      child: Row(
-        children: [
-          const BackButton(),
-          SizedBox(width: 2 * s),
-          Text('音源榜单',
-              style: TextStyle(
-                  fontSize: 15 * s,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white.withValues(alpha: 0.9))),
-          const Spacer(),
-          IconButton(
-            tooltip: '刷新',
-            onPressed: _loading ? null : _load,
-            icon: Icon(Icons.refresh_rounded, size: 20 * s),
-          ),
-        ],
+    // 页面头：做进滚动内容最顶部，居中标题 + 左上角返回 + 右侧刷新
+    // （One UI 式，随列表滚走，圆弧适配完整）。
+    final headerRow = PageTitleHeader(
+      '音源榜单',
+      showBack: true,
+      trailing: IconButton(
+        tooltip: '刷新',
+        onPressed: _loading ? null : _load,
+        icon: Icon(Icons.refresh_rounded, size: 20 * s),
       ),
     );
     final body = _loading

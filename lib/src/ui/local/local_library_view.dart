@@ -90,7 +90,7 @@ class _LocalLibraryViewState extends ConsumerState<LocalLibraryView> {
               child: Icon(Icons.travel_explore_rounded,
                   size: 22 * s, color: Colors.white),
             ),
-            title: '在线搜索',
+            title: '搜索',
             subtitle: '插件在线音源',
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(builder: (_) => const OnlineSearchPage()),

@@ -15,7 +15,9 @@ class Haptics {
   /// 原生通道可用性（失败一次即降级，避免每次调用都白等一次 miss）。
   static bool _native = true;
 
-  /// 表冠档位/点选确认的轻刻度脉冲（原生约 18ms 直振）。
+  /// 表冠档位/点选的轻刻度，原生直振 ~10ms、振幅 ~36/255（系统级极轻、
+  /// 像触摸反馈，贴近 WearOS CLOCK_TICK）。原生通道不可用时
+  /// 回退 Flutter selectionClick。
   static Future<void> tick() async {
     if (_native) {
       try {

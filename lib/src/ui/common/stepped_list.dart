@@ -56,7 +56,7 @@ class PageTitleHeader extends StatelessWidget {
 ///
 /// 间距跟随条大小等比缩放（用户澄清，WearOS 原版观感）：远处行不仅条
 /// 本身缩小，其上下占用的**行高槽位也同步缩小**（行高 = 胶囊高×scale×
-/// 1.1，缝隙随条等比缩放）——梯形列表若用固定大小间距，远处条已压缩
+/// 1.06，缝隙随条等比缩放、紧凑衔接）——梯形列表若用固定大小间距，远处条已压缩
 /// 到最小、间距仍是标准大小，会出现「远处行距拉得很开」的大空隙 bug；
 /// 等比缝让整体紧凑堆叠成密度均匀的阶梯。焦点最大槽占满屏中部，相邻
 /// 0.78 槽，远处 ~0.6；右缘有弧形滚动位置指示；表冠逐档滚动 + 档位
@@ -100,19 +100,22 @@ class SteppedListView extends StatefulWidget {
 }
 
 class _SteppedListViewState extends State<SteppedListView> {
-  // 名义均匀档距 56*s：仅用于「距离→缩放」的归一化（焦点 1.0 →
+  // 名义均匀档距 60*s：仅用于「距离→缩放」的归一化（焦点 1.0 →
   // 相邻 ~0.78 → 隔行 ~0.62 → 快速降至 0.60 封底）与行高基准。注意它
   // 只是「虚拟档距」，真实行高在 _rowH 里额外乘 _rowSpacing 留呼吸缝。
-  static const double _pitchBase = 56;
+  static const double _pitchBase = 60;
 
-  /// 胶囊标准高（56*s）：焦点行满高基准，其余行高 = 该值 ×scale×1.1。
-  static const double _capsuleH = 56;
+  /// 胶囊标准高（60*s）：焦点行满高基准，其余行高 = 该值 ×scale×1.1。
+  /// 与 _pitchBase 同步 56→60 = 全梯形等比放大一档（用户校准：中间三行
+  /// 再大一点），Lorentzian 归一化距离不变 → 缩放曲线自洽不变。
+  static const double _capsuleH = 60;
 
-  /// 行高相对卡片高的间距系数：行高 = 卡片高×1.1，卡片上下各留 5%
-  /// 呼吸缝——缝隙必须随卡片大小等比缩放（用户澄清：梯形列表若用
-  /// 固定缝，远处条已缩到最小、间距仍是标准大小 → 远处行距拉得很开
-  /// 的大空隙 bug；WearOS 原版即等比缝，整体密度均匀）。
-  static const double _rowSpacing = 1.1;
+  /// 行高相对卡片高的间距系数：行高 = 卡片高×1.06，上下各留 3% 呼吸缝
+  /// ——缝隙必须随卡片大小等比缩放（固定缝会让远处条已缩到最小、
+  /// 间距仍是标准大小 → 远处行距拉得很开的大空隙 bug）。1.1→1.06
+  /// （用户校准：系统条缩小后条与条依然「衔接」，缝要紧——焦点缝
+  /// 3.6s，远处缝随条等比收到 ~2s）。
+  static const double _rowSpacing = 1.06;
 
   /// scale 封底（远处行最小倍率）。
   static const double _minScale = 0.55;
@@ -129,6 +132,11 @@ class _SteppedListViewState extends State<SteppedListView> {
   double _viewportH = 0;
   double _startPad = 0;
 
+  /// 表头条带随滚动参与阶梯缩放后的实时槽位/缩放（写入收敛布局缓存，
+  /// 供 build 里 i==0 条带分支按同一几何渲染）。
+  double _headerScale = 1.0;
+  double _headerSlot = 0.0;
+
   /// 收敛布局缓存：同一滚动帧内各行共用整列布局（避免每行重算 O(n)）。
   double _layoutCacheOffset = double.negativeInfinity;
   ({List<double> tops, List<double> heights, List<double> scales})?
@@ -138,8 +146,13 @@ class _SteppedListViewState extends State<SteppedListView> {
   StreamSubscription<RotaryEvent>? _rotarySub;
 
   /// 表冠位移预算（带符号像素）：累积原始 magnitude，逐事件全额消费为
-  /// 连续滚动位移——原生的「滑动」手感，而非一格跳一行。
+  /// 平滑跟手（华为兼容层事件风暴自然摊成平滑小步）。
   double _rotaryAcc = 0;
+
+  /// 表冠停转吸附定时器：表冠 jumpTo 位移可停在任意位置，停转 60ms
+  /// 后主动对齐最近档位（ScrollEnd 门控会漏掉最后一次 jumpTo，这里兜底；
+  /// 短延迟让焦点行几乎总锁在中线——中间放大的根因）。
+  Timer? _settleTimer;
 
   /// 上次吸附落定的行：吸附后行变化才振一次（用户校准：转过去没滚到
   /// 下一行又转回来 = 行没变 = 不振；只有真正切到新行才反馈）。
@@ -150,10 +163,8 @@ class _SteppedListViewState extends State<SteppedListView> {
   /// 跳过吸附，停转后由 debounce 定时器兜底对齐。
   DateTime _lastRotaryAt = DateTime.fromMillisecondsSinceEpoch(0);
 
-  /// 表冠停转吸附定时器：表冠 jumpTo 位移可停在任意位置，停转 60ms
-  /// 后主动对齐最近档位（ScrollEnd 门控会漏掉最后一次 jumpTo，这里兜底；
-  /// 60ms 短延迟 = 焦点行偏离正中的窗口极小，观感始终「锁定在中线」）。
-  Timer? _settleTimer;
+  /// 最近一次表冠轻刻时刻：跨行刻度按此节流（快速风暴下不给一串连振）。
+  DateTime _lastCrownTickAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   /// 右缘滚动指示显隐：滚动时出现，停止约 900ms 后淡出（系统行为）。
   bool _thumbVisible = false;
@@ -201,16 +212,30 @@ class _SteppedListViewState extends State<SteppedListView> {
     final m = (event.magnitude ?? 48).clamp(0.0, 64.0).toDouble();
     if (dir * _rotaryAcc < 0) _rotaryAcc = 0; // 换向清账
     _rotaryAcc = (dir * m + _rotaryAcc).clamp(-1.5 * pitch, 1.5 * pitch);
-    final delta = _rotaryAcc * 0.5;
+    final delta = _rotaryAcc * 0.5; // 0.5 齿轮比：一格 → 半行，行程绵密跟手
     _rotaryAcc = 0;
     final target = (_scroll.offset + delta).clamp(0.0, max);
     if ((target - _scroll.offset).abs() < 0.5) return; // 已到边不空振
-    _scroll.jumpTo(target); // 跟手位移；停转后由 debounce 吸附回网格
+    // 拉到目标（多次事件自动从当前位置重定向、连成连续滚动，比瞬移
+    // jumpTo 平滑——手动拖动是逐帧连续位移，表冠若逐齿瞬跳会一格一格、
+    // 明显不如拖动顺；短动画把每齿补成一段平滑过渡，落定仍由 debounce
+    // 吸附回网格）。
+    _scroll.animateTo(target,
+        duration: const Duration(milliseconds: 70), curve: Curves.easeOutCubic);
     _lastRotaryAt = DateTime.now();
-    // 停转 60ms 后主动吸附：否则列表停在任意偏移上，正中行错档缩小
-    // （「中间不放大」的根因）；短延迟让焦点行几乎总锁在中线。
+    // 表冠跨行边界给一次轻刻（仅表冠，触摸滚动不振动；用户校准：系统级
+    // 轻微、像触摸反馈）。按目标行变化触发（一次 ~24px 半点位移 < 一行，
+    // 约每跨一行振一次，非逐事件）并做节流防快速风暴连振。
+    _crownTick(_focusRow(target));
+    // 停转 120ms 后才吸附（用户校准→本改定）：必须比「连续滚动的事件间隙」
+    // 长，否则滚动中会频繁触发吸附——吸附目标是「离当前偏移最近的档」，
+    // 滚到两行中线之间时它会随进度来回横跳（过半吸附下一行、没过拉回上一
+    // 行），页面就在连续滚动时来回抽搐、且和前进方向的定期校正打架导致看
+    // 起来对不齐。只有真停了才吸附，落定仍以精确 _snapFor 锁中线，再配
+    // 65ms easeOutCubic 回中反馈干脆。
     _settleTimer?.cancel();
-    _settleTimer = Timer(const Duration(milliseconds: 60), _settleToGrid);
+    _settleTimer =
+        Timer(const Duration(milliseconds: 120), () => _settleToGrid(feedback: true));
   }
 
   // ── 变高行几何 ─────────────────────────────────────────────
@@ -247,7 +272,7 @@ class _SteppedListViewState extends State<SteppedListView> {
   double _scaleFor(int row, double offset) =>
       _round ? _layout(offset).scales[row] : 1.0;
 
-  /// 行高 = 名义档距 × 缩放 × 间距系数（焦点槽 = 满档 ×1.1 → 首行/焦点行
+  /// 行高 = 名义档距 × 缩放 × 间距系数（焦点槽 = 满档 ×1.06 → 首行/焦点行
   /// 精确居中；缝隙随卡片大小等比缩放——固定缝会让远处行距过大，用户
   /// 澄清校准）。方屏全宽等大恒满档。
   double _rowH(double scale) =>
@@ -265,20 +290,35 @@ class _SteppedListViewState extends State<SteppedListView> {
     var scales = List<double>.filled(n, 1.0);
     var tops = List<double>.filled(n, 0.0);
     var heights = List<double>.filled(n, 0.0);
-    for (var it = 0; it < 4; it++) {
-      var acc = _startPad + _headerBand;
+    // 表头条带也参与阶梯缩放：跟普通行一样按「行中心距屏中之距」求缩放，
+    // 槽位 = 条带高 ×scale，随条大小等比收缩——否则它是个固定 1.0 高的
+    // 「卡住的大间距」，条缩小了间距不动，把居中三行整体顶偏下（用户诊断
+    // 的确切根因）。与行同收敛、同几何，保证吸附/居中在同一套尺度里。
+    final hasH = _hasHeader;
+    var hScale = 1.0;
+    var hSlot = hasH ? _headerBand : 0.0;
+    for (var it = 0; it < 12; it++) {
+      if (hasH) {
+        final hc = _startPad + hSlot / 2;
+        final hd = ((hc - (offset + _viewportH / 2)).abs()) / _nomPitch;
+        hScale = _scaleFromDist(hd);
+        hSlot = _headerBand * hScale;
+      }
+      var acc = _startPad + hSlot;
       for (var i = 0; i < n; i++) {
         tops[i] = acc;
         heights[i] = _rowH(scales[i]);
         acc += heights[i];
       }
-      if (it == 3) break;
+      if (it == 11) break;
       for (var i = 0; i < n; i++) {
         final center = tops[i] + heights[i] / 2;
         final d = ((center - (offset + _viewportH / 2)).abs()) / _nomPitch;
         scales[i] = _scaleFromDist(d);
       }
     }
+    _headerScale = hScale;
+    _headerSlot = hSlot;
     _layoutCache = (tops: tops, heights: heights, scales: scales);
     _layoutCacheOffset = offset;
     return _layoutCache!;
@@ -302,17 +342,20 @@ class _SteppedListViewState extends State<SteppedListView> {
     return best;
   }
 
-  /// 让焦点行 [row] 精确停在中线的滚动偏移（以实际行高为初值，迭代 3 次
-  /// 收敛到实测槽位中心；行高是偏移的平滑函数，数轮即收敛）。
+  /// 让焦点行 [row] 精确停在中线的滚动偏移（以实际行高为初值，迭代到残差
+  /// 消失收敛到实测槽位中心）。迭代必须收敛到位：几何自耦合（行高依赖
+  /// 缩放、缩放依赖位置）时固定少量迭代对下行剩大幅残差——数值验证
+  /// 36 档 3 轮残差最大 ~22px 且随行号递增，焦点行停在圆心偏下（用户多
+  /// 次反馈「居中偏下」的确切根因）；迭代 16 轮残差降到 0.15px、24 轮为 0。
   double _snapFor(int row) {
     var offset = (row + 0.5) * _nomPitch * _rowSpacing +
         _startPad +
         _headerBand -
         _viewportH / 2;
-    for (var i = 0; i < 3; i++) {
+    for (var i = 0; i < 24; i++) {
       final lay = _layout(offset);
       final next = lay.tops[row] + lay.heights[row] / 2 - _viewportH / 2;
-      if ((next - offset).abs() < 0.1) {
+      if ((next - offset).abs() < 0.01) {
         offset = next;
         break;
       }
@@ -321,27 +364,38 @@ class _SteppedListViewState extends State<SteppedListView> {
     return offset;
   }
 
-  /// 吸附到最近档位：保证有一条精确停在正中、以完整尺寸居中放大。
-  void _settleToGrid() {
+  /// 落定吸附：保证有一条精确停在正中、以完整尺寸居中放大。
+  /// [feedback] 为 true 时（仅表冠定时器路径）跨行给轻刻；触摸滚动/惯性
+  /// 落定走 false，不振动（用户校准：滑动不振动，振动只在表冠）。
+  void _settleToGrid({bool feedback = false}) {
     if (!mounted || !_scroll.hasClients) return;
     final max = _scroll.position.maxScrollExtent;
     final row = _focusRow(_scroll.offset);
     final target = _snapFor(row).clamp(0.0, max).toDouble();
     if ((target - _scroll.offset).abs() > 0.5) {
-      // 90ms 硬曲线快拉回：吸附干脆（原版「咔哒」锁定感），不留
-      // 拖泥带水的回中动画——吸附窗口越短，焦点行越像始终卡在正中。
+      // 65ms 硬曲线快拉回：吸附干脆（原版「咔哒」锁定感），不留
+      // 拖泥带水的回中动画——吸附窗口越短，焦点行越像始终卡在正中
+      // （用户校准：90ms easeOutQuad 观感偏软，缩短+加陡曲线增强
+      // 「咬合」力度，滑动与表冠共用此落定）。
       _scroll.animateTo(
         target,
-        duration: const Duration(milliseconds: 90),
-        curve: Curves.easeOutQuad,
+        duration: const Duration(milliseconds: 65),
+        curve: Curves.easeOutCubic,
       );
     }
-    // 落定行变化才振：滚动途中不振（转过去又转回来行没变 = 无反馈），
-    // 只有吸附后真正停在新的一行才给一次轻触觉确认。
-    if (row != _hapticRow) {
-      _hapticRow = row;
-      Haptics.tick();
-    }
+    // 落定行变化才振（仅表冠，触摸不振）：滚动途中不振——只有吸附后真正
+    // 停在新的一行才给一次轻刻确认。
+    if (feedback) _crownTick(row);
+  }
+
+  /// 表冠轻刻（系统级轻微）：行变化 + 节流后触发，触摸路径绝不调用。
+  void _crownTick(int row) {
+    final now = DateTime.now();
+    if (now.difference(_lastCrownTickAt).inMilliseconds < 35) return; // 防连振
+    if (row == _hapticRow) return; // 行没变 = 无反馈
+    _lastCrownTickAt = now;
+    _hapticRow = row;
+    Haptics.tick();
   }
 
   @override
@@ -363,7 +417,30 @@ class _SteppedListViewState extends State<SteppedListView> {
         final viewportH = constraints.maxHeight;
         final endPad = ((viewportH - nomPitch * _rowSpacing) / 2)
             .clamp(0.0, double.infinity);
-        final startPad = math.max(0.0, endPad - headerBand);
+        // 顶部留白 = endPad 减「offset=0 时刻表头已缩放的槽位」，保证首行
+        // 精确居中；表头槽随距圆心缩放（不再按完整条带高预留，避免留白的
+        // 大间距把整体顶偏下）。
+        var headerSlot0 = 0.0;
+        if (header != null) {
+          var S = headerBand;
+          for (var i = 0; i < 3; i++) {
+            final hc = endPad - S / 2;
+            final hd = ((hc - viewportH / 2).abs()) / nomPitch;
+            S = headerBand * _scaleFromDist(hd);
+          }
+          headerSlot0 = S;
+        }
+        final startPad = math.max(0.0, endPad - headerSlot0);
+        // 尾部补偿（只加底边，startPad 不动——头部居中不能受影响）：
+        // 甩动冲向尾部时框架还按「尾部行 0.55 小槽」测量 maxScrollExtent，
+        // 真实居中偏移被吸附 clamp 咬住 → 焦点行停在圆心偏下、怎么滚都
+        // 差一截（用户诊断：底部空白不够）。最坏情况（按全列最小槽测量）
+        // 需要补 ≈ 2 档生长量（Σ 尾部收敛生长 ≈ 50s，用户实测校准），
+        // 这里给 2×(1−0.55)×63.6s ≈ 57s 保证 _snapFor(尾部任一行) 恒可达；
+        // 吸附目标始终是精确居中偏移，多余余量只在视口外、永不停留。
+        final tailPad = _round
+            ? endPad + nomPitch * _rowSpacing * (1 - _minScale) * 2
+            : endPad;
         _viewportH = viewportH;
         _startPad = startPad;
         final hasHeader = header != null;
@@ -396,14 +473,27 @@ class _SteppedListViewState extends State<SteppedListView> {
                 // 与表冠 debounce 吸附共用同一网格（表冠走 jumpTo +
                 // 定时器 animateTo，不经滚动物理，互不冲突）。
                 physics: _SnapPhysics(snap: _nearestGridOffset),
-                padding: EdgeInsets.fromLTRB(0, startPad, 0, endPad),
+                padding: EdgeInsets.fromLTRB(0, startPad, 0, tailPad),
                 itemCount: widget.itemCount + (hasHeader ? 1 : 0),
                 itemBuilder: (context, i) {
                   if (hasHeader && i == 0) {
-                    // 页面头条带：不参与阶梯缩放，随内容自然滚走。
+                    // 页面头条带：随列表滚走，并跟普通行一样按距圆心距离参与
+                    // 阶梯缩放（槽位随条大小等比收缩 → 间距锁条），不再以完整
+                    // 固定高把居中行顶偏下。
+                    final offset = _scroll.hasClients ? _scroll.offset : 0.0;
+                    _layout(offset); // 刷新 _headerScale/_headerSlot
+                    final hs = _headerScale;
+                    final slot = _headerSlot;
                     return SizedBox(
-                      height: headerBand,
-                      child: Center(child: header),
+                      height: slot,
+                      child: Transform.scale(
+                        scale: hs,
+                        alignment: Alignment.topCenter,
+                        child: SizedBox(
+                          height: headerBand,
+                          child: Center(child: header),
+                        ),
+                      ),
                     );
                   }
                   final row = hasHeader ? i - 1 : i;
@@ -424,12 +514,20 @@ class _SteppedListViewState extends State<SteppedListView> {
                       final rowH = _rowH(scale);
                       // 圆屏：Lorentzian 幂曲线——相邻 ~0.78、隔行
                       // ~0.62，0.55 封底防远处行缩没；方屏恒 1。
-                      // 透明度随尺寸线性浅衰减（0.55+0.45·scale）：远处
-                      // 行保持可读（系统边缘行几乎全亮），焦点行恰好
-                      // 为 1 省一层 saveLayer。方屏恒 1。
-                      final alpha = round
-                          ? (0.55 + 0.45 * scale).clamp(0.0, 1.0)
-                          : 1.0;
+                      // 透明度双层：随尺寸浅衰减（0.55+0.45·scale）+
+                      // 边缘淡化——系统对快出视线的条在缩小之外还做
+                      // 淡化（用户校准）：行中心距视口上/下缘一个档距
+                      // 内线性淡到基础值的 35%，焦点邻域不受影响，
+                      // 焦点行恰好为 1 省一层 saveLayer。方屏恒 1。
+                      double alpha = 1.0;
+                      if (round) {
+                        final lay = _layout(offset); // 同帧缓存，命中
+                        final c =
+                            lay.tops[row] + lay.heights[row] / 2 - offset;
+                        final edge = math.min(c, viewportH - c);
+                        final t = (edge / _nomPitch).clamp(0.0, 1.0);
+                        alpha = (0.55 + 0.45 * scale) * (0.35 + 0.65 * t);
+                      }
                       return SizedBox(
                         height: rowH,
                         child: Center(
@@ -508,7 +606,7 @@ class _SnapPhysics extends ClampingScrollPhysics {
   @override
   SpringDescription get spring => SpringDescription.withDampingRatio(
         mass: 0.5,
-        stiffness: 420.0, // 高刚度：甩动落位干脆，无软绵绵的回弹感
+        stiffness: 600.0, // 高刚度：甩动落位干脆，无软绵绵的回弹感
         ratio: 1.0,
       );
 
@@ -565,12 +663,14 @@ class _ScrollThumbPainter extends CustomPainter {
       );
       canvas.drawRRect(
         RRect.fromRectAndRadius(rect, Radius.circular(strokeWidth / 2)),
-        Paint()..color = Colors.white.withValues(alpha: 0.45),
+        Paint()..color = Colors.white.withValues(alpha: 0.72),
       );
       return;
     }
     // 圆屏：导轨总长 55°（用户校准：110° 减半）；亮弧长度 = 视口占内容比、
-    // 限制在导轨的 2%~2.5%；暗导轨全程铺垫、极淡（0.05，仅提供位置参照）。
+    // 限制在导轨的 2%~2.5%（长度校准值，不动）；暗导轨全程铺垫、极淡
+    // （0.08，提供位置参照）。亮弧用 WearOS 灰白（alpha 0.72）——黑底上
+    // 原来的 0.45 太淡、几乎看不清（用户反馈，仅改颜色不动长度）。
     const span = 55 * math.pi / 180;
     final thumbFrac = (pos.viewportDimension / total).clamp(0.02, 0.025);
     final off = (pos.pixels / pos.maxScrollExtent).clamp(0.0, 1.0);
@@ -590,7 +690,7 @@ class _ScrollThumbPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = strokeWidth
         ..strokeCap = StrokeCap.round
-        ..color = Colors.white.withValues(alpha: 0.05),
+        ..color = Colors.white.withValues(alpha: 0.08),
     );
     canvas.drawArc(
       rect,
@@ -601,7 +701,7 @@ class _ScrollThumbPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = strokeWidth
         ..strokeCap = StrokeCap.round
-        ..color = Colors.white.withValues(alpha: 0.45),
+        ..color = Colors.white.withValues(alpha: 0.72),
     );
   }
 
@@ -636,9 +736,11 @@ class SteppedPill extends StatelessWidget {
   }
 }
 
-/// 标准大号行（与 [SteppedListView] 配套）：胶囊卡 + 40*s 前导区 +
-/// 居中主标题 17*s / 副标题 12*s + 可选尾部控件；行高由列表按档位
-/// （62*s = 胶囊 56×1.1）以紧约束提供，焦点行铺满屏幕中部。
+/// 标准大号行（与 [SteppedListView] 配套）：胶囊卡 + 贴左 40*s 前导区 +
+/// **整胶囊几何居中**的主标题 17*s / 副标题 12*s + 可选尾部控件；行高由
+/// 列表按档位（66*s = 胶囊 60×1.1）以紧约束提供，焦点行铺满屏幕中部。
+/// 文字居中基准 = 胶囊中线（One UI 系统样式）：图标靠左后文字若跟着
+/// 在「图标右侧剩余空间」里居中，整行重心会偏移（用户校准）。
 class SteppedTile extends StatelessWidget {
   const SteppedTile({
     super.key,
@@ -662,55 +764,77 @@ class SteppedTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = context.watchScale();
+    // 文字层左右对称预留：预留量相等 → 文字中心严格落在胶囊中线上。
+    // 左侧要盖住前导区（44s 封面/40s 圆 + 12s 缝 = 56s），右侧对称
+    // 同宽（尾部 chevron 仅 22s，绰绰有余）——长标题在碰到图标前先
+    // 省略，且永不把重心带偏。
+    final textReserve = leading != null
+        ? 56.0 * s
+        : (trailing != null ? 28.0 * s : 0.0);
     return SteppedPill(
       onTap: onTap,
       child: Padding(
-          // 横向 3：图标几乎贴胶囊左缘（系统样式，用户校准去缝隙）；
-          // 纵向 2：档位内装下胶囊。中文行高由下方 height 锁定。
-          padding: EdgeInsets.symmetric(horizontal: 3 * s, vertical: 2 * s),
-          child: Row(
-            children: [
-              ?leading,
-              if (leading != null) SizedBox(width: 12 * s),
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 17 * s,
-                        height: 1.25, // 锁行高：中文字体默认行高偏大易顶爆胶囊
-                        fontWeight: FontWeight.w600,
-                        color: titleColor,
-                      ),
-                    ),
-                    if (subtitle != null) ...[
-                      SizedBox(height: 2 * s),
+        // 横向 3：图标几乎贴胶囊左缘（系统样式，用户校准去缝隙）；
+        // 纵向 2：档位内装下胶囊。中文行高由下方 height 锁定。
+        padding: EdgeInsets.symmetric(horizontal: 3 * s, vertical: 2 * s),
+        child: Stack(
+          children: [
+            // 文字层：铺满整胶囊后几何居中——不随图标/尾部控件偏移。
+            Positioned.fill(
+              child: Center(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: textReserve),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
                       Text(
-                        subtitle!,
+                        title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          fontSize: 12 * s,
-                          height: 1.2,
-                          color: subtitleColor ??
-                              Colors.white.withValues(alpha: 0.5),
+                          fontSize: 17 * s,
+                          height: 1.25, // 锁行高：中文字体默认行高偏大易顶爆胶囊
+                          fontWeight: FontWeight.w600,
+                          color: titleColor,
                         ),
                       ),
+                      if (subtitle != null) ...[
+                        SizedBox(height: 2 * s),
+                        Text(
+                          subtitle!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 12 * s,
+                            height: 1.2,
+                            color: subtitleColor ??
+                                Colors.white.withValues(alpha: 0.5),
+                          ),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
-              ?trailing,
-            ],
-          ),
+            ),
+            // 图标层：贴胶囊左缘。
+            if (leading != null)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [leading!, SizedBox(width: 12 * s)],
+                ),
+              ),
+            // 尾部层：贴胶囊右缘。
+            if (trailing != null)
+              Align(alignment: Alignment.centerRight, child: trailing!),
+          ],
         ),
+      ),
     );
   }
 }
