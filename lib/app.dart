@@ -19,7 +19,7 @@ import 'src/ui/link/linkage_home.dart';
 ///
 /// 主页随运行模式动态切换（热切，不重启进程）：联动模式 [LinkageHome]
 /// （三页：功能/播放/歌词，低占用、常驻后台、手机一播放即推送）；
-/// 独立模式 [LinkHome]（完整独立播放，联动仅保留手动入口）。
+/// 独立模式 [LocalMusicHub]（完整独立播放，联动仅保留手动入口）。
 class XianYuWatchApp extends ConsumerStatefulWidget {
   const XianYuWatchApp({super.key});
 
@@ -118,54 +118,20 @@ class _XianYuWatchAppState extends ConsumerState<XianYuWatchApp> {
           if (mode == appModeLink) LinkKeepAlive.start();
           return mode == appModeLink
               ? const LinkageHome()
-              : const LinkHome();
+              : const LocalMusicHub();
         },
       ),
     );
   }
 }
 
-/// 独立模式主页：完整独立播放壳（选择/播放/歌词三页），不再在联动建立时
-/// 自动跳转播放控制页——联动仅保留手动入口（选择页首位「设备联动」），
-/// 设置里可一键切回联动模式。
-class LinkHome extends ConsumerStatefulWidget {
-  const LinkHome({super.key});
-
-  @override
-  ConsumerState<LinkHome> createState() => _LinkHomeState();
-}
-
-class _LinkHomeState extends ConsumerState<LinkHome> {
-  @override
-  Widget build(BuildContext context) {
-    // 手表左滑返回手势（由 _EdgeBackStrip 从左缘触发）：根路由（三页横移
-    // 主页）无页面可弹时退到表盘后台驻留（应用保持存活、重开秒回、播放
-    // 不断），不走 Flutter 默认的 SystemNavigator.pop——那会直接 finish
-    // 掉 Activity，观感即「左滑退出软件」。二级页（设置/账号等）为正常
-    // 压栈路由，返回手势照常弹栈，不经此逻辑。
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) {
-          const MethodChannel('xianyu/system_nav')
-              .invokeMethod('moveTaskToBack')
-              // 失败绝不退出：左滑根路由只应退后台驻留，若 moveToBackground
-              // 不可用就静默留在前台（此前 catchError 退化 SystemNavigator.pop
-              // 直接 finish，观感即「左滑退出应用」）。
-              .catchError((_) {});
-        }
-      },
-      child: const LocalMusicHub(),
-    );
-  }
-}
-
-/// 左缘返回条：叠在所有路由之上（MaterialApp.builder 层）。本机
-/// HarmonyOS 上系统级边缘返回手势不可触发（原生侧已排除全屏手势区，
-/// 左缘窄条也不响应），返回必须自绘：仅「从左缘 26dp 内起手、向右滑」
-/// 的横滑触发返回——二级页弹栈，根路由经 PopScope 后台驻留；其余横滑
-/// 照常归页面（播放页翻页等）。竖滑与点按没有对应回调，手势竞技场直接
-/// 放行，不影响列表滚动和左缘附近的按钮点击。
+/// 左缘返回条：叠在所有路由之上（MaterialApp.builder 层）。鸿蒙侧的返回
+/// 主链路是系统手势/返回键 → Index.onBackPress → popRoute（Dart 决策弹栈/
+/// 翻页/退后台，见 RootBackScope）；本条是兜底自绘：仅「从左缘 26dp 内
+/// 起手、向右滑」的横滑触发 maybePop——系统手势没派发到的固件上仍有返回，
+/// 二级页弹栈，根路由经 RootBackScope 后台驻留；其余横滑照常归页面
+/// （播放页翻页等）。竖滑与点按没有对应回调，手势竞技场直接放行，不影响
+/// 列表滚动和左缘附近的按钮点击。
 class _EdgeBackStrip extends StatefulWidget {
   const _EdgeBackStrip({required this.navigatorKey});
 

@@ -53,10 +53,11 @@ dependency_overrides:
   # ---- wearable_rotary（表冠输入）----
   # 官方包只有 Android/Tizen 实现，鸿蒙生态暂无适配 fork；鸿蒙原生表冠
   # 走 API18+ onDigitalCrown（ArkUI 层），Flutter-OH 引擎侧无桥接。本工程
-  # 6 处 rotaryEvents.listen 直接消费该包 API，缺实现会在 listen 时抛
-  # MissingPluginException（每页一报、走 FlutterError 日志噪音）。用本地
-  # stub（third_party/wearable_rotary，API 完全同构、事件流为空）替换：
-  # 表冠暂不可用（后续可经 xianyu/* 自定义通道桥接 onDigitalCrown），
-  # 但编译/运行零改动。仅 ohos 构建态生效，Android 保持官方包。
+  # 5 处 rotaryEvents.listen 直接消费该包 API，缺实现会在 listen 时抛
+  # MissingPluginException。用本地实现（third_party/wearable_rotary，API
+  # 完全同构）替换：经 xianyu/rotary EventChannel 桥接 onDigitalCrown
+  # （EntryAbility 注册 + Index.ets onDigitalCrown 转发 → RotaryDispatcher），
+  # 表冠在鸿蒙真机可用（需 API 18+ 表冠机型）。仅 ohos 构建态生效，
+  # Android 保持官方包。
   wearable_rotary:
     path: third_party/wearable_rotary

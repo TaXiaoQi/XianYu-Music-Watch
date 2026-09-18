@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../player/listen_stats.dart';
+import '../player/player_provider.dart' show audioHandler;
 import '../player/watch_audio_service.dart';
 import 'rust_init.dart';
 
@@ -42,23 +45,34 @@ class AppModeNotifier extends Notifier<String> {
   bool get isLink => state == appModeLink;
   bool get isStandalone => state == appModeStandalone;
 
-  /// 热切换到 [mode]（联动↔独立）：落盘新模式 + 补齐该模式所需的重服务
-  /// 初始化 + 更新状态触发首页重建。不依赖原生杀进程重启——鸿蒙
+  /// 热切换到 [mode]（联动↔独立）：更新状态触发首页重建 + 落盘新模式 +
+  /// 补齐该模式所需的重服务初始化。不依赖原生杀进程重启——鸿蒙
   /// ApplicationContext.restartApp 是「不保留应用窗口」重启（API 22 才有
   /// 保留窗口版，腕上达不到），重启后停留在桌面不自动回前台；热切换始终
   /// 在前台、秒切自动打开新界面，Android/鸿蒙一致。
   Future<void> change(String mode) async {
     if (mode != appModeLink && mode != appModeStandalone) return;
     if (mode == state) return;
-    await writeAppMode(mode);
+    // 先切状态：首页立即重建到新模式。落盘与重服务初始化（rust 桥接/
+    // 媒体服务，鸿蒙上可能秒级甚至挂起）一律不挡切换——此前先 await
+    // writeAppMode 再切状态，鸿蒙上任何一步慢/挂起都会整页卡死。
+    state = mode;
+    // 落盘只求最终写进（进程刚好多活几毫秒的概率可忽略），失败静默。
+    unawaited(writeAppMode(mode).catchError((_) {}));
     if (mode == appModeStandalone) {
       // 从联动热切独立：补初始化被联动 gate 掉的完整独立服务（rust 桥接 /
       // 听歌统计 / 媒体前台服务），provider 惰性且已在此容器，read 即触发。
+      // 均为后台异步，不阻塞、失败不阻断（与冷启动独立模式的 gate 一致）。
       ref.read(rustInitProvider);
       ref.read(listenStatsProvider);
       initWatchAudioService();
+    } else {
+      // 独立热切回联动：停掉本地播放（联动只作外置控制器，不该有本地
+      // 声音继续响）；媒体服务保留，暂停后卡片可手动滑除。
+      try {
+        await audioHandler?.pause();
+      } catch (_) {}
     }
-    state = mode;
   }
 }
 

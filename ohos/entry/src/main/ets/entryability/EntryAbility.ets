@@ -3,8 +3,10 @@ import { common, Want, wantAgent } from '@kit.AbilityKit';
 import { backgroundTaskManager } from '@kit.BackgroundTasksKit';
 import { display, window } from '@kit.ArkUI';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { FlutterAbility, FlutterEngine, MethodChannel } from '@ohos/flutter_ohos';
+import { FlutterAbility, FlutterEngine, MethodChannel, EventChannel, EventSink, Any } from '@ohos/flutter_ohos';
 import { GeneratedPluginRegistrant } from '../plugins/GeneratedPluginRegistrant';
+import { dispatchBackToFlutter } from './BackDispatcher';
+import { attachRotarySink } from './RotaryDispatcher';
 
 export default class EntryAbility extends FlutterAbility {
   private systemNavChannel: MethodChannel | null = null;
@@ -12,23 +14,20 @@ export default class EntryAbility extends FlutterAbility {
   private screenShapeChannel: MethodChannel | null = null;
   private keepAliveStarted = false;
 
-  // 禁用系统「侧滑返回」手势：本应用左缘横向滑动要交给 Flutter 自绘的
-  // _EdgeBackStrip（左缘返回条）与页面横滑翻页处理。鸿蒙系统级侧滑返回
-  // 会把手表从左缘起的横滑抢走，误判为返回 → 应用被滑出/退出；同时导致
-  // 「左边功能区」横向滑入永远无法触发。这里在主窗口上关闭系统返回手势，
-  // 让左缘滑动完全归 Flutter 管理（漏判时由 Dart 侧 PopScope→moveTaskToBack
-  // 兜底退后台驻留）。setGestureBackEnabled 需 API 13+，旧设备静默降级。
+  // 系统返回兜底：back 的可消费点在 @Entry 页 onBackPress（Index.ets），但
+  // 部分固件会把 back 派发到 ability 级而非页级——不重写时默认退后台/销毁，
+  // 表现即「侧滑直接退出、二级页回不到一级页」。这里同样转发给 Flutter
+  // （BackDispatcher 内部 300ms 去重，页级+能力级双重派发只转发一次）。
+  // 注意：不要在这里调 setGestureBackEnabled(false)——关掉系统返回手势后，
+  // 表固件的右滑不再走 onBackPress→popRoute 这条可消费链路，而变成
+  // SystemUI 层「滑走应用」任务手势，任何回调都收不到（二级页直接退出）。
+  onBackPressed(): boolean {
+    dispatchBackToFlutter(this.context)
+    return true
+  }
+
   onWindowStageCreate(windowStage: window.WindowStage) {
     super.onWindowStageCreate(windowStage)
-    try {
-      const win = windowStage.getMainWindowSync()
-      win.setGestureBackEnabled(false)
-        .then(() => hilog.info(0x0100, 'xianyu', 'GESTURE_BACK DISABLED (ok)'))
-        .catch((err: Error) => hilog.warn(0x0100, 'xianyu',
-          'setGestureBackEnabled failed: ' + (err as Error).message))
-    } catch (e) {
-      hilog.warn(0x0100, 'xianyu', 'disable gesture back failed: ' + JSON.stringify(e))
-    }
   }
 
   configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -39,10 +38,8 @@ export default class EntryAbility extends FlutterAbility {
     // Android 由 MainActivity 实现 moveTaskToBack；ohos 等价 API 为
     // context.moveAbilityToBackground()。缺此实现会 MissingPluginException →
     // Dart 退化 SystemNavigator.pop() → 直接退出，观感即「左滑退出软件」。
-    // 另扩 restartApp：联动↔独立模式切换时，先落盘模式字段，再经此原生
-    // 重启把应用彻底重拉起，新进程在 main() 按新模式初始化（不触发本
-    // Ability 的 onDestroy，Window 不保留，完全重新启动，对应官方
-    // ApplicationContext.restartApp，API 12+，本项目 SDK 18 可用）。
+    // 另扩 restartApp：调试/兜底用（模式切换已改为进程内热切换
+    // AppModeNotifier.change()，不重启进程、不经过此通道）。
     this.systemNavChannel = new MethodChannel(
       flutterEngine.dartExecutor.getBinaryMessenger(), 'xianyu/system_nav');
     this.systemNavChannel.setMethodCallHandler({
@@ -116,6 +113,24 @@ export default class EntryAbility extends FlutterAbility {
         } else {
           result.notImplemented()
         }
+      }
+    });
+
+    // 表冠旋转 → Dart：Index.ets 根组件 onDigitalCrown（ArkUI 通用事件，
+    // API 18+）拿到 CrownEvent 后经 RotaryDispatcher 塞进本通道的 EventSink；
+    // Dart 侧 third_party/wearable_rotary（ohos 实现）的 rotaryEvents 监听
+    // 本通道，5 处调用点零改动恢复表冠能力。消息 = 带符号角度增量
+    // CrownEvent.degree（正=顺时针，按逐事件增量处理；若真机表现为慢转
+    // 飞屏则是累计角，需在 Index.ets 侧自行做差分）。Dart 未监听时置空
+    // 丢弃；重复 onListen（热重启）以后到的 sink 为准。
+    const rotaryChannel = new EventChannel(
+      flutterEngine.dartExecutor.getBinaryMessenger(), 'xianyu/rotary');
+    rotaryChannel.setStreamHandler({
+      onListen: (args: Any, events: EventSink) => {
+        attachRotarySink(events)
+      },
+      onCancel: (args: Any) => {
+        attachRotarySink(null)
       }
     });
   }

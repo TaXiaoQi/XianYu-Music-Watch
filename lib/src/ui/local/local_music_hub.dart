@@ -6,6 +6,7 @@ import '../../lyrics/lyric_model.dart';
 import '../../lyrics/lyrics_repository.dart';
 import '../../player/player_provider.dart';
 import '../common/stepped_list.dart';
+import '../common/root_back_scope.dart';
 import '../home/cloud_playlists_page.dart';
 import '../../core/watch_fit.dart';
 import '../player/play_page_body.dart';
@@ -79,38 +80,44 @@ class _LocalMusicHubState extends ConsumerState<LocalMusicHub> {
         ref.watch(playerProvider.select((s) => s.current?.coverPath));
     final coverUrl =
         ref.watch(playerProvider.select((s) => s.current?.coverUrl));
-    return Scaffold(
-      body: Stack(
-        children: [
-          // 全屏封面模糊背景（网易云手表版）：三页共享一层，横移时背景不动。
-          Positioned.fill(
-            child: CoverBackdrop(
-              cover: CoverRef(filePath: coverPath, url: coverUrl),
+    // 独立模式根路由：返回语义（先翻页/最左页退后台）收口在共享的
+    // RootBackScope——鸿蒙侧滑返回被系统抢走时经 popRoute 到这里转成
+    // 翻页，修掉「往右滑直接退到表盘、选择页永远进不去」的问题。
+    return RootBackScope(
+      pageCtrl: _pageCtrl,
+      child: Scaffold(
+        body: Stack(
+          children: [
+            // 全屏封面模糊背景（网易云手表版）：三页共享一层，横移时背景不动。
+            Positioned.fill(
+              child: CoverBackdrop(
+                cover: CoverRef(filePath: coverPath, url: coverUrl),
+              ),
             ),
-          ),
-          PageView(
-            controller: _pageCtrl,
-            onPageChanged: (i) {
-              setState(() => _page = i);
-              // 回写 provider：表冠门禁（选择页/播放页守卫）都读它，
-              // 只 setState 不回写会让门禁永远停在初始页。
-              ref.read(localHubPageProvider.notifier).state = i;
-            },
-            children: [
-              const _SourcePickerPage(),
-              const _LocalPlayPage(),
-              const _LocalLyricsPage(),
-            ],
-          ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 10,
-            child: Center(
-              child: PageDots(count: 3, current: _page),
+            PageView(
+              controller: _pageCtrl,
+              onPageChanged: (i) {
+                setState(() => _page = i);
+                // 回写 provider：表冠门禁（选择页/播放页守卫）都读它，
+                // 只 setState 不回写会让门禁永远停在初始页。
+                ref.read(localHubPageProvider.notifier).state = i;
+              },
+              children: [
+                const _SourcePickerPage(),
+                const _LocalPlayPage(),
+                const _LocalLyricsPage(),
+              ],
             ),
-          ),
-        ],
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 10,
+              child: Center(
+                child: PageDots(count: 3, current: _page),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
