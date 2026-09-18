@@ -33,10 +33,14 @@ class PageTitleHeader extends StatelessWidget {
             child: Text(
               title,
               textAlign: TextAlign.center,
-              maxLines: 1,
+              // WearOS 原版：页面标题过长自动换行（两行居中），不做单行
+              // 省略；ellipsis 仅作超长兜底。行高锁 1.2，两行 ~36s 仍在
+              // headerBand（46/56s）内，Center 保持几何居中。
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontSize: 15 * s,
+                height: 1.2,
                 fontWeight: FontWeight.w700,
                 color: Colors.white.withValues(alpha: 0.9),
               ),
@@ -132,11 +136,6 @@ class _SteppedListViewState extends State<SteppedListView> {
   double _viewportH = 0;
   double _startPad = 0;
 
-  /// 表头条带随滚动参与阶梯缩放后的实时槽位/缩放（写入收敛布局缓存，
-  /// 供 build 里 i==0 条带分支按同一几何渲染）。
-  double _headerScale = 1.0;
-  double _headerSlot = 0.0;
-
   /// 收敛布局缓存：同一滚动帧内各行共用整列布局（避免每行重算 O(n)）。
   double _layoutCacheOffset = double.negativeInfinity;
   ({List<double> tops, List<double> heights, List<double> scales})?
@@ -216,26 +215,14 @@ class _SteppedListViewState extends State<SteppedListView> {
     _rotaryAcc = 0;
     final target = (_scroll.offset + delta).clamp(0.0, max);
     if ((target - _scroll.offset).abs() < 0.5) return; // 已到边不空振
-    // 拉到目标（多次事件自动从当前位置重定向、连成连续滚动，比瞬移
-    // jumpTo 平滑——手动拖动是逐帧连续位移，表冠若逐齿瞬跳会一格一格、
-    // 明显不如拖动顺；短动画把每齿补成一段平滑过渡，落定仍由 debounce
-    // 吸附回网格）。
-    _scroll.animateTo(target,
-        duration: const Duration(milliseconds: 70), curve: Curves.easeOutCubic);
+    _scroll.jumpTo(target); // 跟手位移；停转后由 debounce 吸附回网格
     _lastRotaryAt = DateTime.now();
-    // 表冠跨行边界给一次轻刻（仅表冠，触摸滚动不振动；用户校准：系统级
-    // 轻微、像触摸反馈）。按目标行变化触发（一次 ~24px 半点位移 < 一行，
-    // 约每跨一行振一次，非逐事件）并做节流防快速风暴连振。
-    _crownTick(_focusRow(target));
-    // 停转 120ms 后才吸附（用户校准→本改定）：必须比「连续滚动的事件间隙」
-    // 长，否则滚动中会频繁触发吸附——吸附目标是「离当前偏移最近的档」，
-    // 滚到两行中线之间时它会随进度来回横跳（过半吸附下一行、没过拉回上一
-    // 行），页面就在连续滚动时来回抽搐、且和前进方向的定期校正打架导致看
-    // 起来对不齐。只有真停了才吸附，落定仍以精确 _snapFor 锁中线，再配
-    // 65ms easeOutCubic 回中反馈干脆。
+    // 停转 60ms 后主动吸附：否则列表停在任意偏移上，正中行错档缩小
+    // （「中间不放大」的根因）；短延迟让焦点行几乎总锁在中线。
+    // 吸附后行变了才给轻刻（触摸路径不振动）。
     _settleTimer?.cancel();
     _settleTimer =
-        Timer(const Duration(milliseconds: 120), () => _settleToGrid(feedback: true));
+        Timer(const Duration(milliseconds: 60), () => _settleToGrid(feedback: true));
   }
 
   // ── 变高行几何 ─────────────────────────────────────────────
@@ -290,21 +277,11 @@ class _SteppedListViewState extends State<SteppedListView> {
     var scales = List<double>.filled(n, 1.0);
     var tops = List<double>.filled(n, 0.0);
     var heights = List<double>.filled(n, 0.0);
-    // 表头条带也参与阶梯缩放：跟普通行一样按「行中心距屏中之距」求缩放，
-    // 槽位 = 条带高 ×scale，随条大小等比收缩——否则它是个固定 1.0 高的
-    // 「卡住的大间距」，条缩小了间距不动，把居中三行整体顶偏下（用户诊断
-    // 的确切根因）。与行同收敛、同几何，保证吸附/居中在同一套尺度里。
-    final hasH = _hasHeader;
-    var hScale = 1.0;
-    var hSlot = hasH ? _headerBand : 0.0;
+    // 表头条带为固定槽（不参与阶梯缩放，用户校准：标题恒定原尺寸，
+    // 可读性优先）。固定槽高与实际布局永远一致（无逐帧变化），顶部
+    // 一条固定头部带不干扰居中几何——startPad 已按完整条带预留。
     for (var it = 0; it < 12; it++) {
-      if (hasH) {
-        final hc = _startPad + hSlot / 2;
-        final hd = ((hc - (offset + _viewportH / 2)).abs()) / _nomPitch;
-        hScale = _scaleFromDist(hd);
-        hSlot = _headerBand * hScale;
-      }
-      var acc = _startPad + hSlot;
+      var acc = _startPad + (_hasHeader ? _headerBand : 0.0);
       for (var i = 0; i < n; i++) {
         tops[i] = acc;
         heights[i] = _rowH(scales[i]);
@@ -317,8 +294,6 @@ class _SteppedListViewState extends State<SteppedListView> {
         scales[i] = _scaleFromDist(d);
       }
     }
-    _headerScale = hScale;
-    _headerSlot = hSlot;
     _layoutCache = (tops: tops, heights: heights, scales: scales);
     _layoutCacheOffset = offset;
     return _layoutCache!;
@@ -417,20 +392,9 @@ class _SteppedListViewState extends State<SteppedListView> {
         final viewportH = constraints.maxHeight;
         final endPad = ((viewportH - nomPitch * _rowSpacing) / 2)
             .clamp(0.0, double.infinity);
-        // 顶部留白 = endPad 减「offset=0 时刻表头已缩放的槽位」，保证首行
-        // 精确居中；表头槽随距圆心缩放（不再按完整条带高预留，避免留白的
-        // 大间距把整体顶偏下）。
-        var headerSlot0 = 0.0;
-        if (header != null) {
-          var S = headerBand;
-          for (var i = 0; i < 3; i++) {
-            final hc = endPad - S / 2;
-            final hd = ((hc - viewportH / 2).abs()) / nomPitch;
-            S = headerBand * _scaleFromDist(hd);
-          }
-          headerSlot0 = S;
-        }
-        final startPad = math.max(0.0, endPad - headerSlot0);
+        // 顶部留白 = endPad 减完整表头条带（固定槽，不缩放）：首行停正中、
+        // 页面头恰好露在顶端（One UI 式：标题在最上，随列表滚走）。
+        final startPad = math.max(0.0, endPad - headerBand);
         // 尾部补偿（只加底边，startPad 不动——头部居中不能受影响）：
         // 甩动冲向尾部时框架还按「尾部行 0.55 小槽」测量 maxScrollExtent，
         // 真实居中偏移被吸附 clamp 咬住 → 焦点行停在圆心偏下、怎么滚都
@@ -477,23 +441,12 @@ class _SteppedListViewState extends State<SteppedListView> {
                 itemCount: widget.itemCount + (hasHeader ? 1 : 0),
                 itemBuilder: (context, i) {
                   if (hasHeader && i == 0) {
-                    // 页面头条带：随列表滚走，并跟普通行一样按距圆心距离参与
-                    // 阶梯缩放（槽位随条大小等比收缩 → 间距锁条），不再以完整
-                    // 固定高把居中行顶偏下。
-                    final offset = _scroll.hasClients ? _scroll.offset : 0.0;
-                    _layout(offset); // 刷新 _headerScale/_headerSlot
-                    final hs = _headerScale;
-                    final slot = _headerSlot;
+                    // 页面头条带：不参与阶梯缩放（用户校准：标题恒定原尺寸，
+                    // 可读性优先），随内容自然滚走。固定槽高与几何模型永远
+                    // 一致，无需逐帧跟随。
                     return SizedBox(
-                      height: slot,
-                      child: Transform.scale(
-                        scale: hs,
-                        alignment: Alignment.topCenter,
-                        child: SizedBox(
-                          height: headerBand,
-                          child: Center(child: header),
-                        ),
-                      ),
+                      height: headerBand,
+                      child: Center(child: header),
                     );
                   }
                   final row = hasHeader ? i - 1 : i;
@@ -765,11 +718,12 @@ class SteppedTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = context.watchScale();
     // 文字层左右对称预留：预留量相等 → 文字中心严格落在胶囊中线上。
-    // 左侧要盖住前导区（44s 封面/40s 圆 + 12s 缝 = 56s），右侧对称
-    // 同宽（尾部 chevron 仅 22s，绰绰有余）——长标题在碰到图标前先
-    // 省略，且永不把重心带偏。
+    // 48s/侧（收窄校准：旧 56s 把主流表标题可用宽压到 58s，四字标题
+    // 17s×4=68s 必然省略）：左侧仍盖住前导区（40s 圆标贴 3s 起占 43s
+    // 余 5s；44s 封面占 47s 余 1s），右侧远大于 chevron 22s；四字标题
+    // 可用 74s 放得下，长标题先于图标省略、重心不偏。
     final textReserve = leading != null
-        ? 56.0 * s
+        ? 48.0 * s
         : (trailing != null ? 28.0 * s : 0.0);
     return SteppedPill(
       onTap: onTap,
