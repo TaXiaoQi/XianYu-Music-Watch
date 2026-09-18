@@ -149,8 +149,10 @@ class _LinkHomeState extends ConsumerState<LinkHome> {
         if (!didPop) {
           const MethodChannel('xianyu/system_nav')
               .invokeMethod('moveTaskToBack')
-              // 极端情况：通道失败也不能让返回彻底失效，退化为正常退出。
-              .catchError((_) => SystemNavigator.pop());
+              // 失败绝不退出：左滑根路由只应退后台驻留，若 moveToBackground
+              // 不可用就静默留在前台（此前 catchError 退化 SystemNavigator.pop
+              // 直接 finish，观感即「左滑退出应用」）。
+              .catchError((_) {});
         }
       },
       child: const LocalMusicHub(),
