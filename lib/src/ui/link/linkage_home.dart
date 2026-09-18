@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/app_mode.dart';
@@ -13,8 +12,8 @@ import 'link_page.dart';
 ///
 /// 低占用、常驻后台（手机播放即可实时推送）；最左「功能」页收纳唯一
 /// 入口「启动独立模式」：二次确认 → 写模式字段 → 原生杀掉重启进完整
-/// 独立服务。左滑返回 → moveTaskToBack 退后台驻留（重开秒回、联动会话
-/// 不断，与独立模式主页行为一致）。
+/// 独立服务。根路由返回（鸿蒙侧滑/安卓左缘条）→ 先翻回上一页，最左页
+/// 才退后台驻留（重开秒回、联动会话不断），见 WatchControllerPage。
 class LinkageHome extends ConsumerStatefulWidget {
   const LinkageHome({super.key});
 
@@ -74,22 +73,13 @@ class _LinkageHomeState extends ConsumerState<LinkageHome> {
 
   @override
   Widget build(BuildContext context) {
-    // 根路由左滑返回：无可弹页时退后台驻留（应用保持存活、重开秒回）。
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) {
-          const MethodChannel('xianyu/system_nav')
-              .invokeMethod('moveTaskToBack')
-              // 失败绝不退出：左滑根路由只应退后台驻留，若 moveToBackground
-              // 不可用就静默留在前台（此前 catchError 退化 SystemNavigator.pop
-              // 直接 finish，观感即「左滑退出应用」）。
-              .catchError((_) {});
-        }
-      },
-      child: WatchControllerPage(
-        frontBuilder: ({required isCurrent}) => _functionPage(isCurrent: isCurrent),
-      ),
+    // 根路由返回语义（翻页/退后台）由 WatchControllerPage 统一承接
+    // （isRootHome: true）：鸿蒙旧表侧滑返回被系统抢占时经 popRoute 到
+    // 那里的 PopScope，转成「非最左页先翻回上一页，最左页才退后台」，
+    // 修掉「往右滑直接退到表盘、功能页永远进不去」的问题。
+    return WatchControllerPage(
+      isRootHome: true,
+      frontBuilder: ({required isCurrent}) => _functionPage(isCurrent: isCurrent),
     );
   }
 }

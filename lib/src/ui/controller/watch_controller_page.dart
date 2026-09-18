@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../link/link_provider.dart';
@@ -23,12 +24,26 @@ import '../player/player_source.dart';
 /// 收纳「启动独立模式」等唯一功能），页面数扩为三页，初始落在播放页
 /// （1），左滑回到功能页。其余行为（封面背景、表冠门禁、圆点指示）
 /// 按页数自适应。
+///
+/// [isRootHome] 传 true（联动模式根路由主页）：装 PopScope 承接系统返回。
+/// 鸿蒙旧表 setGestureBackEnabled 不可用（API<13）时，侧滑返回手势仍被
+/// 系统整条抢走并提交为 back 事件（Index.onBackPress→popRoute），触摸横滑
+/// 翻页失效——这里把该事件转成语义化导航：非最左页先翻回上一页（补回被
+/// 抢走的「往右滑回功能区」），仅最左页才退后台驻留；推入的二级路由
+/// （独立模式控制页）不传，返回照常弹栈。
 class WatchControllerPage extends ConsumerStatefulWidget {
-  const WatchControllerPage({super.key, this.frontBuilder});
+  const WatchControllerPage({
+    super.key,
+    this.frontBuilder,
+    this.isRootHome = false,
+  });
 
   /// 最左功能页构造器：[isCurrent] 报告该页是否为 PageView 当前页，
   /// 供功能页的表冠门禁使用（非当前页时不响应表冠滚动）。
   final Widget Function({required bool Function() isCurrent})? frontBuilder;
+
+  /// 根路由主页语义（联动主页）：系统返回 = 先翻页、最左页才退后台。
+  final bool isRootHome;
 
   @override
   ConsumerState<WatchControllerPage> createState() =>
@@ -43,6 +58,10 @@ class _WatchControllerPageState extends ConsumerState<WatchControllerPage> {
 
   late final PageController _pageCtrl;
   late int _page;
+
+  /// 最近一次翻页时刻（触摸/程序翻页都会触发 onPageChanged）：用于识别
+  /// 「手势与触摸并存」机型上触摸刚翻完页、系统返回又随即提交的双重响应。
+  DateTime _lastPageChange = DateTime.fromMillisecondsSinceEpoch(0);
 
   /// 联动歌词解析缓存（lyricSongId → 行列表）。
   final Map<String, List<LyricLine>> _parsedLyrics = {};
@@ -95,7 +114,7 @@ class _WatchControllerPageState extends ConsumerState<WatchControllerPage> {
     final lyrics = _lyricsOf(link);
     final now = link.now;
 
-    return Scaffold(
+    final body = Scaffold(
       body: Stack(
         children: [
           // 全屏封面模糊背景（网易云手表版）：双页共享一层，横移时背景不动。
@@ -109,7 +128,10 @@ class _WatchControllerPageState extends ConsumerState<WatchControllerPage> {
           ),
           PageView(
             controller: _pageCtrl,
-            onPageChanged: (i) => setState(() => _page = i),
+            onPageChanged: (i) {
+              _lastPageChange = DateTime.now();
+              setState(() => _page = i);
+            },
             children: [
               if (_hasFront)
                 widget.frontBuilder!(isCurrent: () => _page == 0),
@@ -149,5 +171,43 @@ class _WatchControllerPageState extends ConsumerState<WatchControllerPage> {
         ],
       ),
     );
+
+    // 非根路由（独立模式推入的控制页）：不装 PopScope，返回照常弹栈。
+    if (!widget.isRootHome) return body;
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _handleRootBack();
+      },
+      child: body,
+    );
+  }
+
+  /// 根路由系统返回（鸿蒙侧滑手势经 Index.onBackPress→popRoute 到此；
+  /// 安卓版 _EdgeBackStrip 也经 maybePop 走同一路径）：非最左页先翻回
+  /// 上一页，仅最左页才退后台驻留——等价网易云手表「右滑回上一页，
+  /// 首页再右滑退表盘」。
+  void _handleRootBack() {
+    // 触摸横滑正在进行/刚完成翻页（手势与触摸并存机型）：本次返回已被
+    // 触摸横滑消化，忽略，防止「翻页后又立刻退后台」的双重响应。
+    final scrolling = _pageCtrl.hasClients &&
+        _pageCtrl.position.isScrollingNotifier.value;
+    final justPaged =
+        DateTime.now().difference(_lastPageChange) <
+            const Duration(milliseconds: 600);
+    if (scrolling || justPaged) return;
+    if (_page > 0) {
+      _pageCtrl.animateToPage(
+        _page - 1,
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOutCubic,
+      );
+      return;
+    }
+    // 最左页再返回：退后台驻留（应用保持存活、重开秒回、联动会话不断），
+    // 绝不退出——失败就静默留在前台，与安卓版根路由行为一致。
+    const MethodChannel('xianyu/system_nav')
+        .invokeMethod('moveTaskToBack')
+        .catchError((_) {});
   }
 }

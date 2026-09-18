@@ -1,7 +1,8 @@
 
 import { common, Want, wantAgent } from '@kit.AbilityKit';
 import { backgroundTaskManager } from '@kit.BackgroundTasksKit';
-import { display } from '@kit.ArkUI';
+import { display, window } from '@kit.ArkUI';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 import { FlutterAbility, FlutterEngine, MethodChannel } from '@ohos/flutter_ohos';
 import { GeneratedPluginRegistrant } from '../plugins/GeneratedPluginRegistrant';
 
@@ -10,6 +11,25 @@ export default class EntryAbility extends FlutterAbility {
   private keepAliveChannel: MethodChannel | null = null;
   private screenShapeChannel: MethodChannel | null = null;
   private keepAliveStarted = false;
+
+  // 禁用系统「侧滑返回」手势：本应用左缘横向滑动要交给 Flutter 自绘的
+  // _EdgeBackStrip（左缘返回条）与页面横滑翻页处理。鸿蒙系统级侧滑返回
+  // 会把手表从左缘起的横滑抢走，误判为返回 → 应用被滑出/退出；同时导致
+  // 「左边功能区」横向滑入永远无法触发。这里在主窗口上关闭系统返回手势，
+  // 让左缘滑动完全归 Flutter 管理（漏判时由 Dart 侧 PopScope→moveTaskToBack
+  // 兜底退后台驻留）。setGestureBackEnabled 需 API 13+，旧设备静默降级。
+  onWindowStageCreate(windowStage: window.WindowStage) {
+    super.onWindowStageCreate(windowStage)
+    try {
+      const win = windowStage.getMainWindowSync()
+      win.setGestureBackEnabled(false)
+        .then(() => hilog.info(0x0100, 'xianyu', 'GESTURE_BACK DISABLED (ok)'))
+        .catch((err: Error) => hilog.warn(0x0100, 'xianyu',
+          'setGestureBackEnabled failed: ' + (err as Error).message))
+    } catch (e) {
+      hilog.warn(0x0100, 'xianyu', 'disable gesture back failed: ' + JSON.stringify(e))
+    }
+  }
 
   configureFlutterEngine(flutterEngine: FlutterEngine) {
     super.configureFlutterEngine(flutterEngine)
@@ -28,6 +48,9 @@ export default class EntryAbility extends FlutterAbility {
     this.systemNavChannel.setMethodCallHandler({
       onMethodCall: (call, result) => {
         if (call.method === 'moveTaskToBack') {
+          // 归因标记：若 MoveUIAbilityToBackground 前有本行，说明背景化是
+          // Dart 侧 _EdgeBackStrip→moveTaskToBack 触发；否则为系统侧滑返回。
+          hilog.info(0x0100, 'xianyu', 'MOVE_TASK_TO_BACK CALLED (from Dart)')
           this.context.moveAbilityToBackground()
             .then(() => result.success(null))
             .catch(() => result.error('move_failed', 'moveAbilityToBackground failed', null))
