@@ -43,10 +43,12 @@ fn generate_nonce() -> String {
 }
 
 fn build_signed_headers(body: &str, api_secret: &str, timestamp: i64) -> SignedHeaders {
+    use hmac::Mac;
     let nonce = generate_nonce();
-    let sign_input = format!("{}{}{}{}", timestamp, nonce, body, api_secret);
-    let digest = md5::compute(sign_input.as_bytes());
-    let sign = format!("{:x}", digest);
+    let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(api_secret.as_bytes())
+        .expect("HMAC key");
+    mac.update(format!("{}{}{}", timestamp, nonce, body).as_bytes());
+    let sign = hex::encode(mac.finalize().into_bytes());
     SignedHeaders {
         timestamp: timestamp.to_string(),
         nonce,
