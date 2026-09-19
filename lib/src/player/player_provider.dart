@@ -314,7 +314,7 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
         _ref.read(settingsProvider).valueOrNull?.onlineQuality ?? '320k';
 
     ResolvedMediaUrl? resolved;
-    if (format == 'musicfree') {
+    if (isMfFormatValue(format)) {
       resolved = await engine.getMusicFreeUrl(
         source,
         musicInfo,
@@ -770,7 +770,7 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     final enabled = sources.where((s) => s.enabled).toList();
     final quality = settings?.onlineQuality ?? '320k';
 
-    if (songJson['format'] != 'musicfree') {
+    if (!isMfFormatValue(songJson['format'] as String?)) {
       final sourceKey = songJson['source'] as String? ?? '';
       final musicInfo = songJson['musicInfo'];
       if (sourceKey.isNotEmpty && musicInfo is Map && musicInfo.isNotEmpty) {

@@ -134,7 +134,7 @@ class DailyRecommendItem {
   }
 
   QueueItem toQueueItem(String quality) {
-    final isMf = pluginFormat == 'musicfree';
+    final isMf = isMfFormatValue(pluginFormat);
     final src = song['source']?.toString() ?? '';
     final mid = song['songmid']?.toString() ?? '';
     return QueueItem(
@@ -317,7 +317,7 @@ Future<List<PluginSearchResult>> _searchPlugin(
   PluginSource plugin,
   String keyword,
 ) async {
-  if (plugin.format == PluginFormat.musicfree) {
+  if (plugin.format.isMfCompatible) {
     return PluginCatalogService(engine, [
       plugin,
     ]).searchMusic(plugin, keyword, limit: _searchLimit);
@@ -635,7 +635,7 @@ class DailyRecommendNotifier extends AsyncNotifier<DailyRecommendState> {
       final ids = <String>[];
       final seen = <String>{};
       for (final it in items) {
-        if (it.pluginFormat != PluginFormat.musicfree.value) {
+        if (!isMfFormatValue(it.pluginFormat)) {
           continue;
         }
         if (!wyIds.contains(it.pluginId)) continue;

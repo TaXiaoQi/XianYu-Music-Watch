@@ -262,8 +262,10 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
           width: 44 * s,
           height: 44 * s,
           alignment: Alignment.center,
-          decoration: const BoxDecoration(
-            color: Color(0xFF4A90D9),
+          decoration: BoxDecoration(
+            color: src.format == PluginFormat.anime
+                ? const Color(0xFFA855F7)
+                : const Color(0xFF4A90D9),
             shape: BoxShape.circle,
           ),
           child: Text(

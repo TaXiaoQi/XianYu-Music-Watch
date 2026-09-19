@@ -9,6 +9,8 @@ import '../core/db_path.dart';
 import '../favorites/favorites_provider.dart';
 import '../plugin/plugin_provider.dart';
 import '../plugin/plugin_subscriptions.dart';
+import '../plugin/plugin_sync_crypto.dart';
+import '../plugin/plugin_user_vars.dart';
 import '../rust/api.dart' as rust;
 import 'playlist_store.dart';
 
@@ -350,6 +352,20 @@ class SyncNotifier extends StateNotifier<SyncState> {
         if (item['enabled'] == false && source.enabled) {
           await manager.toggleEnabled(source.id);
         }
+        // 用户变量解密恢复（与桌面/移动同步协议一致）
+        final encBlock = item['userVariablesEncrypted'];
+        if (encBlock is Map) {
+          final ciyuanxiId = _ciyuanxiId;
+          if (ciyuanxiId != null && ciyuanxiId.isNotEmpty) {
+            final values = PluginUserVarCrypto.decrypt(
+                ciyuanxiId, encBlock.cast<String, dynamic>());
+            if (values != null && values.isNotEmpty) {
+              await _ref
+                  .read(pluginUserVarValuesProvider.notifier)
+                  .save(source.id, values);
+            }
+          }
+        }
         installedNow.add(source.id);
       } catch (_) {}
     }
@@ -383,21 +399,32 @@ class SyncNotifier extends StateNotifier<SyncState> {
         final scriptPath = '$dir/plugins/${p.id}.js';
         final script = await rust.readPluginFile(path: scriptPath);
         if (script.trim().isEmpty) continue;
+        final plugin = <String, dynamic>{
+          'id': p.id,
+          'name': p.name,
+          'version': p.version,
+          'author': p.author,
+          'description': p.description,
+          'enabled': p.enabled,
+          'sources': p.sources,
+          'filePath': scriptPath,
+          'sourceUrl': p.sourceUrl,
+          'script': _encodeRevBase64(script),
+          'scriptEncoded': true,
+        };
+        // 用户变量加密上传（与桌面/移动同步协议一致）
+        final ciyuanxiId = _ciyuanxiId;
+        if (ciyuanxiId != null && ciyuanxiId.isNotEmpty) {
+          final userVars =
+              await _ref.read(pluginUserVarValuesProvider.notifier).valuesOf(p.id);
+          if (userVars.isNotEmpty) {
+            final block = PluginUserVarCrypto.encrypt(ciyuanxiId, userVars);
+            if (block != null) plugin['userVariablesEncrypted'] = block;
+          }
+        }
         await _action('plugin_sync_upload_one', {
           'user_id': _ciyuanxiId,
-          'plugin': {
-            'id': p.id,
-            'name': p.name,
-            'version': p.version,
-            'author': p.author,
-            'description': p.description,
-            'enabled': p.enabled,
-            'sources': p.sources,
-            'filePath': scriptPath,
-            'sourceUrl': p.sourceUrl,
-            'script': _encodeRevBase64(script),
-            'scriptEncoded': true,
-          },
+          'plugin': plugin,
           'is_first': first,
           'subscriptions': subs,
         });
@@ -427,11 +454,19 @@ class SyncNotifier extends StateNotifier<SyncState> {
           .where((s) => s.path.isNotEmpty && !deleted.contains(s.path))
           .toList();
       if (visible.isEmpty) continue;
+      final raw = pl['sourceRaw'];
       playlists.add(
         CloudPlaylist(
           cloudId: (pl['cloudId'] ?? pl['id'] ?? '').toString(),
           name: (pl['name'] ?? '未命名歌单').toString(),
           songs: visible,
+          sourcePluginId: (pl['sourcePluginId'] as String?)?.isNotEmpty == true
+              ? pl['sourcePluginId'] as String
+              : null,
+          sourceUrl: (pl['sourceUrl'] as String?)?.isNotEmpty == true
+              ? pl['sourceUrl'] as String
+              : null,
+          sourceRaw: raw is Map ? raw.cast<String, dynamic>() : null,
         ),
       );
     }

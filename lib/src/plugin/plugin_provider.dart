@@ -152,6 +152,7 @@ class PluginManager extends StateNotifier<PluginListState> {
     }
 
     final isLx = engine.isLxPluginScript(trimmed);
+    final isAnime = !isLx && engine.isAnimePluginScript(trimmed);
     final info = engine.parseLxScriptInfo(trimmed);
     final id = sha256.convert(bytes).toString();
 
@@ -178,7 +179,9 @@ class PluginManager extends StateNotifier<PluginListState> {
     final sources = _extractSources(isLx, metadata);
     final fallbackName = isLx
         ? (info['name'] ?? fileName ?? tr('未知插件'))
-        : (metadata['platform'] ?? fileName ?? tr('未知插件'));
+        : ((metadata['pluginName'] ?? metadata['platform']) ??
+            fileName ??
+            tr('未知插件'));
     final mAuthor = isLx
         ? (info['author'] ?? '')
         : (metadata['author']?.toString() ?? '');
@@ -193,7 +196,9 @@ class PluginManager extends StateNotifier<PluginListState> {
     final source = PluginSource(
       id: id,
       name: (nameOverride ?? fallbackName).toString(),
-      format: isLx ? PluginFormat.lx : PluginFormat.musicfree,
+      format: isLx
+          ? PluginFormat.lx
+          : (isAnime ? PluginFormat.anime : PluginFormat.musicfree),
       version: mVersion,
       author: mAuthor,
       description: mDesc,
@@ -492,6 +497,11 @@ class PluginManager extends StateNotifier<PluginListState> {
         return sources.keys.map((k) => k.toString()).toList();
       }
       return const [];
+    }
+    // anime 聚合插件优先 platforms 列表
+    final platforms = metadata['platforms'];
+    if (platforms is List && platforms.isNotEmpty) {
+      return platforms.map((e) => e.toString()).toList();
     }
     final platform = metadata['platform'];
     if (platform is String && platform.isNotEmpty) return [platform];
