@@ -55,7 +55,7 @@ class PageTitleHeader extends StatelessWidget {
 
 /// 圆屏阶梯列表（One UI 表盘同款观感，全部二级页与功能页统一适配）：
 /// 行为圆角胶囊卡片，一档一个条目——居中焦点行最大铺满中部，上下行
-/// 陡衰减缩小（1.0 → 相邻 ~0.78 → 隔行 ~0.62 → 快速降至 0.60 封底），
+/// 陡衰减缩小（1.0 → 相邻 ~0.73 → 隔行 ~0.59 → ~0.56 封底），
 /// 复刻 WearOS 原版梯形列表。
 ///
 /// 间距跟随条大小等比缩放（用户澄清，WearOS 原版观感）：远处行不仅条
@@ -105,7 +105,7 @@ class SteppedListView extends StatefulWidget {
 
 class _SteppedListViewState extends State<SteppedListView> {
   // 名义均匀档距 60*s：仅用于「距离→缩放」的归一化（焦点 1.0 →
-  // 相邻 ~0.78 → 隔行 ~0.62 → 快速降至 0.60 封底）与行高基准。注意它
+  // 相邻 ~0.73 → 隔行 ~0.59 → ~0.56 封底）与行高基准。注意它
   // 只是「虚拟档距」，真实行高在 _rowH 里额外乘 _rowSpacing 留呼吸缝。
   static const double _pitchBase = 60;
 
@@ -125,12 +125,14 @@ class _SteppedListViewState extends State<SteppedListView> {
   static const double _minScale = 0.55;
 
   /// 陡降幂（>1）与半高半径：Lorentzian 幂曲线 scale = min + (1-min)/
-  /// (1+(d/τ)^p)——近场高台、远场陡降，复刻 WearOS 原版梯形列表：焦点
-  /// 1.0 → 相邻 ~0.78 → 隔行 ~0.62 → 再外 ~0.58 → 缓趋 [_minScale]。
-  /// 纯指数衰减无法两头兼顾：τ 调大近场变大时远场跟着一起放大，观感
-  /// 变成整页放大而非中间突出（用户反馈校准）。
-  static const double _decayTau = 1.0;
-  static const double _decayPow = 2.5;
+  /// (1+(d/τ)^p)——近场高台、远场陡降，复刻系统设置原版梯形：收敛后
+  /// 焦点 1.0 → 相邻 ~0.73 → 隔行 ~0.59 → 再外 ~0.56 → 缓趋 [_minScale]。
+  /// τ=0.81/p=3.3 按 OverflowBox 修复后的真实渲染对照系统截图校准：
+  /// 修复前行被槽位钳制二次缩小（旧曲线观感偏陡的假象），修复后
+  /// 0.78/0.64 偏平，此组参数落回系统比例。纯指数衰减无法两头兼顾：
+  /// τ 调大近场变大时远场跟着一起放大，观感变成整页放大而非中间突出。
+  static const double _decayTau = 0.81;
+  static const double _decayPow = 3.3;
 
   /// build/LayoutBuilder 里确定的视口与顶部留白（供几何辅助方法读取）。
   double _viewportH = 0;
@@ -390,6 +392,10 @@ class _SteppedListViewState extends State<SteppedListView> {
         // 实际焦点行高（名义档距×间距系数），用虚拟档距会让首帧/短列表
         // 焦点行中心偏下 (1.1-1)/2×档距（用户反馈校准）。
         final viewportH = constraints.maxHeight;
+        // 行内水平留白（圆屏左右各 6% 屏径 / 方屏 3%）与行可用宽：
+        // OverflowBox 内容帧宽 = 行宽 − 两侧留白，保证胶囊铺满行可用宽。
+        final rowPad = (round ? 12.0 : 6.0) * s;
+        final rowW = math.max(0.0, constraints.maxWidth - 2 * rowPad);
         final endPad = ((viewportH - nomPitch * _rowSpacing) / 2)
             .clamp(0.0, double.infinity);
         // 顶部留白 = endPad 减完整表头条带（固定槽，不缩放）：首行停正中、
@@ -465,8 +471,8 @@ class _SteppedListViewState extends State<SteppedListView> {
                       // 行高随条大小等比收缩：焦点槽最大，远处槽变小，
                       // 空隙不再按标准档位留白。方屏全宽等大恒一。
                       final rowH = _rowH(scale);
-                      // 圆屏：Lorentzian 幂曲线——相邻 ~0.78、隔行
-                      // ~0.62，0.55 封底防远处行缩没；方屏恒 1。
+                      // 圆屏：Lorentzian 幂曲线——相邻 ~0.73、隔行
+                      // ~0.59，0.55 封底防远处行缩没；方屏恒 1。
                       // 透明度双层：随尺寸浅衰减（0.55+0.45·scale）+
                       // 边缘淡化——系统对快出视线的条在缩小之外还做
                       // 淡化（用户校准）：行中心距视口上/下缘一个档距
@@ -488,19 +494,34 @@ class _SteppedListViewState extends State<SteppedListView> {
                             // 圆屏左右各 6% 屏径：焦点行占 88% 屏宽
                             // （用户校准：比系统居中行再宽一点点），相邻
                             // 行随缩放进一步收窄；方屏只留 3% 呼吸边。
-                            padding: EdgeInsets.symmetric(
-                                horizontal: (round ? 12.0 : 6.0) * s),
+                            padding: EdgeInsets.symmetric(horizontal: rowPad),
                             child: Transform.scale(
                               scale: scale,
-                              // 前置锁定内容帧高 = 胶囊标准高，保证所有行
-                              // 缩放前等大（条高统一），缩放后 = 标准高×
-                              // scale，与 _rowH 几何一致 → 吸附/焦点判定准确。
-                              child: SizedBox(
-                                height: _capsuleH * s,
+                              // 前置锁定内容帧高 = 胶囊标准高（60s），缩放
+                              // 后 = 标准高×scale，与 _rowH 几何一致 → 吸附/
+                              // 焦点判定准确。OverflowBox 强制内容帧约束
+                              // （宽 = 行可用宽、高恒 60s）：远处行槽位
+                              // rowH = 60s×scale×1.06 在 scale<0.943 时小于
+                              // 60s，普通 SizedBox 会被槽位松约束钳到 rowH
+                              // ——内容帧缩水，绘制胶囊变
+                              // rowH×scale = 60s×1.06×scale²（二次缩小，
+                              // 远处行比模型小一圈、缝显大），且文字层
+                              // Column 按 60s 排版被钳后溢出（副标题行
+                              // scale<0.61 时溢出报错）。不能用
+                              // UnconstrainedBox：其内部
+                              // ConstraintsTransformBox 仍按未缩放布局尺寸
+                              // 对越界子级报溢出条纹（debug 假警报，缩放后
+                              // 胶囊 ≤ 槽位实际不越界）；OverflowBox 对越界
+                              // 子级不报溢出、不裁剪，是这里的正确原语。
+                              child: OverflowBox(
+                                alignment: Alignment.center,
+                                minWidth: rowW,
+                                maxWidth: rowW,
+                                minHeight: _capsuleH * s,
+                                maxHeight: _capsuleH * s,
                                 child: alpha >= 1
                                     ? child
-                                    : Opacity(
-                                        opacity: alpha, child: child),
+                                    : Opacity(opacity: alpha, child: child),
                               ),
                             ),
                           ),
