@@ -1,8 +1,3 @@
-//! 媒体 token 服务：把本地文件/防盗链直链包装成局域网可访问 URL（双端同步一份代码，勿在本端私自改动）。
-//!
-//! - `POST` 由 DlnaCore 直接调用（不走 HTTP），token → MediaPayload 注册表。
-//! - `GET /media/{token}`：支持 Range（本地文件 seek 直读；远程 reqwest 流式透传 + 上游防盗链头）。
-//! - `GET /media/cover/{token}`：带头取封面字节（模式对齐现有 CoverProxy）。
 
 use super::types::MediaPayload;
 use axum::body::Body;
@@ -21,7 +16,6 @@ pub struct RegistryEntry {
 
 pub struct MediaRegistry {
     inner: Mutex<HashMap<String, RegistryEntry>>,
-    /// remote 透传 / 封面拉取共用客户端（带超时配置，由 DlnaCore 注入）。
     client: reqwest::Client,
 }
 
@@ -33,7 +27,6 @@ impl MediaRegistry {
         }
     }
 
-    /// 注册载荷，返回随机 token。
     pub fn create(&self, payload: MediaPayload) -> String {
         let token = new_token();
         let now = now_ms();
@@ -44,9 +37,8 @@ impl MediaRegistry {
         token
     }
 
-    /// 原位更新 token 的上游（TTL 续投热替换，不换 token）。
     pub fn update(&self, token: &str, payload: MediaPayload) -> bool {
-        if let Some(entry) = self.inner.lock().unwrap().get_mut(token) {
+        if let Some(entry) = self.inner.lock().unwrap_or_else(|e| e.into_inner()).get_mut(token) {
             entry.payload = payload;
             entry.created_at_ms = now_ms();
             true
@@ -56,12 +48,11 @@ impl MediaRegistry {
     }
 
     pub fn get(&self, token: &str) -> Option<RegistryEntry> {
-        self.inner.lock().unwrap().get(token).cloned()
+        self.inner.lock().unwrap_or_else(|e| e.into_inner()).get(token).cloned()
     }
 
-    /// 按创建时间淘汰（上限 256 条，防长期运行膨胀）。
     pub fn evict_old(&self, keep: usize) {
-        let mut map = self.inner.lock().unwrap();
+        let mut map = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         if map.len() <= keep {
             return;
         }
@@ -76,7 +67,6 @@ impl MediaRegistry {
         }
     }
 
-    /// remote 分支使用的 HTTP 客户端克隆。
     pub fn client_for_remote(&self) -> reqwest::Client {
         self.client.clone()
     }
@@ -95,23 +85,20 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// 128bit 随机 hex token（uuid v4 去连字符 ×2 拼接，双端均有 uuid 依赖）。
 fn new_token() -> String {
     let a = uuid::Uuid::new_v4();
     let b = uuid::Uuid::new_v4();
     format!("{a:x}{b:x}").replace('-', "")
 }
 
-/// 解析 Range 头 → (start, 可选 end)。
 pub fn parse_range(range: Option<&str>, total: Option<u64>) -> Option<(u64, Option<u64>)> {
     let raw = range?;
     let spec = raw.strip_prefix("bytes=")?.trim();
     if spec.contains(',') {
-        return None; // 仅支持单区间
+        return None;
     }
     let (start_s, end_s) = spec.split_once('-')?;
     if start_s.is_empty() {
-        // bytes=-N 后缀区间
         let n: u64 = end_s.trim().parse().ok()?;
         let total = total?;
         let start = total.saturating_sub(n);
@@ -120,13 +107,13 @@ pub fn parse_range(range: Option<&str>, total: Option<u64>) -> Option<(u64, Opti
     let start: u64 = start_s.trim().parse().ok()?;
     if let Some(t) = total {
         if start >= t {
-            return None; // 起点越界 → 416
+            return None;
         }
     }
     let end = end_s.trim().parse::<u64>().ok();
     if let (Some(e), Some(_)) = (end, total) {
         if start > e {
-            return None; // 越界 → 416
+            return None;
         }
     }
     Some((start, end))
@@ -149,7 +136,6 @@ fn error_response(status: StatusCode, msg: &str) -> Response {
     simple_response(status, vec![("CONTENT-TYPE", "text/plain".into())], Body::from(msg.to_string()))
 }
 
-/// GET|HEAD /media/{token}
 pub async fn serve_media(
     State(registry): State<Arc<MediaRegistry>>,
     Path(token): Path<String>,
@@ -159,7 +145,7 @@ pub async fn serve_media(
     let Some(entry) = registry.get(&token) else {
         return error_response(StatusCode::NOT_FOUND, "token not found");
     };
-    let head_only = uri.path().is_empty(); // 由 httpd 层区分，此处仅占位
+    let head_only = uri.path().is_empty();
     let _ = head_only;
 
     match entry.payload {
@@ -171,7 +157,6 @@ pub async fn serve_media(
     }
 }
 
-/// GET /media/cover/{token}
 pub async fn serve_cover(
     State(registry): State<Arc<MediaRegistry>>,
     Path(token): Path<String>,
@@ -236,7 +221,6 @@ async fn serve_local_file(path: &str, headers: &HeaderMap) -> Response {
                 Body::empty(),
             );
         }
-        // 200 全量。
         let file = match tokio::fs::File::open(&path).await {
             Ok(f) => f,
             Err(e) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("open failed: {e}")),
@@ -291,7 +275,6 @@ async fn serve_remote(
             req = req.header(name, val);
         }
     }
-    // Range 透传给上游。
     if let Some(range) = client_headers.get("range") {
         req = req.header("RANGE", range.as_bytes());
     }
@@ -324,7 +307,6 @@ async fn serve_remote(
     } else if status.is_success() {
         StatusCode::OK
     } else {
-        // 上游 403/404/410 等：把失败透出给编排层救活逻辑。
         return error_response(
             StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY),
             "upstream rejected",

@@ -9,7 +9,6 @@ import 'plugin_engine.dart';
 import 'plugin_host_fallback.dart';
 import 'plugin_models.dart';
 
-/// 歌单/榜单条目（MusicFree 插件）。
 class MfSheetItem {
   final String id;
   final String title;
@@ -40,20 +39,21 @@ class MfSheetItem {
   String get subtitle {
     final parts = <String>[
       if (artist.isNotEmpty) artist,
-      if (trackCount != null && trackCount! > 0) tr('{n} 首', {'n': trackCount!}),
+      if (trackCount != null && trackCount! > 0)
+        tr('{n} 首', {'n': trackCount!}),
       if (playCount != null && playCount! > 0) _formatCount(playCount!),
     ];
     return parts.join(' · ');
   }
 
   static String _formatCount(int n) {
-    if (n >= 100000000) return tr('{n}亿', {'n': (n / 100000000).toStringAsFixed(1)});
+    if (n >= 100000000)
+      return tr('{n}亿', {'n': (n / 100000000).toStringAsFixed(1)});
     if (n >= 10000) return tr('{n}万', {'n': (n / 10000).toStringAsFixed(1)});
     return '$n';
   }
 }
 
-/// 歌手条目（MusicFree 插件）。
 class MfArtistItem {
   final String id;
   final String name;
@@ -72,7 +72,6 @@ class MfArtistItem {
   });
 }
 
-/// 专辑条目（MusicFree 插件）。
 class MfAlbumItem {
   final String id;
   final String name;
@@ -93,18 +92,16 @@ class MfAlbumItem {
   });
 }
 
-/// 插件目录服务：榜单 / 歌单 / 歌手 / 专辑（对齐桌面端 pluginEngine.ts 的 MF 协议）。
 class PluginCatalogService {
   final PluginEngine engine;
   final List<PluginSource> sources;
 
   PluginCatalogService(this.engine, this.sources);
 
-  /// 已启用的 MusicFree 插件。
-  List<PluginSource> get musicFreeSources =>
-      sources.where((s) => s.enabled && s.format == PluginFormat.musicfree).toList();
+  List<PluginSource> get musicFreeSources => sources
+      .where((s) => s.enabled && s.format == PluginFormat.musicfree)
+      .toList();
 
-  /// 插件可用方法（加载后元数据里的 _availableMethods）。
   Future<Set<String>> _availableMethods(PluginSource source) async {
     await engine.ensureLoaded(source);
     final meta = engine.metadataOf(source.id);
@@ -118,17 +115,18 @@ class PluginCatalogService {
 
   // ==================== 基础调用 ====================
 
-  Future<dynamic> _call(PluginSource source, String method,
-      List<dynamic> args, {
-        int timeoutMs = 30000,
-      }) async {
+  Future<dynamic> _call(
+    PluginSource source,
+    String method,
+    List<dynamic> args, {
+    int timeoutMs = 30000,
+  }) async {
     await engine.ensureLoaded(source);
     return engine.call(source.id, method, args, timeoutMs: timeoutMs);
   }
 
   // ==================== 榜单 ====================
 
-  /// 获取插件榜单列表（分类展平，对齐桌面 flattenTopListCategories）。
   Future<List<MfSheetItem>> getTopLists(PluginSource source) async {
     try {
       final result = await _call(source, 'getTopLists', []);
@@ -156,61 +154,39 @@ class PluginCatalogService {
     }
   }
 
-  /// 榜单详情曲目。
   Future<List<PluginSearchResult>> getTopListDetail(
-      PluginSource source, Map<String, dynamic> item, {int page = 1}) async {
-    final list = await _tryCallList(
-        source, 'getTopListDetail', [item, page]);
+    PluginSource source,
+    Map<String, dynamic> item, {
+    int page = 1,
+  }) async {
+    final list = await _tryCallList(source, 'getTopListDetail', [item, page]);
     return _maybeFillQqDurations(source, list);
   }
 
   // ==================== 歌单 ====================
 
-  /// 歌单详情曲目：getMusicSheetInfo → 歌单名搜索回退。
   Future<List<PluginSearchResult>> getMusicSheetInfo(
-      PluginSource source, Map<String, dynamic> item,
-      {int page = 1}) async {
-    // importMusicSheet 导入的收藏夹歌单：曲目已整单缓存，直接返回
-    // （对齐桌面 pluginCatalogDetails 的 _importedTracks 快径，免翻页）。
-    final imported = _importedTracksOf(item);
-    if (imported != null) {
-      if (page != 1) return const [];
-      return _maybeFillQqDurations(
-          source,
-          imported
-              .map((e) => mfItemToSearchResult(e, source))
-              .where((r) => r.name.isNotEmpty)
-              .toList());
-    }
-    final methods = await _availableMethods(source);
-    if (methods.contains('getMusicSheetInfo')) {
-      final list =
-          await _tryCallList(source, 'getMusicSheetInfo', [item, page]);
-      if (list.isNotEmpty) return _maybeFillQqDurations(source, list);
-    }
-    if (page == 1 && methods.contains('search')) {
-      final title = _stripHtml(item['title'] ?? item['name'] ?? '');
-      if (title.isNotEmpty) {
-        return _tryCallList(source, 'search', [title, 1, 'music']);
-      }
-    }
-    return const [];
+    PluginSource source,
+    Map<String, dynamic> item, {
+    int page = 1,
+  }) async {
+    final r = await getMusicSheetInfoWithEnd(source, item, page: page);
+    return r.songs;
   }
 
-  /// 歌单详情曲目 + 分页结束标志（isEnd）。
-  /// 与 getMusicSheetInfo 同逻辑，但保留 isEnd 供全量导入判断是否还有下一页，
-  /// 避免按返回数量猜页大小（如每页 20 首的歌单被误判为已结束）导致丢歌。
-  Future<({List<PluginSearchResult> songs, bool? isEnd})> getMusicSheetInfoWithEnd(
-      PluginSource source, Map<String, dynamic> item,
-      {int page = 1}) async {
-    // importMusicSheet 导入的收藏夹歌单快径（同上，对齐桌面）。
+  Future<({List<PluginSearchResult> songs, bool? isEnd})>
+  getMusicSheetInfoWithEnd(
+    PluginSource source,
+    Map<String, dynamic> item, {
+    int page = 1,
+  }) async {
     final imported = _importedTracksOf(item);
     if (imported != null) {
       final songs = page == 1
           ? imported
-              .map((e) => mfItemToSearchResult(e, source))
-              .where((r) => r.name.isNotEmpty)
-              .toList()
+                .map((e) => mfItemToSearchResult(e, source))
+                .where((r) => r.name.isNotEmpty)
+                .toList()
           : const <PluginSearchResult>[];
       return (songs: await _maybeFillQqDurations(source, songs), isEnd: true);
     }
@@ -241,31 +217,33 @@ class PluginCatalogService {
     return (songs: const <PluginSearchResult>[], isEnd: true);
   }
 
-  /// 提取歌单条目上缓存的整单导入曲目（importMusicSheet 写入 raw['_importedTracks']）。
   List<Map<String, dynamic>>? _importedTracksOf(Map<String, dynamic> item) {
     final raw = item['_importedTracks'];
     if (raw is List && raw.isNotEmpty) {
-      return raw.whereType<Map>().map((e) => e.cast<String, dynamic>()).toList();
+      return raw
+          .whereType<Map>()
+          .map((e) => e.cast<String, dynamic>())
+          .toList();
     }
     return null;
   }
 
-  /// 插件是否实现 importMusicSheet 整单导入。
   Future<bool> supportsSheetImport(PluginSource source) =>
       _availableMethods(source).then((m) => m.contains('importMusicSheet'));
 
-  /// 插件原生整单导入：importMusicSheet(urlLike)（收藏夹链接/ID 等，由插件解析）。
-  /// 返回原始条目（保留插件原始字段，供合成歌单 raw 缓存与详情页映射）。
   Future<List<Map<String, dynamic>>> _importSheetRaw(
-      PluginSource source, String urlLike) async {
+    PluginSource source,
+    String urlLike,
+  ) async {
     final methods = await _availableMethods(source);
     if (!methods.contains('importMusicSheet')) return const [];
     return _tryCallRawList(source, 'importMusicSheet', [urlLike]);
   }
 
-  /// 插件原生整单导入（映射为搜索结果，上限 2000，对齐桌面 pluginImportMusicSheet）。
   Future<List<PluginSearchResult>> importMusicSheet(
-      PluginSource source, String urlLike) async {
+    PluginSource source,
+    String urlLike,
+  ) async {
     final raw = await _importSheetRaw(source, urlLike);
     if (raw.isEmpty) return const [];
     final songs = raw
@@ -276,9 +254,10 @@ class PluginCatalogService {
     return _maybeFillQqDurations(source, songs);
   }
 
-  /// 插件原生单曲导入：importMusicItem(urlLike)，成功返回单曲搜索结果。
   Future<PluginSearchResult?> importMusicItem(
-      PluginSource source, String urlLike) async {
+    PluginSource source,
+    String urlLike,
+  ) async {
     final methods = await _availableMethods(source);
     if (!methods.contains('importMusicItem')) return null;
     final raw = await _tryCallRaw(source, 'importMusicItem', [urlLike]);
@@ -295,22 +274,25 @@ class PluginCatalogService {
     return r.name.isEmpty ? null : r;
   }
 
-  /// 歌单搜索：sheet → playlist → 专辑回退（专辑也按歌单索引，对齐桌面）；
-  /// 全部为空且插件实现 importMusicSheet 时，回退解析收藏夹链接/ID
-  /// （对齐桌面 pluginCatalogSearch 回退 1，合成收藏夹歌单条目）。
   Future<List<MfSheetItem>> searchSheets(
-      PluginSource source, String keyword) async {
+    PluginSource source,
+    String keyword,
+  ) async {
     for (final type in ['sheet', 'playlist', 'album']) {
       final list = await _tryCallRawList(source, 'search', [keyword, 1, type]);
       if (list.isEmpty) continue;
-      final sheets = list.map((m) {
-        if (type == 'album') m['_isAlbum'] = true;
-        return _toSheet(m, source);
-      }).where((s) => s.title.isNotEmpty).toList();
+      final sheets = list
+          .map((m) {
+            if (type == 'album') m['_isAlbum'] = true;
+            return _toSheet(m, source);
+          })
+          .where((s) => s.title.isNotEmpty)
+          .toList();
       if (sheets.isNotEmpty) return sheets;
     }
-    // 回退：importMusicSheet（用户输入收藏夹 URL/ID 时）。
-    final rawTracks = await _tryCallRawList(source, 'importMusicSheet', [keyword]);
+    final rawTracks = await _tryCallRawList(source, 'importMusicSheet', [
+      keyword,
+    ]);
     if (rawTracks.isNotEmpty) {
       final title = tr('{name}收藏夹', {'name': source.name});
       return [
@@ -321,12 +303,7 @@ class PluginCatalogService {
           trackCount: rawTracks.length,
           platform: source.name,
           pluginId: source.id,
-          raw: {
-            'id': keyword,
-            'title': title,
-            // 整单曲目缓存：详情页/导入走快径免翻页（对齐桌面 _importedTracks）。
-            '_importedTracks': rawTracks,
-          },
+          raw: {'id': keyword, 'title': title, '_importedTracks': rawTracks},
         ),
       ];
     }
@@ -335,27 +312,39 @@ class PluginCatalogService {
 
   // ==================== 歌手 ====================
 
-  /// 歌手搜索。
   Future<List<MfArtistItem>> searchArtists(
-      PluginSource source, String keyword) async {
-    final list = await _tryCallRawList(source, 'search', [keyword, 1, 'artist']);
+    PluginSource source,
+    String keyword,
+  ) async {
+    final list = await _tryCallRawList(source, 'search', [
+      keyword,
+      1,
+      'artist',
+    ]);
     return list
         .map((m) => _toArtist(m, source))
         .where((a) => a.name.isNotEmpty)
         .toList();
   }
 
-  /// 歌手作品（歌曲）。
   Future<List<PluginSearchResult>> getArtistWorks(
-      PluginSource source, Map<String, dynamic> item, {int page = 1}) async {
+    PluginSource source,
+    Map<String, dynamic> item, {
+    int page = 1,
+  }) async {
     final methods = await _availableMethods(source);
     if (methods.contains('getArtistWorks')) {
-      final list =
-          await _tryCallList(source, 'getArtistWorks', [item, page, 'music']);
+      final list = await _tryCallList(source, 'getArtistWorks', [
+        item,
+        page,
+        'music',
+      ]);
       if (list.isNotEmpty) return _maybeFillQqDurations(source, list);
     }
     if (page == 1 && methods.contains('search')) {
-      final name = _stripHtml(item['name'] ?? item['title'] ?? item['artist'] ?? '');
+      final name = _stripHtml(
+        item['name'] ?? item['title'] ?? item['artist'] ?? '',
+      );
       if (name.isNotEmpty) {
         return _tryCallList(source, 'search', [name, 1, 'music']);
       }
@@ -363,20 +352,26 @@ class PluginCatalogService {
     return const [];
   }
 
-  /// 歌手专辑。
   Future<List<MfAlbumItem>> getArtistAlbums(
-      PluginSource source, Map<String, dynamic> item, {int page = 1}) async {
-    final list =
-        await _tryCallRawList(source, 'getArtistWorks', [item, page, 'album']);
+    PluginSource source,
+    Map<String, dynamic> item, {
+    int page = 1,
+  }) async {
+    final list = await _tryCallRawList(source, 'getArtistWorks', [
+      item,
+      page,
+      'album',
+    ]);
     return list
         .map((m) => _toAlbum(m, source))
         .where((a) => a.name.isNotEmpty)
         .toList();
   }
 
-  /// 歌手简介。
   Future<String> getArtistInfo(
-      PluginSource source, Map<String, dynamic> item) async {
+    PluginSource source,
+    Map<String, dynamic> item,
+  ) async {
     try {
       final methods = await _availableMethods(source);
       if (!methods.contains('getArtistInfo')) return '';
@@ -390,12 +385,12 @@ class PluginCatalogService {
 
   // ==================== 专辑 ====================
 
-  /// 专辑搜索。
   Future<List<MfAlbumItem>> searchAlbums(
-      PluginSource source, String keyword) async {
+    PluginSource source,
+    String keyword,
+  ) async {
     var list = await _tryCallRawList(source, 'search', [keyword, 1, 'album']);
     var albums = list.map((m) => _toAlbum(m, source)).toList();
-    // QQ 插件专辑搜索兜底：无签名接口被累积风控返回空时，宿主签名接口代取。
     if (albums.isEmpty && isQqMusicPluginSource(source, _platformOf(source))) {
       final fb = await qqHostAlbumSearchFallback(source, keyword);
       albums = fb.map((m) => _toAlbum(m, source)).toList();
@@ -403,20 +398,23 @@ class PluginCatalogService {
     return albums.where((a) => a.name.isNotEmpty).toList();
   }
 
-  /// 专辑详情曲目：getAlbumInfo。
   Future<List<PluginSearchResult>> getAlbumSongs(
-      PluginSource source, Map<String, dynamic> item, {int page = 1}) async {
+    PluginSource source,
+    Map<String, dynamic> item, {
+    int page = 1,
+  }) async {
     final methods = await _availableMethods(source);
     if (!methods.contains('getAlbumInfo')) {
       if (methods.contains('search')) {
-        final title = _stripHtml(item['title'] ?? item['name'] ?? item['album'] ?? '');
+        final title = _stripHtml(
+          item['title'] ?? item['name'] ?? item['album'] ?? '',
+        );
         if (title.isNotEmpty) {
           return _tryCallList(source, 'search', [title, 1, 'music']);
         }
       }
       return const [];
     }
-    // QQ 插件读取大写 albumMID，缺失时补齐（对齐桌面）。
     final req = Map<String, dynamic>.from(item);
     final albumMid = req['albumMID'] ?? req['albummid'] ?? req['albumMid'];
     if (albumMid != null && req['albumMID'] == null) {
@@ -424,12 +422,13 @@ class PluginCatalogService {
     }
     final list = await _tryCallList(source, 'getAlbumInfo', [req, page]);
     if (list.isNotEmpty) return _maybeFillQqDurations(source, list);
-    // QQ 插件专辑曲目兜底：插件 getAlbumInfo 空结果时，宿主签名 AlbumSongList 代取。
     if (isQqMusicPluginSource(source, _platformOf(source))) {
       final mid = (albumMid ?? '').toString();
       if (mid.isNotEmpty) {
         return _maybeFillQqDurations(
-            source, await qqHostAlbumSongsFallback(source, mid, page: page));
+          source,
+          await qqHostAlbumSongsFallback(source, mid, page: page),
+        );
       }
     }
     return const [];
@@ -437,27 +436,28 @@ class PluginCatalogService {
 
   // ==================== 单曲搜索（MusicFree） ====================
 
-  /// 插件已加载元数据里的 platform 字段（判断 QQ 等平台用）。
   String? _platformOf(PluginSource source) {
     final meta = engine.metadataOf(source.id);
     final p = meta?['platform'];
     return p is String && p.isNotEmpty ? p : null;
   }
 
-  /// QQ 详情列表按需批量补时长（非 QQ 插件或已全有则不发起请求）。
   Future<List<PluginSearchResult>> _maybeFillQqDurations(
-          PluginSource source, List<PluginSearchResult> list) async =>
-      qqFillSongDurations(source, _platformOf(source), list);
+    PluginSource source,
+    List<PluginSearchResult> list,
+  ) async => qqFillSongDurations(source, _platformOf(source), list);
 
   Future<List<PluginSearchResult>> searchMusic(
-      PluginSource source, String keyword,
-      {int limit = 30}) async {
-    final results =
-        await _tryCallList(source, 'search', [keyword, 1, 'music'], limit: limit);
+    PluginSource source,
+    String keyword, {
+    int limit = 30,
+  }) async {
+    final results = await _tryCallList(source, 'search', [
+      keyword,
+      1,
+      'music',
+    ], limit: limit);
     if (results.isNotEmpty) return results;
-    // QQ 插件兜底：无签名搜索端点已被腾讯累积风控（2001 恒空列表），插件返回空
-    // 不代表真无结果。短间隔重试对累积风控无效，改由宿主用落雪签名 tx 接口代取，
-    // 播放仍走插件自身 getMediaSource，不受影响。
     if (isQqMusicPluginSource(source, _platformOf(source))) {
       return qqHostSearchFallback(source, keyword, limit: limit);
     }
@@ -466,7 +466,6 @@ class PluginCatalogService {
 
   // ==================== 队列项转换 ====================
 
-  /// MusicFree 歌曲搜索结果 → 播放队列项（format: musicfree 走 getMusicUrl）。
   static QueueItem toQueueItem(PluginSource source, PluginSearchResult r) {
     final songJson = jsonEncode({
       'pluginId': source.id,
@@ -478,7 +477,7 @@ class PluginCatalogService {
       title: r.name,
       artist: r.singer,
       album: r.albumName,
-      durationMs: _parseIntervalMs(r.interval),
+      durationMs: parseIntervalMs(r.interval),
       coverUrl: r.img,
       onlineSongJson: songJson,
       onlineQuality: '320k',
@@ -488,8 +487,11 @@ class PluginCatalogService {
   // ==================== 内部工具 ====================
 
   Future<List<PluginSearchResult>> _tryCallList(
-      PluginSource source, String method, List<dynamic> args,
-      {int limit = 100}) async {
+    PluginSource source,
+    String method,
+    List<dynamic> args, {
+    int limit = 100,
+  }) async {
     final raw = await _tryCallRawList(source, method, args);
     final mapped = raw
         .map((e) => mfItemToSearchResult(e, source))
@@ -498,9 +500,11 @@ class PluginCatalogService {
     return mapped.length > limit ? mapped.sublist(0, limit) : mapped;
   }
 
-  /// 调用插件方法并返回原始结果（不提取列表），供需要 isEnd 等标志的场景使用。
   Future<dynamic> _tryCallRaw(
-      PluginSource source, String method, List<dynamic> args) async {
+    PluginSource source,
+    String method,
+    List<dynamic> args,
+  ) async {
     try {
       return await _call(source, method, args);
     } catch (_) {
@@ -508,9 +512,11 @@ class PluginCatalogService {
     }
   }
 
-  /// 调用插件方法并取原始条目列表（不转搜索结果）。
   Future<List<Map<String, dynamic>>> _tryCallRawList(
-      PluginSource source, String method, List<dynamic> args) async {
+    PluginSource source,
+    String method,
+    List<dynamic> args,
+  ) async {
     try {
       final result = await _call(source, method, args);
       return extractMfResultList(result);
@@ -519,17 +525,24 @@ class PluginCatalogService {
     }
   }
 
-  MfSheetItem _toSheet(Map<String, dynamic> m, PluginSource source,
-      {dynamic categoryTitle}) {
+  MfSheetItem _toSheet(
+    Map<String, dynamic> m,
+    PluginSource source, {
+    dynamic categoryTitle,
+  }) {
     final id = (m['id'] ?? m['albumId'] ?? m['songId'] ?? m['musicId'] ?? '')
         .toString();
     return MfSheetItem(
       id: id,
       title: _stripHtml(m['title'] ?? m['name'] ?? m['album'] ?? ''),
-      artist: _stripHtml(categoryTitle ?? m['artist'] ?? m['author'] ?? m['singer'] ?? ''),
+      artist: _stripHtml(
+        categoryTitle ?? m['artist'] ?? m['author'] ?? m['singer'] ?? '',
+      ),
       coverUrl: _extractCover(m),
       playCount: _toInt(m['playCount'] ?? m['playcount'] ?? m['play_count']),
-      trackCount: _toInt(m['trackCount'] ?? m['trackcount'] ?? m['track_count']),
+      trackCount: _toInt(
+        m['trackCount'] ?? m['trackcount'] ?? m['track_count'],
+      ),
       platform: source.name,
       pluginId: source.id,
       isTopList: m['_isTopList'] == true,
@@ -577,7 +590,6 @@ int? _toInt(dynamic v) {
   return null;
 }
 
-/// 从插件返回结果中提取 isEnd（分页结束标志），兼容 isEnd/is_end 及嵌套一层。
 bool? extractMfIsEnd(dynamic result) {
   if (result is! Map) return null;
   final isEnd = result['isEnd'];
@@ -595,16 +607,31 @@ bool? extractMfIsEnd(dynamic result) {
   return null;
 }
 
-/// MusicFree 返回结果 → 歌曲列表（兼容 data/musicList/isEnd 等结构，对齐桌面 extractResultList）。
 List<Map<String, dynamic>> extractMfResultList(dynamic result) {
   if (result is List) {
-    return result.whereType<Map>().map((e) => e.cast<String, dynamic>()).toList();
+    return result
+        .whereType<Map>()
+        .map((e) => e.cast<String, dynamic>())
+        .toList();
   }
   if (result is! Map) return const [];
   const fields = [
-    'musicList', 'musiclist', 'songList', 'songlist', 'song_list',
-    'songs', 'tracks', 'dataList', 'list', 'items', 'data', 'resData',
-    'sheetList', 'sheetlist', 'playlists', 'playlist',
+    'musicList',
+    'musiclist',
+    'songList',
+    'songlist',
+    'song_list',
+    'songs',
+    'tracks',
+    'dataList',
+    'list',
+    'items',
+    'data',
+    'resData',
+    'sheetList',
+    'sheetlist',
+    'playlists',
+    'playlist',
   ];
   for (final f in fields) {
     final v = result[f];
@@ -622,7 +649,6 @@ List<Map<String, dynamic>> extractMfResultList(dynamic result) {
   return const [];
 }
 
-/// 提取歌手文本（字符串 / 对象数组，对齐桌面 extractArtist）。
 String _extractArtistText(Map<String, dynamic> item) {
   final artist = item['artist'];
   if (artist is String) return _stripHtml(artist);
@@ -640,7 +666,6 @@ String _extractArtistText(Map<String, dynamic> item) {
   return '';
 }
 
-/// 提取专辑名。
 String _extractAlbumText(Map<String, dynamic> item) {
   final album = item['album'];
   if (album is String) return _stripHtml(album);
@@ -655,7 +680,6 @@ String _extractAlbumText(Map<String, dynamic> item) {
   return '';
 }
 
-/// 提取专辑 ID（网易云 MF 曲目常为 `al.id` / `album.id`，供宿主 lx_cover 专辑接口补封面）。
 String? _extractAlbumId(Map<String, dynamic> item) {
   for (final key in ['albumId', 'album_id', 'al', 'album']) {
     final v = item[key];
@@ -673,18 +697,17 @@ String? _extractAlbumId(Map<String, dynamic> item) {
   return null;
 }
 
-/// 网易云 picId 加密路径段（与官方 CDN 路径一致，对齐桌面 encryptNeteasePicId）。
 String _encryptNeteasePicId(String id) {
   const magic = '3go8&\$8*3*3h0k(2)2';
   final m = magic.codeUnits;
   final xored = List<int>.generate(
-      id.length, (i) => id.codeUnitAt(i) ^ m[i % m.length]);
+    id.length,
+    (i) => id.codeUnitAt(i) ^ m[i % m.length],
+  );
   final digest = md5.convert(xored);
   return base64.encode(digest.bytes).replaceAll('/', '_').replaceAll('+', '-');
 }
 
-/// 由 picId 生成网易云封面 CDN URL。
-/// picId 常超过安全整数范围（JSON 解析丢精度）：只信纯数字字符串或 <2^53 整数。
 String? _neteaseCoverUrlFromPicId(dynamic picId) {
   String? id;
   if (picId is String) {
@@ -697,14 +720,17 @@ String? _neteaseCoverUrlFromPicId(dynamic picId) {
   return 'https://p1.music.126.net/${_encryptNeteasePicId(id)}/$id.jpg';
 }
 
-/// 从节点上尽力提取网易云 picId（优先 *_str 字符串字段，防 number 精度丢失）。
 String? _neteaseCoverUrl(Map<String, dynamic> node) {
   final al = node['al'] is Map ? node['al'] as Map : null;
   final album = node['album'] is Map ? node['album'] as Map : null;
   final candidates = <dynamic>[
     if (al != null) ...[al['picId_str'], al['pic_str'], al['picId'], al['pic']],
-    if (album != null)
-      ...[album['picId_str'], album['pic_str'], album['picId'], album['pic']],
+    if (album != null) ...[
+      album['picId_str'],
+      album['pic_str'],
+      album['picId'],
+      album['pic'],
+    ],
     node['picId_str'],
     node['pic_str'],
     node['picId'],
@@ -717,11 +743,6 @@ String? _neteaseCoverUrl(Map<String, dynamic> node) {
   return null;
 }
 
-/// 酷我封面 CDN 域名统一改写到 img3.kuwo.cn（对齐桌面 normalizeKuwoCoverUrl）。
-/// 需改写的：imgN.kwcdn（img1.kwcdn 证书异常，本插件 getPicByRid 即返回该域名）、
-/// img4（第三方插件 artworkShort2Long 产物，防盗链直连失败）、imgN.sycdn（证书异常）等；
-/// img3.kuwo.cn 证书有效、可直连渲染，自身不会被二次改写。
-/// 例外：zimg.kuwo.cn 的 /bang/... 路径仅存在于 zimg，img3 无对应路径（404），保持原样直连。
 String _normalizeKuwoCoverUrl(String url) {
   var out = url.trim().replaceFirst(RegExp(r'^http://'), 'https://');
   if (RegExp(r'^https://zimg\.kuwo\.cn/', caseSensitive: false).hasMatch(out)) {
@@ -733,19 +754,14 @@ String _normalizeKuwoCoverUrl(String url) {
   );
 }
 
-/// 酷我搜索结果常见只给封面相对短路径（如 web_albumpic_short: `120/s3s94/93/xxx.jpg`），
-/// 拼成可用 HTTPS 封面（对齐桌面 buildKuwoAlbumCoverUrl，产物域名即 img3.kuwo.cn）；
-/// 仍在直连域内，需经代理才可取回。
 String? _buildKuwoShortCover(dynamic shortPath) {
   if (shortPath is! String || shortPath.trim().isEmpty) return null;
   var short = shortPath.trim().replaceFirst(RegExp(r'^/+'), '');
   if (short.isEmpty || !short.contains('/')) return null;
-  // 把开头的尺寸段换成目标尺寸（120/xxx → 500/xxx）
   short = short.replaceFirstMapped(RegExp(r'^\d+/'), (m) => '500/');
   return 'https://img3.kuwo.cn/star/albumcover/$short';
 }
 
-/// 是否可作为封面 URL：绝对 http(s) 或协议相对 `//`（酷我等源常返回 `//img4.kuwo.cn/...`）。
 bool _looksLikeCoverUrl(dynamic v) {
   if (v is! String) return false;
   final s = v.trim();
@@ -753,17 +769,26 @@ bool _looksLikeCoverUrl(dynamic v) {
 }
 
 String? _extractCoverFromNode(Map<String, dynamic> node) {
-  // 对齐桌面端 extractCoverFromNode：除 node 自身字段外，同时检查
-  // node.rawData / node.raw 里的同名字段（baka 等插件把封面藏在 raw 层）。
-  final raw = (node['rawData'] is Map
+  final raw =
+      (node['rawData'] is Map
           ? node['rawData'] as Map
           : node['raw'] is Map
-              ? node['raw'] as Map
-              : null) ??
+          ? node['raw'] as Map
+          : null) ??
       node;
   final direct = [
-    'artwork', 'cover', 'coverImg', 'coverUrl', 'cover_url', 'pic',
-    'picurl', 'img', 'imgurl', 'imgUrl', 'albumPic', 'picture',
+    'artwork',
+    'cover',
+    'coverImg',
+    'coverUrl',
+    'cover_url',
+    'pic',
+    'picurl',
+    'img',
+    'imgurl',
+    'imgUrl',
+    'albumPic',
+    'picture',
   ];
   for (final k in direct) {
     final v = node[k];
@@ -771,16 +796,17 @@ String? _extractCoverFromNode(Map<String, dynamic> node) {
     final rv = raw[k];
     if (_looksLikeCoverUrl(rv)) return rv;
   }
-  // 酷我搜索常只给封面相对短路径（web_albumpic_short 等），对齐桌面 kwSearchCover。
   const kwShortKeys = [
-    'web_albumpic_short', 'web_album_pic', 'album_pic',
-    'albumpic_short', 'albumpic',
+    'web_albumpic_short',
+    'web_album_pic',
+    'album_pic',
+    'albumpic_short',
+    'albumpic',
   ];
   for (final k in kwShortKeys) {
     final built = _buildKuwoShortCover(node[k]) ?? _buildKuwoShortCover(raw[k]);
     if (built != null) return built;
   }
-  // 嵌套 al / album 里的 picUrl / blurPicUrl（node 与 raw 都检查，对齐桌面）。
   for (final key in ['al', 'album']) {
     for (final src in [node[key], raw[key]]) {
       if (src is! Map) continue;
@@ -790,15 +816,12 @@ String? _extractCoverFromNode(Map<String, dynamic> node) {
       }
     }
   }
-  // 顶部 coverImgUrl / picUrl。
   for (final k in ['picUrl', 'coverImgUrl']) {
     final v = node[k];
     if (_looksLikeCoverUrl(v)) return v;
     final rv = raw[k];
     if (_looksLikeCoverUrl(rv)) return rv;
   }
-  // 网易云 weapi/search 常只给 picId 不给 picUrl：直接加密拼 CDN 兜底，
-  // 避免逐条再打 getMusicInfo（对齐桌面 extractCoverUrl）。
   final ne = _neteaseCoverUrl(node);
   if (ne != null) return ne;
   if (raw != node) {
@@ -808,7 +831,6 @@ String? _extractCoverFromNode(Map<String, dynamic> node) {
   return null;
 }
 
-/// 提取封面（对齐桌面 extractCoverUrl：直接字段 + 嵌套一层 + 网易云 picId 兜底）。
 String? _extractCover(Map<String, dynamic> item) {
   const nestedKeys = ['song', 'data', 'music', 'musicInfo', 'detail'];
   var url = _extractCoverFromNode(item);
@@ -830,6 +852,10 @@ String? _extractCover(Map<String, dynamic> item) {
     }
   }
   if (url == null) return null;
+  return _normalizeCoverUrl(url);
+}
+
+String _normalizeCoverUrl(String url) {
   var out = url;
   if (out.startsWith('//')) out = 'https:$out';
   if (out.startsWith('http://')) out = out.replaceFirst('http://', 'https://');
@@ -837,17 +863,22 @@ String? _extractCover(Map<String, dynamic> item) {
   return out;
 }
 
-/// 解析统一歌曲条目（[PluginSearchResult.toJson]、LX snake_case、MusicFree raw）
-/// 的可显示封面 URL，复用 [PluginCatalogService] 的完整提取逻辑（桌面端
-/// `extractCoverUrl`）：直接字段 + 嵌套 + 酷我域名归一化 + 短路径 + 网易云 picId 兜底。
-/// 无可用封面返回 null。
 String? resolveSongCoverUrl(Map<String, dynamic> item) => _extractCover(item);
 
-/// 提取歌手头像。
 String? _extractAvatar(Map<String, dynamic> item) {
   const candidates = [
-    'avatarUrl', 'avatar', 'avatar_url', 'picUrl', 'pic_url', 'pic',
-    'img1v1Url', 'headUrl', 'face', 'artistPic', 'coverUrl', 'img',
+    'avatarUrl',
+    'avatar',
+    'avatar_url',
+    'picUrl',
+    'pic_url',
+    'pic',
+    'img1v1Url',
+    'headUrl',
+    'face',
+    'artistPic',
+    'coverUrl',
+    'img',
   ];
   for (final k in candidates) {
     final v = item[k];
@@ -856,11 +887,17 @@ String? _extractAvatar(Map<String, dynamic> item) {
   return _extractCover(item);
 }
 
-/// 提取简介文本。
 String _extractDescription(Map<String, dynamic> raw) {
   const candidates = [
-    'artistDesc', 'artistIntro', 'briefDesc', 'intro', 'desc',
-    'description', 'profile', 'bio', 'biography',
+    'artistDesc',
+    'artistIntro',
+    'briefDesc',
+    'intro',
+    'desc',
+    'description',
+    'profile',
+    'bio',
+    'biography',
   ];
   for (final k in candidates) {
     final v = raw[k];
@@ -873,7 +910,6 @@ String _extractDescription(Map<String, dynamic> raw) {
   return '';
 }
 
-/// 解析时长（ms/s 启发式：≥60000 视为毫秒，对齐桌面 parseDuration）。
 int _parseDurationValue(dynamic v) {
   if (v == null) return 0;
   if (v is num) {
@@ -897,11 +933,18 @@ int _parseDurationValue(dynamic v) {
   return 0;
 }
 
-/// 提取条目时长（毫秒）。
 int extractMfDurationMs(Map<String, dynamic> item) {
   const keys = [
-    'duration', 'durationMs', 'interval', 'dt', 'time', 'length', 'dur',
-    'len', 'timelength', 'songTime',
+    'duration',
+    'durationMs',
+    'interval',
+    'dt',
+    'time',
+    'length',
+    'dur',
+    'len',
+    'timelength',
+    'songTime',
   ];
   for (final k in keys) {
     final ms = _parseDurationValue(item[k]);
@@ -919,14 +962,15 @@ int extractMfDurationMs(Map<String, dynamic> item) {
   return 0;
 }
 
-/// MusicFree 条目 → 统一搜索结果（对齐桌面 toPluginSearchResult）。
 PluginSearchResult mfItemToSearchResult(
-    Map<String, dynamic> item, PluginSource source) {
+  Map<String, dynamic> item,
+  PluginSource source,
+) {
   final id = (item['id'] ?? item['songId'] ?? item['musicId'] ?? '').toString();
   final durationMs = extractMfDurationMs(item);
   final interval = durationMs > 0
       ? '${(durationMs ~/ 60000).toString().padLeft(2, '0')}:'
-          '${((durationMs ~/ 1000) % 60).toString().padLeft(2, '0')}'
+            '${((durationMs ~/ 1000) % 60).toString().padLeft(2, '0')}'
       : '';
   return PluginSearchResult(
     name: _stripHtml(item['title'] ?? item['name'] ?? item['songname'] ?? ''),
@@ -934,7 +978,9 @@ PluginSearchResult mfItemToSearchResult(
     albumName: _extractAlbumText(item),
     albumId: _extractAlbumId(item),
     songmid: id,
-    source: item['platform'] is String ? item['platform'] as String : source.name,
+    source: item['platform'] is String
+        ? item['platform'] as String
+        : source.name,
     interval: interval,
     img: _extractCover(item),
     songId: item['id'],
@@ -942,15 +988,16 @@ PluginSearchResult mfItemToSearchResult(
   );
 }
 
-/// "mm:ss" → 毫秒。
-int _parseIntervalMs(String interval) {
-  final m = RegExp(r'^(\d+):(\d+)$').firstMatch(interval.trim());
-  if (m == null) return 0;
-  return (int.parse(m.group(1)!) * 60 + int.parse(m.group(2)!)) * 1000;
+int parseIntervalMs(String interval) {
+  final parts = interval.trim().split(':');
+  if (parts.length == 2) {
+    final m = int.tryParse(parts[0]);
+    final s = int.tryParse(parts[1]);
+    if (m != null && s != null) return (m * 60 + s) * 1000;
+  }
+  return 0;
 }
 
-/// MF 插件 → LX 平台码（kw/kg/tx/wy/mg），供宿主 lx_cover 接口补封面。
-/// 对齐桌面 backfillMfTrackMeta 的 isKuwo/isKugou/isQQ/isNetease 判定。
 String? lxPlatformCodeOf(PluginSource source) {
   final srcs = source.sources.map((s) => s.trim().toLowerCase()).toSet();
   final name = source.name.toLowerCase();
@@ -975,57 +1022,49 @@ String? lxPlatformCodeOf(PluginSource source) {
   return null;
 }
 
-/// 解析 Rust getLxCover 返回的 JSON `Option<String>`（Some 时带引号，None 为 "null"）。
 String? _decodeLxCoverResult(String raw) {
   if (raw.isEmpty || raw == 'null') return null;
   try {
     final v = jsonDecode(raw);
     if (v is String && v.isNotEmpty) return v;
-  } catch (_) {
-    // 非 JSON 文本（极端情况下 Rust 直接回明文 http 链接）。
-  }
+  } catch (_) {}
   if (raw.startsWith('http')) return raw;
   return null;
 }
 
-/// 用宿主 lx_cover 接口为单曲补封面（对齐桌面 lxGetPic）。
-/// MF 榜单/歌单/歌手/专辑曲目常不带封面字段，按插件平台异步补齐；
-/// 返回归一化后的 HTTPS 封面 URL；平台未知/无封面/失败返回 null。
 Future<String?> fetchLxCoverForSong(
-    PluginSource source, PluginSearchResult r) async {
-  // 单曲自带平台码更精确（多源 LX 插件按歌区分音源）；未知时回退按插件判定。
+  PluginSource source,
+  PluginSearchResult r,
+) async {
   var platform = r.source.trim().toLowerCase();
   if (!const {'kw', 'kg', 'tx', 'wy', 'mg'}.contains(platform)) {
     platform = lxPlatformCodeOf(source) ?? '';
   }
   if (platform.isEmpty || r.songmid.isEmpty) return null;
-  // 酷我 rid 常带 MUSIC_ 前缀，对齐桌面 fetchKwTrackMetaByIds 去除。
-  final rid =
-      r.songmid.replaceFirst(RegExp(r'^MUSIC_', caseSensitive: false), '');
+  final rid = r.songmid.replaceFirst(
+    RegExp(r'^MUSIC_', caseSensitive: false),
+    '',
+  );
   if (rid.isEmpty) return null;
   try {
-    final raw = await getLxCover(songInfoJson: jsonEncode({
-      'songmid': rid,
-      'source': platform,
-      'name': r.name,
-      'singer': r.singer,
-      'albumName': r.albumName,
-      'albumId': r.albumId,
-      'albumMid': r.albumMid,
-      'hash': r.hash,
-      'strMediaMid': r.strMediaMid,
-      'songId': r.songId,
-      '_types': r.lxTypes,
-    }));
+    final raw = await getLxCover(
+      songInfoJson: jsonEncode({
+        'songmid': rid,
+        'source': platform,
+        'name': r.name,
+        'singer': r.singer,
+        'albumName': r.albumName,
+        'albumId': r.albumId,
+        'albumMid': r.albumMid,
+        'hash': r.hash,
+        'strMediaMid': r.strMediaMid,
+        'songId': r.songId,
+        '_types': r.lxTypes,
+      }),
+    );
     final cover = _decodeLxCoverResult(raw);
     if (cover == null || cover.isEmpty) return null;
-    var out = cover;
-    if (out.startsWith('//')) out = 'https:$out';
-    if (out.startsWith('http://')) {
-      out = out.replaceFirst('http://', 'https://');
-    }
-    if (out.contains('kuwo.cn')) out = _normalizeKuwoCoverUrl(out);
-    return out;
+    return _normalizeCoverUrl(cover);
   } catch (_) {
     return null;
   }

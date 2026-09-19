@@ -1,17 +1,3 @@
-//! DSD 原生 DoP（DSD over PCM）直出。
-//!
-//! 读未压缩 DSD 的 1-bit DSD 原生流，按 DoP 1.0 打包成 24-bit PCM 帧输出到
-//! 支持 DoP 的 DSD-DAC。DoP 是位真输出：走 Android AAudio 独占、绕过 f32/音量/EQ 链路。
-//!
-//! 支持两种 DSD 容器格式：
-//! - DSF（DSD Stream File）：小端、block 布局（ch0[0..bs], ch1[0..bs], ...）
-//! - DFF（DSDIFF）：大端 IFF、字节交错布局（ch0_byte0, ch1_byte0, ch0_byte1, ...）
-//!
-//! DoP 1.0 约定：每个通道每帧承载 8 个 DSD bit（1 字节）。
-//! - DSD64(2.8224M)   → 352.8 kHz
-//! - DSD128(5.6448M)  → 705.6 kHz
-//! - DSD256(11.2896M) → 1.4112 MHz
-//! 24-bit 容器中：低字节 = DSD 数据字节，中字节 = 0，高字节 = 标记 0x05/0xFA 交替。
 
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
@@ -19,7 +5,6 @@ use std::io::{BufReader, Read, Seek, SeekFrom};
 pub const DOP_MARKER_LOW: u8 = 0x05;
 pub const DOP_MARKER_HIGH: u8 = 0xFA;
 
-/// DFF 内部缓冲帧数（DFF 无 block 概念，按固定帧数分批读取）
 const DFF_BUFFER_FRAMES: usize = 4096;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -31,11 +16,8 @@ pub enum DsdFormat {
 #[derive(Debug, Clone, Copy)]
 pub struct DsdInfo {
     pub channels: u16,
-    /// DSD 原生采样率，如 DSD64 = 2_822_400 Hz。
     pub dsd_rate: u32,
-    /// DSF block 大小；DFF 无 block 概念，此字段为 0。
     pub block_size: u32,
-    /// DSF 每声道 DSD 采样数；DFF 此字段为 0（由 data_size 反推）。
     pub sample_count: u64,
     pub data_offset: u64,
     pub data_size: u64,
@@ -44,7 +26,6 @@ pub struct DsdInfo {
 }
 
 impl DsdInfo {
-    /// 时长（秒）。DSF 用 sample_count / dsd_rate，DFF 用帧数 / dsd_rate。
     pub fn duration_seconds(&self) -> u32 {
         let frames = if self.format == DsdFormat::Dsf {
             self.sample_count
@@ -61,7 +42,6 @@ impl DsdInfo {
     }
 }
 
-/// DSD 率 → DoP PCM 采样率（每个通道每帧 8 个 DSD bit）。
 pub fn dop_pcm_rate(dsd_rate: u32) -> Option<u32> {
     if dsd_rate == 0 || dsd_rate % 8 != 0 {
         return None;
@@ -85,14 +65,6 @@ fn read_u64_be(buf: &[u8]) -> u64 {
     u64::from_be_bytes(buf[..8].try_into().unwrap())
 }
 
-/// 解析 DSF 头。DSF 顶层结构：
-/// - `DSD `(4) + chunk_size(8) + file_size(8) + metadata_offset(8) = 28 字节 DSD chunk
-/// - `fmt `(12 头 + 52 负载) 子块（真实文件通常紧跟 DSD chunk 之后）
-/// - `data` 子块（12 头 + 实际 DSD 数据，data 区前 8 字节为数据字节数）
-///
-/// fmt 负载（52 字节，@fmt+12 起点）各字段偏移：
-/// 0:format_version  4:format_id  8:channel_type  12:channel_num
-/// 16:sampling_freq  20:bits_per_sample  24:sample_count(u64)  32:block_size(u64)  40:reserved
 pub fn parse_dsf_info(path: &str) -> Result<DsdInfo, String> {
     let mut file = File::open(path).map_err(|e| e.to_string())?;
 
@@ -102,12 +74,9 @@ pub fn parse_dsf_info(path: &str) -> Result<DsdInfo, String> {
         return Err("not DSF".to_string());
     }
 
-    // 跳过 DSD chunk 剩余 24 字节（size + file_size + metadata_offset），
-    // 使读取位置落在 fmt 子块起点（offset 28）。
     let mut dsd_rest = [0u8; 24];
     file.read_exact(&mut dsd_rest).map_err(|_| "bad dsd chunk".to_string())?;
 
-    // 从 fmt 起点开始按子块遍历：fmt 先解析，data 决定数据区。
     let mut channels = 0u16;
     let mut dsd_rate = 0u32;
     let mut block_size = 0u32;
@@ -126,11 +95,9 @@ pub fn parse_dsf_info(path: &str) -> Result<DsdInfo, String> {
         let chunk_size = read_u64_le(&hdr[4..12]);
 
         if chunk_id == b"fmt " {
-            if chunk_size < 52 {
+            if chunk_size < 52 || chunk_size > 1024 * 1024 {
                 return Err("invalid DSF fmt size".to_string());
             }
-            // fmt 负载 = chunk_size(52) - 8 字节块头 = 44 字节；
-            // 此前误读 52 字节会吞掉 data 块头，导致后续解析失败。
             let mut fmt = [0u8; 44];
             file.read_exact(&mut fmt).map_err(|_| "bad fmt payload".to_string())?;
             format_id = read_u32_le(&fmt[4..8]);
@@ -138,9 +105,7 @@ pub fn parse_dsf_info(path: &str) -> Result<DsdInfo, String> {
             dsd_rate = read_u32_le(&fmt[16..20]);
             bits_per_sample = read_u32_le(&fmt[20..24]);
             sample_count = read_u64_le(&fmt[24..32]);
-            // DSF 规范 block_size_per_channel 为 u64（固定 4096）
             block_size = read_u64_le(&fmt[32..40]) as u32;
-            // 跳过 fmt 负载剩余部分（52 为含块头的规范总长）
             let skip = chunk_size as i64 - 52;
             if skip > 0 {
                 file.seek(SeekFrom::Current(skip)).map_err(|e| e.to_string())?;
@@ -151,7 +116,7 @@ pub fn parse_dsf_info(path: &str) -> Result<DsdInfo, String> {
             data_size = read_u64_le(&inner);
             data_offset = file.stream_position().map_err(|e| e.to_string())?;
             break;
-        } else if chunk_size > 12 {
+        } else if chunk_size > 12 && chunk_size <= 16 * 1024 * 1024 {
             file.seek(SeekFrom::Current((chunk_size - 12) as i64))
                 .map_err(|e| e.to_string())?;
         } else {
@@ -175,10 +140,6 @@ pub fn parse_dsf_info(path: &str) -> Result<DsdInfo, String> {
     })
 }
 
-/// 解析 DFF（DSDIFF）头：大端 IFF 结构，字节交错 DSD 数据。
-///
-/// FRM8 → FVER / PROP(SND: FS + CHNL + CMPR) / DSD
-/// DFF 数据按 Clustered Frame 逐字节交错：CH0 CH1 CH0 CH1 ...
 pub fn parse_dff_info(path: &str) -> Result<DsdInfo, String> {
     let mut file = File::open(path).map_err(|e| e.to_string())?;
 
@@ -198,7 +159,7 @@ pub fn parse_dff_info(path: &str) -> Result<DsdInfo, String> {
         return Err("not DSDIFF (form type is not DSD)".to_string());
     }
 
-    let frm8_data_end = 12 + frm8_size;
+    let frm8_data_end = 12u64.saturating_add(frm8_size);
 
     let mut channels = 0u16;
     let mut dsd_rate = 0u32;
@@ -232,7 +193,7 @@ pub fn parse_dff_info(path: &str) -> Result<DsdInfo, String> {
                 file.read_exact(&mut prop_type)
                     .map_err(|_| "bad PROP type".to_string())?;
 
-                let prop_data_end = chunk_data_start + chunk_size;
+                let prop_data_end = chunk_data_start.saturating_add(chunk_size);
                 while file.stream_position().map_err(|e| e.to_string())? < prop_data_end {
                     let mut sub_hdr = [0u8; 12];
                     if file.read_exact(&mut sub_hdr).is_err() {
@@ -268,7 +229,6 @@ pub fn parse_dff_info(path: &str) -> Result<DsdInfo, String> {
                     file.seek(SeekFrom::Start(sub_data_start + sub_size + sub_pad))
                         .map_err(|e| e.to_string())?;
                 }
-                // 跳到下一个顶层 chunk（含 PROP 自身的填充字节）
                 file.seek(SeekFrom::Start(chunk_data_start + chunk_size + pad))
                     .map_err(|e| e.to_string())?;
             }
@@ -306,7 +266,6 @@ pub fn parse_dff_info(path: &str) -> Result<DsdInfo, String> {
     })
 }
 
-/// 统一 DSD 文件解析入口：根据 magic 自动分派 DSF 或 DFF。
 pub fn parse_dsd_info(path: &str) -> Result<DsdInfo, String> {
     let mut file = File::open(path).map_err(|e| e.to_string())?;
     let mut magic = [0u8; 4];
@@ -320,11 +279,6 @@ pub fn parse_dsd_info(path: &str) -> Result<DsdInfo, String> {
     }
 }
 
-/// 按 block / 交错流式读取 DSD 原生字节，并打包为 DoP 24-bit 帧。
-///
-/// 支持 `next_frames` 按帧粒度过量产出（满足 AAudio 按 buffer/frame 填充），
-/// marker 用全局帧序号交替（0x05/0xFA），跨 block 边界保持连续，DAC 无需在
-/// block 边界重新同步。也支持按帧 seek（时长 → 帧位 → 文件字节偏移）。
 pub struct DopStreamSource {
     reader: BufReader<File>,
     start_offset: u64,
@@ -334,10 +288,8 @@ pub struct DopStreamSource {
     block_size: usize,
     cps: usize,
     buf: Vec<u8>,
-    /// 当前缓冲区中加载的帧数。
     frames_in_buf: usize,
     frames_left: usize,
-    /// 已产出的总 DoP 帧数，用于跨块持续的 marker 交替。
     frame_index: u64,
     format: DsdFormat,
 }
@@ -402,8 +354,6 @@ impl DopStreamSource {
         Ok(true)
     }
 
-    /// 产出至多 `max_frames` 个 DoP 帧到 `out`（每帧 `channels × 3` 字节），
-    /// 返回实际产出的帧数；流结束时返回的帧数 < `max_frames`。
     pub fn next_frames(&mut self, out: &mut Vec<u8>, max_frames: usize) -> Result<usize, String> {
         let mut produced = 0usize;
         while produced < max_frames {
@@ -414,9 +364,7 @@ impl DopStreamSource {
             let marker = if self.frame_index & 1 == 0 { DOP_MARKER_LOW } else { DOP_MARKER_HIGH };
             for ch in 0..self.channels {
                 let db = match self.format {
-                    // DSF block 布局：ch0[0..bs], ch1[0..bs], ... => 帧 f 的通道 c 字节 = buf[f + c*bs]
                     DsdFormat::Dsf => self.buf[frame_in_buf + ch * self.block_size],
-                    // DFF 字节交错：CH0 CH1 CH0 CH1 ... => 帧 f 的通道 c 字节 = buf[f * channels + c]
                     DsdFormat::Dff => self.buf[frame_in_buf * self.channels + ch],
                 };
                 out.push(db);
@@ -430,10 +378,6 @@ impl DopStreamSource {
         Ok(produced)
     }
 
-    /// 定位到第 `target_frame` 个 DoP 帧（从 data 区开头计数）。
-    ///
-    /// DSF：数据区按 block 连续存储，只支持定位到 block 边界，返回向下取整的帧号。
-    /// DFF：数据按字节交错连续存储，支持精确帧定位。
     pub fn seek_to_frame(&mut self, target_frame: u64) -> Result<u64, String> {
         match self.format {
             DsdFormat::Dsf => {
@@ -474,38 +418,31 @@ impl DopStreamSource {
 mod tests {
     use super::*;
 
-    /// 构造一个最小的单声道 DSF（按标准 28 字节 DSD chunk + fmt + data 布局）。
     fn build_dsf(channels: u32, block_size: u32, dsd_rate: u32, blocks: &[u8]) -> Vec<u8> {
-        // fmt chunk（12 头 + 44 数据即可，这里完整构造 52 字节负载）
         let mut fmt_payload = Vec::new();
-        fmt_payload.extend_from_slice(&1u32.to_le_bytes()); // format_version
-        fmt_payload.extend_from_slice(&0u32.to_le_bytes()); // format_id = DSD raw
-        fmt_payload.extend_from_slice(&0u32.to_le_bytes()); // channel_type
+        fmt_payload.extend_from_slice(&1u32.to_le_bytes());
+        fmt_payload.extend_from_slice(&0u32.to_le_bytes());
+        fmt_payload.extend_from_slice(&0u32.to_le_bytes());
         fmt_payload.extend_from_slice(&channels.to_le_bytes());
         fmt_payload.extend_from_slice(&dsd_rate.to_le_bytes());
-        fmt_payload.extend_from_slice(&1u32.to_le_bytes()); // bits_per_sample
-        fmt_payload.extend_from_slice(&(blocks.len() as u64).to_le_bytes()); // sample_count
-        // DSF 规范 block_size_per_channel 为 u64（测试夹具此前误用 u32 导致 40≠44）
+        fmt_payload.extend_from_slice(&1u32.to_le_bytes());
+        fmt_payload.extend_from_slice(&(blocks.len() as u64).to_le_bytes());
         fmt_payload.extend_from_slice(&(block_size as u64).to_le_bytes());
-        fmt_payload.extend_from_slice(&0u32.to_le_bytes()); // reserved
+        fmt_payload.extend_from_slice(&0u32.to_le_bytes());
         assert_eq!(fmt_payload.len(), 44);
 
         let mut out = Vec::new();
-        // DSD chunk：28 字节
         out.extend_from_slice(b"DSD ");
         let chunk_size = 28u64;
         out.extend_from_slice(&chunk_size.to_le_bytes());
-        // file_size、metadata_offset 占位（真实文件为实际值，测试用 0）
         let total = 28 + 12 + 8 + fmt_payload.len() + 12 + 8 + blocks.len();
         out.extend_from_slice(&(total as u64).to_le_bytes());
-        out.extend_from_slice(&0u64.to_le_bytes()); // metadata_offset = 0（无 ID3）
+        out.extend_from_slice(&0u64.to_le_bytes());
 
-        // fmt chunk
         out.extend_from_slice(b"fmt ");
         out.extend_from_slice(&(fmt_payload.len() as u64 + 8).to_le_bytes());
         out.extend_from_slice(&fmt_payload);
 
-        // data chunk
         out.extend_from_slice(b"data");
         let data_chunk_size = 8 + blocks.len() as u64;
         out.extend_from_slice(&data_chunk_size.to_le_bytes());
@@ -561,12 +498,10 @@ mod tests {
 
     #[test]
     fn dsd_duration() {
-        // DSD64 采样率下 sample_count = 2_822_400 → 1 秒
         let bytes = build_dsf(1, 4, 2_822_400, &[0xAA; 4]);
         let path = write_tmp(&bytes, "dur");
         let info = parse_dsf_info(&path).unwrap();
-        // 手动改写 sample_count 而非受 data 长度约束
-        assert!(info.duration_seconds() == 0); // 4 样本 / 2.8M ≈ 0 秒
+        assert!(info.duration_seconds() == 0);
         let _ = std::fs::remove_file(&path);
     }
 }

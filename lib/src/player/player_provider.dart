@@ -24,26 +24,18 @@ import '../rust/api.dart';
 import 'media_url.dart';
 import 'stream_cache.dart';
 
-/// 播放中的单曲信息（移动端 QueueItem 精简版：本地 + 在线插件歌所需字段）。
 class QueueItem {
   final String path;
   final String title;
   final String artist;
   final String album;
   final int durationMs;
-  /// 本地歌曲封面缩略图文件路径。
   final String? coverPath;
-  /// 在线插件歌：歌曲 JSON（pluginId/format/source/musicInfo），非空则走插件解析直链。
   final String? onlineSongJson;
-  /// 在线歌曲封面 URL。
   final String? coverUrl;
-  /// 请求音质档（320k/flac 等，默认 320k）。
   final String? onlineQuality;
-  /// 音源标签（wy/tx/kg 等，LX 插件歌歌词兜底用）。
   final String? source;
-  /// 在线搜索元数据 JSON（LX 插件歌歌词兜底用，Rust LyricSongInfo 格式）。
   final String? onlineInfoJson;
-  /// 来自每日推荐队列：播放页据此显示「不喜欢」按钮（跳过并上报负反馈）。
   final bool fromDailyRecommend;
   const QueueItem({
     required this.path,
@@ -60,22 +52,24 @@ class QueueItem {
     this.fromDailyRecommend = false,
   });
 
-  QueueItem copyWith(
-          {String? coverPath, String? coverUrl, String? onlineSongJson}) =>
-      QueueItem(
-        path: path,
-        title: title,
-        artist: artist,
-        album: album,
-        durationMs: durationMs,
-        coverPath: coverPath ?? this.coverPath,
-        coverUrl: coverUrl ?? this.coverUrl,
-        onlineSongJson: onlineSongJson ?? this.onlineSongJson,
-        onlineQuality: onlineQuality,
-        source: source,
-        onlineInfoJson: onlineInfoJson,
-        fromDailyRecommend: fromDailyRecommend,
-      );
+  QueueItem copyWith({
+    String? coverPath,
+    String? coverUrl,
+    String? onlineSongJson,
+  }) => QueueItem(
+    path: path,
+    title: title,
+    artist: artist,
+    album: album,
+    durationMs: durationMs,
+    coverPath: coverPath ?? this.coverPath,
+    coverUrl: coverUrl ?? this.coverUrl,
+    onlineSongJson: onlineSongJson ?? this.onlineSongJson,
+    onlineQuality: onlineQuality,
+    source: source,
+    onlineInfoJson: onlineInfoJson,
+    fromDailyRecommend: fromDailyRecommend,
+  );
 }
 
 class PlaybackState {
@@ -85,10 +79,8 @@ class PlaybackState {
   final bool isPlaying;
   final double position;
   final double duration;
-  final int playMode; // 0 顺序(列表循环) 1 单曲循环 2 随机
-  /// 倍速（独立播放；联动模式恒 1.0 不经此处）。
+  final int playMode;
   final double speed;
-  /// 当前播放错误信息（本地播放失败时展示）。
   final String? error;
   const PlaybackState({
     this.current,
@@ -133,8 +125,6 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     with WidgetsBindingObserver {
   PlayerNotifier(this._ref) : super(const PlaybackState()) {
     WidgetsBinding.instance.addObserver(this);
-    // 留存全局引用：AudioService.init 后台异步完成，构造时 handler 可能
-    // 尚未就绪导致 bindNotifier 落空，main 中 init 完成后补绑（同移动端）。
     activePlayerNotifier = this;
     audioHandler?.bindNotifier(this);
     _init();
@@ -148,41 +138,29 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
   StreamSubscription<dynamic>? _stateSub;
   StreamSubscription<ProcessingState>? _procSub;
   StreamSubscription<dynamic>? _errSub;
-  /// 自然播完衔接互斥：completed 事件在起播窗口内可能重复到达，防并发 _playAt。
   bool _onTrackEndBusy = false;
   DateTime _lastPosPersist = DateTime.fromMillisecondsSinceEpoch(0);
-  /// 起播流水线代际号：清空队列/删空等「重置」操作递增，_playAt 在每个
-  /// await 边界后校验，不一致即放弃后续起播（防「清了还在响、队列复活」）。
   int _playEpoch = 0;
+
+  bool _switchingSource = false;
   final List<String> _shuffleHistory = [];
   final List<String> _shuffleFuture = [];
 
-  // —— 在线失败自动换源上下文（对齐移动端口径的表端精简版）——
-  /// 同曲防抖：错误事件与起播异常可能先后到达，800ms 内同曲只换源一次。
   DateTime? _lastAutoSwitchAt;
   String? _lastAutoSwitchPath;
-  /// 换源上下文按歌曲（标题+歌手）隔离：已失败插件不再重试。
   String _switchCtxKey = '';
   final Set<String> _failedPluginIds = {};
 
-  // —— 流缓存跟踪：当前直链/请求头/是否走了缓存源（错误自愈用）——
   String? _currentMediaUrl;
   Map<String, String>? _currentHeaders;
   bool _usedCacheSource = false;
 
-  // —— Rust DSP 音效管线（sharedMode 共享混音，对齐移动端口径的表端精简版）——
-  /// 会话级可用性：错误含 libaaudio（AAudio 库缺失/API 过低）时置 false，
-  /// 本会话不再尝试，避免每首歌空等超时。
   bool _dspAvailable = kDspPipelineSupported;
-  /// 管线中断后的首次起播跳过 DSP（防「中断→重播→再中断」环），切歌后恢复尝试。
   bool _dspSkipNextStart = false;
-  /// 当前曲目是否正由 DSP 管线输出（此期间 just_audio 处于 stop 态不发声）。
   bool _dspActive = false;
   Timer? _dspTimer;
   Timer? _sfxSyncTimer;
 
-  /// 本地真实文件才可进 DSP 管线：content:// 树文档 URI 与在线直链流
-  /// 只能走 just_audio（管线只吃文件路径）。
   bool _isDspEligible(QueueItem item) =>
       (item.onlineSongJson == null || item.onlineSongJson!.isEmpty) &&
       !item.path.startsWith('content://');
@@ -202,7 +180,9 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
       _persistPositionDebounced();
     });
     _durSub = _player.durationStream.listen((d) {
-      state = state.copyWith(duration: (d ?? Duration.zero).inMilliseconds / 1000.0);
+      state = state.copyWith(
+        duration: (d ?? Duration.zero).inMilliseconds / 1000.0,
+      );
     });
     _stateSub = _player.playerStateStream.listen((ps) {
       if (ps.playing != state.isPlaying) {
@@ -210,28 +190,21 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
         _syncPlaybackState();
       }
     });
-    // 自然播完的权威信号：just_audio 在源播完时把 processingState 置为
-    // completed（playing 字段不保证翻转），据此自动衔接到队列下一首。
     _procSub = _player.processingStateStream.listen((ps) {
       if (ps == ProcessingState.completed) {
         _onTrackEnd();
       }
     });
-    // 播放中途错误（解码失败等）：just_audio 经 playbackEventStream 的
-    // onError 上报，统一路由到错误处理，避免「播放器已死但 UI 停在播放中」。
     _errSub = _player.playbackEventStream.listen(
       (_) {},
       onError: (Object e, StackTrace st) {
         _onPlaybackError(e);
       },
     );
-    // 音效设置变化：DSP 管线运行中把 EQ/音效同步进 Rust（50ms 防抖）；
-    // 非 DSP 回退分支把变速变调映射到 just_audio 原生 speed/pitch。
     _ref.listen(soundEffectProvider.select((s) => s.settings), (_, s) {
       _applyEffectSpeedPitch(s);
       _syncDspEffects(s);
     });
-    // 流缓存目录注入（失败不阻塞播放器初始化，之后回退直连）。
     unawaited(() async {
       try {
         final tmp = await getTemporaryDirectory();
@@ -257,11 +230,11 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     }
   }
 
-  /// 起播指定曲目；返回是否成功进入播放（失败已走换源兜底）。
   Future<bool> _playAt(int index, {double startAtSecs = 0}) async {
     if (index < 0 || index >= state.queue.length) return false;
     _playEpoch++;
     final epoch = _playEpoch;
+    _switchingSource = true;
     final item = state.queue[index];
     state = state.copyWith(
       queueIndex: index,
@@ -271,16 +244,12 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
       duration: item.durationMs / 1000.0,
       error: null,
     );
-    // 切歌即更新系统媒体卡片（标题/封面先行，起播窗口内通知已就绪）。
     audioHandler?.syncMediaItem(item, item.durationMs / 1000.0);
     try {
-      // 切歌即停上一首：加载窗口内不得让上一首继续出声。
       try {
         await _player.stop();
       } catch (_) {}
       if (epoch != _playEpoch) return false;
-      // 本地真实文件优先走 Rust DSP 管线（EQ/音效/变速变调在 Rust 侧生效）；
-      // 不可用/启动失败回退 just_audio 普通播放。
       if (_isDspEligible(item) &&
           await _tryStartDspPipeline(item.path, startAtSecs: startAtSecs)) {
         if (epoch != _playEpoch) return false;
@@ -296,15 +265,15 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
         } catch (_) {}
       }
       await _player.setVolume(
-          _ref.read(settingsProvider).valueOrNull?.volume ?? 1.0);
-      // just_audio 的 speed 是 player 级设置，切源不重置；这里兜底重申，
-      // 覆盖「进程重启后 player 默认 1.0 而设置里存了倍速」的场景。
+        _ref.read(settingsProvider).valueOrNull?.volume ?? 1.0,
+      );
       if (state.speed != 1.0) {
         try {
           await _player.setSpeed(state.speed);
         } catch (_) {}
       }
       if (epoch != _playEpoch) return false;
+      _switchingSource = false;
       await _player.play();
       if (epoch != _playEpoch) return false;
       state = state.copyWith(isPlaying: true, error: null);
@@ -312,17 +281,17 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
       return true;
     } catch (e) {
       if (epoch != _playEpoch) return false;
-      // 在线歌起播异常：autoswitch 时自动换源，成功即由新 _playAt 接管。
       if (item.onlineSongJson != null && item.onlineSongJson!.isNotEmpty) {
         if (await _autoSwitchSource(item, index: index)) return true;
       }
       state = state.copyWith(isPlaying: false, error: '播放失败：$e');
       _persistSession();
       return false;
+    } finally {
+      if (epoch == _playEpoch) _switchingSource = false;
     }
   }
 
-  /// 加载曲目音源：在线插件歌走引擎解析直链，本地走文件/URI。
   Future<Duration?> _loadItemSource(QueueItem item) async {
     final json = item.onlineSongJson;
     if (json != null && json.isNotEmpty) {
@@ -331,7 +300,6 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     return _setLocalSource(item.path);
   }
 
-  /// 在线插件歌：从插件引擎解析直链并播放（腕上端精简版，无换源回退）。
   Future<Duration?> _playPluginSong(String json) async {
     final songJson = jsonDecode(json) as Map<String, dynamic>;
     final pluginId = songJson['pluginId'] as String? ?? '';
@@ -354,8 +322,12 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
         fallback: 'pause',
       );
     } else {
-      final result =
-          await engine.getMusicUrl(source, sourceKey, musicInfo, quality);
+      final result = await engine.getMusicUrl(
+        source,
+        sourceKey,
+        musicInfo,
+        quality,
+      );
       final url = result?['url'] as String?;
       if (result != null && _isPlayableUrl(url)) {
         final h = result['headers'];
@@ -367,26 +339,25 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
       }
     }
     if (resolved == null) throw StateError('直链解析失败');
-    // 清洗直链脏字符 + 按 CDN 域名补齐防盗链请求头（酷狗/网易云等必需）。
     final cleaned = sanitizeMediaUrl(resolved.url);
     if (cleaned.isEmpty) throw StateError('直链无效');
     final headers = normalizeMediaRequestHeaders(cleaned, resolved.headers);
-    // 流缓存：预算>0 时走 LockCaching 落盘（重播同链秒开零流量），失败回退直连。
     StreamCache.instance.budgetMB =
         _ref.read(settingsProvider).valueOrNull?.streamCacheSizeMB ?? 200;
-    unawaited(StreamCache.instance.settle()); // 释放上一首占用并按预算清理
+    unawaited(StreamCache.instance.settle());
     _currentMediaUrl = cleaned;
     _currentHeaders = headers;
     _usedCacheSource = false;
-    final cacheSource =
-        await StreamCache.instance.sourceFor(cleaned, headers: headers);
+    final cacheSource = await StreamCache.instance.sourceFor(
+      cleaned,
+      headers: headers,
+    );
     if (cacheSource != null) {
       try {
         await _player.setAudioSource(cacheSource);
         _usedCacheSource = true;
         return null;
       } catch (_) {
-        // 缓存源起播失败（半截/损坏文件）：清掉该文件后直连重试一次。
         await StreamCache.instance.evict(cleaned);
       }
     }
@@ -395,7 +366,9 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
   }
 
   Future<PluginSource?> _findPluginSource(
-      PluginEngine engine, String pluginId) async {
+    PluginEngine engine,
+    String pluginId,
+  ) async {
     final sources = await engine.store.loadSources();
     for (final s in sources) {
       if (s.id == pluginId) return s;
@@ -406,7 +379,6 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
   static bool _isPlayableUrl(String? url) =>
       url != null && RegExp(r'^https?://').hasMatch(url);
 
-  /// 加载本地曲目音源（content:// 树文档 URI 播放不可靠，先物化本地副本）。
   Future<Duration?> _setLocalSource(String path) async {
     if (path.startsWith('content://')) {
       return _player.setUrl(path);
@@ -416,8 +388,6 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
 
   Future<void> toggle() async {
     if (state.current == null) return;
-    // DSP 管线输出中：just_audio 已停，播放暂停直接走 Rust 接口，
-    // isPlaying 由本处手动翻转（playerStateStream 不会再来事件）。
     if (_dspActive) {
       if (state.isPlaying) {
         await pauseUsbExclusive();
@@ -438,20 +408,17 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     _persistSession();
   }
 
-  /// 系统「播放」键：仅暂停中生效。
   Future<void> resumeFromSystem() async {
     if (state.isPlaying) return;
     await toggle();
   }
 
-  /// 系统「暂停」键：仅播放中生效。
   Future<void> pauseFromSystem() async {
     if (!state.isPlaying) return;
     await toggle();
   }
 
   Future<void> seek(double secs) async {
-    // DSP 管线输出中：seek 走 Rust 接口（管线内解码器同步跳转）。
     if (_dspActive) {
       try {
         await seekUsbExclusive(timeSecs: secs, isPlaying: state.isPlaying);
@@ -486,15 +453,6 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     await _playAt(i);
   }
 
-  Future<void> cyclePlayMode() async {
-    final next = (state.playMode + 1) % 3;
-    state = state.copyWith(playMode: next);
-    _shuffleHistory.clear();
-    _shuffleFuture.clear();
-    await _ref.read(settingsProvider.notifier).setPlayMode(next);
-  }
-
-  /// 直接设置播放模式（播放页「更多」面板三选一；0 顺序 / 1 单曲 / 2 随机）。
   Future<void> setPlayMode(int mode) async {
     final m = mode.clamp(0, 2);
     if (m == state.playMode) return;
@@ -504,11 +462,9 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     await _ref.read(settingsProvider.notifier).setPlayMode(m);
   }
 
-  /// 表冠音量：写设置即联动播放引擎（volumeProvider 链，同移动端）。
   Future<void> setVolume(double v) async {
     final vol = v.clamp(0.0, 1.0);
     await _ref.read(settingsProvider.notifier).setVolume(vol);
-    // DSP 管线输出中：音量走 Rust 接口（just_audio 音量已不影响出声）。
     if (_dspActive) {
       try {
         await setUsbExclusiveVolume(volume: vol);
@@ -517,29 +473,17 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     }
     try {
       await _player.setVolume(
-          _ref.read(settingsProvider).valueOrNull?.volume ?? 1.0);
+        _ref.read(settingsProvider).valueOrNull?.volume ?? 1.0,
+      );
     } catch (_) {}
   }
 
-  /// 倍速档位（表上低频操作，循环切换即可，同主流手表播放器）。
-  static const _speedSteps = [1.0, 1.25, 1.5, 2.0, 0.75];
-
-  /// 循环切换倍速并持久化（跨会话保留，切歌不重置）。
-  Future<void> cycleSpeed() async {
-    final idx = _speedSteps.indexOf(state.speed);
-    final next = _speedSteps[(idx + 1) % _speedSteps.length];
-    await setSpeed(next);
-  }
-
-  /// 设置播放倍速（0.5–3.0 越界截断）。
   Future<void> setSpeed(double s) async {
     final v = s.clamp(0.5, 3.0);
     state = state.copyWith(speed: v);
     try {
       await _player.setSpeed(v);
     } catch (_) {}
-    // DSP 管线输出中：倍速并入 Rust 音效 playbackRate 运行时下发（见
-    // _syncDspEffects 的叠乘口径），just_audio 的 setSpeed 不影响出声。
     if (_dspActive) {
       _syncDspEffects(_ref.read(soundEffectProvider).settings);
     }
@@ -553,11 +497,7 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     final wasCurrent = index == state.queueIndex;
     queue.removeAt(index);
     if (queue.isEmpty) {
-      _playEpoch++;
-      await _stopDsp();
-      await _player.stop();
-      state = const PlaybackState();
-      audioHandler?.clearNowPlaying();
+      await clearQueue();
       return;
     }
     var newIndex = state.queueIndex;
@@ -573,7 +513,6 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     }
   }
 
-  /// 清空播放队列并停止播放。
   Future<void> clearQueue() async {
     _playEpoch++;
     await _stopDsp();
@@ -584,7 +523,6 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     audioHandler?.clearNowPlaying();
   }
 
-  /// 将队列中 [oldIndex] 的歌曲移动到 [newIndex]。
   Future<void> reorderQueue(int oldIndex, int newIndex) async {
     if (oldIndex < 0 || oldIndex >= state.queue.length) return;
     if (newIndex < 0 || newIndex >= state.queue.length) return;
@@ -602,7 +540,6 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     state = state.copyWith(queue: queue, queueIndex: qi);
   }
 
-  /// 播放队列中指定歌曲。
   Future<void> playQueueItem(int index) async {
     if (index < 0 || index >= state.queue.length) return;
     await _playAt(index);
@@ -629,17 +566,11 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     }
   }
 
-  // —— Rust DSP 音效管线（sharedMode）：起/停/轮询/回退，对齐移动端 ——
-
-  /// 启动共享 DSP 管线（AAudio shared + 系统混音器，deviceId -1 = 默认输出）。
-  /// 全效果链（EQ/混响/空间音效/高级效果/变速变调）在 Rust 侧生效；
-  /// 失败返回 false，调用方回退 just_audio。
   Future<bool> _tryStartDspPipeline(
     String path, {
     required double startAtSecs,
   }) async {
     if (!_dspAvailable) return false;
-    // 管线中断后的首次重播跳过 DSP（防退出环），正常切歌后自动恢复尝试。
     if (_dspSkipNextStart) {
       _dspSkipNextStart = false;
       return false;
@@ -665,8 +596,6 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
       return true;
     } catch (e) {
       _dspActive = false;
-      // AAudio 库加载失败属会话级不可用（避免每首歌空等超时）；
-      // 网络超时/流创建失败仅单次回退，不禁用会话。
       if (e.toString().contains('libaaudio')) {
         _dspAvailable = false;
       }
@@ -674,7 +603,6 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     }
   }
 
-  /// 停止 DSP 管线并释放输出。
   Future<void> _stopDsp() async {
     _stopDspPolling();
     try {
@@ -683,7 +611,6 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     _dspActive = false;
   }
 
-  /// DSP 播放轮询：同步进度、检测自然播完/中断（250ms）。
   void _startDspPolling() {
     _stopDspPolling();
     _dspTimer = Timer.periodic(
@@ -705,14 +632,11 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
       _persistPositionDebounced();
       final infoStr = await getUsbExclusiveDeviceInfo();
       final info = jsonDecode(infoStr) as Map<String, dynamic>;
-      // 管线解码器的总时长比元数据更准，覆盖起播时的元数据缓存值。
       final engineDur = (info['durationSecs'] as num?)?.toDouble() ?? 0.0;
       if (engineDur > 0) {
         state = state.copyWith(duration: engineDur);
       }
       final dur = state.duration;
-      // 管线工作线程退出检测：设备断开/解码失败/自然放完。用进度区分——
-      // 近末尾按自然结束衔接下一曲，进度远离末尾才是中断，回退普通播放续播。
       if (info['active'] != true) {
         if (dur > 0 && pos >= dur - 0.3) {
           await _onDspTrackEnd();
@@ -727,8 +651,6 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     } catch (_) {}
   }
 
-  /// DSP 管线中断（设备断开/解码失败）：释放管线，下一轮起播跳过 DSP，
-  /// 在 just_audio 普通播放续播当前曲目。
   Future<void> _onDspDisconnect() async {
     await _stopDsp();
     _dspSkipNextStart = true;
@@ -736,7 +658,6 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     await _playAt(state.queueIndex);
   }
 
-  /// DSP 播放自然结束：释放管线后按播放模式衔接。
   Future<void> _onDspTrackEnd() async {
     await _stopDsp();
     if (state.playMode == 1) {
@@ -752,15 +673,14 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     await _playAt(next);
   }
 
-  /// EQ/音效设置变化同步到 DSP 管线（50ms 防抖）。倍速键与音效「变速」
-  /// 叠乘：DSP 管线只认 playbackRate 一个入口。
   void _syncDspEffects(SoundEffectSettings s) {
     if (!_dspActive) return;
     _sfxSyncTimer?.cancel();
     _sfxSyncTimer = Timer(const Duration(milliseconds: 50), () async {
       try {
         await setUsbExclusiveEqualizer(
-            settingsJson: jsonEncode(s.toEqualizerRustJson()));
+          settingsJson: jsonEncode(s.toEqualizerRustJson()),
+        );
         final json = s.toRustJson();
         final rate = s.playbackRate.clamp(50.0, 200.0) * state.speed;
         json['playbackRate'] = rate.clamp(50.0, 200.0);
@@ -769,27 +689,22 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     });
   }
 
-  /// 将音效的变速/变调应用到 just_audio（非 DSP 回退分支）。
-  /// DSP 管线播放时由 Rust 侧处理，跳过。
   Future<void> _applyEffectSpeedPitch(SoundEffectSettings s) async {
     if (_dspActive) return;
     try {
       final rate = s.playbackRate.clamp(50.0, 200.0) / 100.0;
       await _player.setSpeed(rate);
       if (s.preservesPitch) {
-        // 保持音调：仅变速，音调不变。
         await _player.setPitch(1.0);
       } else {
         await _player.setPitch(s.pitchShift.clamp(50.0, 200.0) / 100.0);
       }
-    } catch (_) {
-      // 平台不支持 setPitch 时静默忽略。
-    }
+    } catch (_) {}
   }
 
   Future<void> _onPlaybackError(Object e) async {
+    if (_switchingSource) return;
     if (state.current == null) return;
-    // 在线歌中途出错：缓存文件自愈 → 自动换源 → 缓存源损坏时直连兜底。
     final item = state.current!;
     if (item.onlineSongJson != null && item.onlineSongJson!.isNotEmpty) {
       final url = _currentMediaUrl;
@@ -802,7 +717,8 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
           await _player.stop();
           await _player.setUrl(url, headers: _currentHeaders ?? const {});
           await _player.setVolume(
-              _ref.read(settingsProvider).valueOrNull?.volume ?? 1.0);
+            _ref.read(settingsProvider).valueOrNull?.volume ?? 1.0,
+          );
           await _player.play();
           state = state.copyWith(isPlaying: true, error: null);
           return;
@@ -812,17 +728,11 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     state = state.copyWith(isPlaying: false, error: '播放中断：$e');
   }
 
-  /// 在线歌曲失败自动换源（对齐移动端口径的表端精简版）。
-  /// 阶段一：同平台其他启用插件重解析同一首歌（musicInfo 直接复用，成本最低）；
-  /// 阶段二：跨启用插件搜索同名歌（标题归一化相等 + 歌手有交集），
-  /// 命中后以命中插件的 QueueItem 替换队列条目再起播。
-  /// 返回 true 表示换源成功且已重新起播。
   Future<bool> _autoSwitchSource(QueueItem item, {required int index}) async {
     final settings = _ref.read(settingsProvider).valueOrNull;
     if ((settings?.onlineFailureBehavior ?? 'autoswitch') != 'autoswitch') {
       return false;
     }
-    // 同曲防抖（移动端同款 800ms）：错误事件与起播异常可能先后到达。
     final now = DateTime.now();
     if (_lastAutoSwitchPath == item.path &&
         _lastAutoSwitchAt != null &&
@@ -860,7 +770,6 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     final enabled = sources.where((s) => s.enabled).toList();
     final quality = settings?.onlineQuality ?? '320k';
 
-    // —— 阶段一：同平台兄弟插件重解析（直链死链场景命中率最高）。
     if (songJson['format'] != 'musicfree') {
       final sourceKey = songJson['source'] as String? ?? '';
       final musicInfo = songJson['musicInfo'];
@@ -871,15 +780,18 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
           if (!s.sources.contains(sourceKey)) continue;
           try {
             final result = await engine.getMusicUrl(
-                s, sourceKey, Map<String, dynamic>.from(musicInfo), quality);
+              s,
+              sourceKey,
+              Map<String, dynamic>.from(musicInfo),
+              quality,
+            );
             final url = result?['url'] as String?;
             if (result == null || !_isPlayableUrl(url)) {
               _failedPluginIds.add(s.id);
               continue;
             }
             final newItem = item.copyWith(
-              onlineSongJson:
-                  jsonEncode({...songJson, 'pluginId': s.id}),
+              onlineSongJson: jsonEncode({...songJson, 'pluginId': s.id}),
             );
             return await _replaceAndPlay(newItem, index);
           } catch (_) {
@@ -889,7 +801,6 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
       }
     }
 
-    // —— 阶段二：跨插件搜索同名歌（限 3 个插件，防表端越搜越卡）。
     final keyword = '${item.title} ${item.artist}'.trim();
     var tried = 0;
     for (final s in enabled) {
@@ -903,19 +814,24 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
           hits = [];
           for (final key in keys) {
             hits.addAll(
-                await engine.searchInPlugin(s, key, keyword, limit: 10));
+              await engine.searchInPlugin(s, key, keyword, limit: 10),
+            );
           }
         } else {
-          hits = await PluginCatalogService(engine, sources)
-              .searchMusic(s, keyword, limit: 10);
+          hits = await PluginCatalogService(
+            engine,
+            sources,
+          ).searchMusic(s, keyword, limit: 10);
         }
         final pick = _pickMatch(hits, item.title, item.artist);
         if (pick == null) {
           _failedPluginIds.add(s.id);
           continue;
         }
-        final newItem =
-            PluginSearchService(engine, sources).toQueueItem(s, pick);
+        final newItem = PluginSearchService(
+          engine,
+          sources,
+        ).toQueueItem(s, pick);
         if (await _replaceAndPlay(newItem, index)) return true;
         _failedPluginIds.add(s.id);
       } catch (_) {
@@ -925,7 +841,6 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     return false;
   }
 
-  /// 替换队列条目并重新起播（换源成功路径）。
   Future<bool> _replaceAndPlay(QueueItem newItem, int index) async {
     if (index < 0 || index >= state.queue.length) return false;
     final queue = [...state.queue];
@@ -938,13 +853,13 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     }
   }
 
-  /// 从搜索结果里挑同名歌：标题归一化相等 + 歌手有交集；
-  /// 兜底放宽为标题互相包含但仍要求歌手有交集（宁停不错）。
   PluginSearchResult? _pickMatch(
-      List<PluginSearchResult> hits, String title, String artist) {
-    String norm(String s) => s
-        .toLowerCase()
-        .replaceAll(RegExp(r'[\s（）()【】\[\]·・\-_~～]'), '');
+    List<PluginSearchResult> hits,
+    String title,
+    String artist,
+  ) {
+    String norm(String s) =>
+        s.toLowerCase().replaceAll(RegExp(r'[\s（）()【】\[\]·・\-_~～]'), '');
     final t = norm(title);
     if (t.isEmpty) return null;
     Set<String> artistSet(String raw) => raw
@@ -1015,7 +930,6 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     return candidates[_rand.nextInt(candidates.length)];
   }
 
-  /// 防抖持久化进度（每 5 秒一次），供重启恢复。
   void _persistPositionDebounced() {
     final current = state.current;
     if (current == null) return;
@@ -1034,8 +948,6 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     });
   }
 
-  /// 持久化播放会话（队列+模式+音量+进度），JSON 结构与移动端兼容
-  /// （同 Rust savePlaybackSession，跨端数据可互读）。
   Future<void> _persistSession() async {
     try {
       final dbPath = await _ref.read(dbPathProvider.future);
@@ -1076,9 +988,9 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     } catch (_) {}
   }
 
-  /// 启动时恢复上次播放会话（本地曲目预载到暂停态，点击播放续播）。
   Future<void> _restoreSession() async {
     try {
+      final epoch = _playEpoch;
       String jsonStr = '';
       try {
         final dbPath = await _ref.read(dbPathProvider.future);
@@ -1099,26 +1011,27 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
       for (final p in rawQueue) {
         final pathStr = p as String;
         final meta = rawMeta[pathStr] as Map<String, dynamic>?;
-        queue.add(QueueItem(
-          path: pathStr,
-          title: meta?['title'] as String? ?? _titleFromPath(pathStr),
-          artist: meta?['artist'] as String? ?? '',
-          album: meta?['album'] as String? ?? '',
-          durationMs: (meta?['durationMs'] as num?)?.toInt() ?? 0,
-          coverPath: meta?['coverPath'] as String?,
-          coverUrl: meta?['coverUrl'] as String?,
-          onlineSongJson: meta?['onlineSongJson'] as String?,
-          onlineQuality: meta?['onlineQuality'] as String?,
-          source: meta?['source'] as String?,
-          onlineInfoJson: meta?['onlineInfoJson'] as String?,
-        ));
+        queue.add(
+          QueueItem(
+            path: pathStr,
+            title: meta?['title'] as String? ?? _titleFromPath(pathStr),
+            artist: meta?['artist'] as String? ?? '',
+            album: meta?['album'] as String? ?? '',
+            durationMs: (meta?['durationMs'] as num?)?.toInt() ?? 0,
+            coverPath: meta?['coverPath'] as String?,
+            coverUrl: meta?['coverUrl'] as String?,
+            onlineSongJson: meta?['onlineSongJson'] as String?,
+            onlineQuality: meta?['onlineQuality'] as String?,
+            source: meta?['source'] as String?,
+            onlineInfoJson: meta?['onlineInfoJson'] as String?,
+          ),
+        );
       }
 
       final curIdx = queue.indexWhere((q) => q.path == curPath);
       final currentItem = curIdx >= 0 ? queue[curIdx] : queue.first;
-      // 倍速随设置跨会话恢复（设置未就绪时用默认 1.0）。
-      final spd =
-          _ref.read(settingsProvider).valueOrNull?.playbackSpeed ?? 1.0;
+      final spd = _ref.read(settingsProvider).valueOrNull?.playbackSpeed ?? 1.0;
+      if (_playEpoch != epoch) return;
       state = PlaybackState(
         queue: queue,
         queueIndex: curIdx >= 0 ? curIdx : 0,
@@ -1128,18 +1041,23 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
         playMode: mode,
         speed: spd,
       );
+      if (_playEpoch != epoch) return;
       try {
         await _loadItemSource(currentItem);
+        if (_playEpoch != epoch) return;
         await seek(pos);
         await _player.setVolume(
-            _ref.read(settingsProvider).valueOrNull?.volume ?? 1.0);
+          _ref.read(settingsProvider).valueOrNull?.volume ?? 1.0,
+        );
         if (spd != 1.0) {
           try {
             await _player.setSpeed(spd);
           } catch (_) {}
         }
-        // 恢复态也挂上媒体卡片（暂停态通知，表上可一键续播）。
-        audioHandler?.syncMediaItem(currentItem, currentItem.durationMs / 1000.0);
+        audioHandler?.syncMediaItem(
+          currentItem,
+          currentItem.durationMs / 1000.0,
+        );
         _syncPlaybackState();
       } catch (_) {}
     } catch (_) {}
@@ -1151,7 +1069,6 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     return dot > 0 ? name.substring(0, dot) : name;
   }
 
-  /// 同步系统媒体通知的播放状态（播放/暂停键翻转与进度 seek 时调用）。
   void _syncPlaybackState() {
     audioHandler?.syncPlaybackState(
       isPlaying: state.isPlaying,
@@ -1160,34 +1077,33 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     );
   }
 
-  /// 切换当前歌收藏状态（独立模式红心；联动模式红心走手机链路，不经此处）。
-  /// 返回切换后是否已收藏；无当前歌返回 null。
   Future<bool?> toggleFavorite() async {
     final item = state.current;
     if (item == null) return null;
-    return _ref.read(favoritesProvider.notifier).toggle(FavoriteEntry(
-          path: item.path,
-          title: item.title,
-          artist: item.artist,
-          album: item.album,
-          durationMs: item.durationMs,
-          coverPath: item.coverPath,
-          coverUrl: item.coverUrl,
-          onlineSongJson: item.onlineSongJson,
-          onlineQuality: item.onlineQuality,
-          source: item.source,
-          onlineInfoJson: item.onlineInfoJson,
-          addedAt: DateTime.now().millisecondsSinceEpoch,
-        ));
+    return _ref
+        .read(favoritesProvider.notifier)
+        .toggle(
+          FavoriteEntry(
+            path: item.path,
+            title: item.title,
+            artist: item.artist,
+            album: item.album,
+            durationMs: item.durationMs,
+            coverPath: item.coverPath,
+            coverUrl: item.coverUrl,
+            onlineSongJson: item.onlineSongJson,
+            onlineQuality: item.onlineQuality,
+            source: item.source,
+            onlineInfoJson: item.onlineInfoJson,
+            addedAt: DateTime.now().millisecondsSinceEpoch,
+          ),
+        );
   }
 
-  /// 「不喜欢」日推歌：上报负反馈后跳到下一首（同移动端播放页口径）。
-  /// 返回 false = 无曲目或未登录未执行（UI 据此提示）；上报失败不阻断跳歌。
   Future<bool> dislikeDaily() async {
     final item = state.current;
     if (item == null) return false;
-    final ciyuanxiId =
-        _ref.read(authProvider).user?.ciyuanxiId?.trim() ?? '';
+    final ciyuanxiId = _ref.read(authProvider).user?.ciyuanxiId?.trim() ?? '';
     if (ciyuanxiId.isEmpty) return false;
     try {
       await _ref.read(authProvider.notifier).requestAction(
@@ -1219,22 +1135,18 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
   }
 }
 
-/// 音量（与设置联动，同移动端：写设置即全链路生效）。
 final volumeProvider = Provider<double>((ref) {
-  return ref.watch(settingsProvider.select((s) => s.valueOrNull?.volume)) ?? 1.0;
+  return ref.watch(settingsProvider.select((s) => s.valueOrNull?.volume)) ??
+      1.0;
 });
 
 final playerProvider = StateNotifierProvider<PlayerNotifier, PlaybackState>(
   (ref) => PlayerNotifier(ref),
 );
 
-/// 全局 AudioService 处理器（main 中后台 init 完成后赋值）与最近创建的
-/// 播放控制器（init 晚于 PlayerNotifier 构造时补绑用，同移动端模式）。
 WatchAudioHandler? audioHandler;
 PlayerNotifier? activePlayerNotifier;
 
-/// 系统媒体通知（MediaSession）与 Flutter 播放状态的双向桥梁
-///（腕上精简版：上一首/播放暂停/下一首 + 进度 seek，无收藏/模式自定义键）。
 class WatchAudioHandler extends asrv.BaseAudioHandler with asrv.SeekHandler {
   PlayerNotifier? _notifier;
 
@@ -1242,22 +1154,21 @@ class WatchAudioHandler extends asrv.BaseAudioHandler with asrv.SeekHandler {
     _notifier = notifier;
   }
 
-  /// 广播当前歌的系统媒体卡片（标题/歌手/专辑/封面/时长）。
   void syncMediaItem(QueueItem item, double durationSecs) {
-    mediaItem.add(asrv.MediaItem(
-      id: item.path,
-      album: item.album.isEmpty ? '弦予音乐' : item.album,
-      title: item.title,
-      artist: item.artist.isEmpty ? '未知歌手' : item.artist,
-      // 时长无效时不下发 0：0 会被部分系统判定无效元数据，卡片不显示。
-      duration: durationSecs > 0
-          ? Duration(milliseconds: (durationSecs * 1000).round())
-          : null,
-      artUri: _artUriFor(item),
-    ));
+    mediaItem.add(
+      asrv.MediaItem(
+        id: item.path,
+        album: item.album.isEmpty ? '弦予音乐' : item.album,
+        title: item.title,
+        artist: item.artist.isEmpty ? '未知歌手' : item.artist,
+        duration: durationSecs > 0
+            ? Duration(milliseconds: (durationSecs * 1000).round())
+            : null,
+        artUri: _artUriFor(item),
+      ),
+    );
   }
 
-  /// 通知卡片封面：本地缩略图优先（表上加载网络图慢且费电），无则退网络 URL。
   Uri? _artUriFor(QueueItem item) {
     final local = item.coverPath;
     if (local != null &&
@@ -1271,33 +1182,33 @@ class WatchAudioHandler extends asrv.BaseAudioHandler with asrv.SeekHandler {
     return null;
   }
 
-  /// 广播系统播放状态（上一首/播放暂停/下一首三键 + 进度 seek）。
   void syncPlaybackState({
     required bool isPlaying,
     required double positionSecs,
     double speed = 1.0,
   }) {
-    playbackState.add(asrv.PlaybackState(
-      controls: [
-        asrv.MediaControl.skipToPrevious,
-        if (isPlaying) asrv.MediaControl.pause else asrv.MediaControl.play,
-        asrv.MediaControl.skipToNext,
-      ],
-      systemActions: const {
-        asrv.MediaAction.seek,
-        asrv.MediaAction.seekForward,
-        asrv.MediaAction.seekBackward,
-      },
-      androidCompactActionIndices: const [0, 1, 2],
-      processingState: asrv.AudioProcessingState.ready,
-      playing: isPlaying,
-      updatePosition: Duration(milliseconds: (positionSecs * 1000).round()),
-      bufferedPosition: Duration(milliseconds: (positionSecs * 1000).round()),
-      speed: speed,
-    ));
+    playbackState.add(
+      asrv.PlaybackState(
+        controls: [
+          asrv.MediaControl.skipToPrevious,
+          if (isPlaying) asrv.MediaControl.pause else asrv.MediaControl.play,
+          asrv.MediaControl.skipToNext,
+        ],
+        systemActions: const {
+          asrv.MediaAction.seek,
+          asrv.MediaAction.seekForward,
+          asrv.MediaAction.seekBackward,
+        },
+        androidCompactActionIndices: const [0, 1, 2],
+        processingState: asrv.AudioProcessingState.ready,
+        playing: isPlaying,
+        updatePosition: Duration(milliseconds: (positionSecs * 1000).round()),
+        bufferedPosition: Duration(milliseconds: (positionSecs * 1000).round()),
+        speed: speed,
+      ),
+    );
   }
 
-  /// 队列清空/停止：撤掉媒体通知并退出前台服务。
   void clearNowPlaying() {
     mediaItem.add(null);
     playbackState.add(asrv.PlaybackState());

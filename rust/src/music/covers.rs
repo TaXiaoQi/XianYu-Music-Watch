@@ -1,4 +1,3 @@
-// music/covers.rs - 封面缓存与缩略图生成
 
 use super::tags::{find_embedded_picture, read_tagged_file_from_path};
 use super::utils::normalize_path;
@@ -13,8 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::SystemTime;
 
-// 移动端降档：封面可随时从音频标签重新提取，1GB 上限 + LRU 淘汰足够
-const COVER_CACHE_MAX_SIZE_BYTES: u64 = 1024 * 1024 * 1024; // 1 GB
+const COVER_CACHE_MAX_SIZE_BYTES: u64 = 1024 * 1024 * 1024;
 const THUMBNAIL_EDGE_PX: u32 = 150;
 const FULL_COVER_EDGE_PX: u32 = 800;
 const FULL_COVER_CACHE_VERSION: &str = "v3";
@@ -22,7 +20,6 @@ const FULL_COVER_FALLBACK_EXT: &str = "png";
 const FULL_COVER_CACHE_EXTENSIONS: [&str; 5] = ["jpg", "png", "webp", "gif", "bmp"];
 const CACHE_ALIAS_EXT: &str = "ref";
 
-/// 缩略图并发信号量（全局共享，限制解码/缩放时的内存占用）。
 fn thumbnail_semaphore() -> &'static tokio::sync::Semaphore {
     static SEM: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
     SEM.get_or_init(|| {
@@ -30,7 +27,6 @@ fn thumbnail_semaphore() -> &'static tokio::sync::Semaphore {
     })
 }
 
-/// 高清封面并发信号量（全局共享）。
 fn full_cover_semaphore() -> &'static tokio::sync::Semaphore {
     static SEM: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
     SEM.get_or_init(|| {
@@ -48,7 +44,6 @@ mod tests {
     }
 }
 
-/// 封面缓存目录（`{cache_root}/covers`）。
 pub fn get_cover_cache_dir(cache_root: &Path) -> PathBuf {
     let dir = cache_root.join("covers");
     if !dir.exists() {
@@ -111,14 +106,9 @@ fn remove_cache_dir_contents(cache_dir: &Path) -> Result<(), String> {
 }
 
 // ---- 无图负缓存（提取失败路径的 TTL 记忆） ----
-//
-// 对齐 RwaS CoilArtworkRuntime 的「无图缓存 TTL」：对提取不到内嵌封面的音频，
-// 在 TTL 窗口内不再重复尝试（避免列表滚动/重扫时对无封面文件反复
-// FFI + 解码 + 写盘），TTL 过后才允许重试，以便用户补写封面后能回流。
-const NO_COVER_NEGATIVE_TTL_SECS: u64 = 3600; // 1 小时
-const NO_COVER_NEGATIVE_CAP: usize = 100_000;
+const NO_COVER_NEGATIVE_TTL_SECS: u64 = 3600;
+const NO_COVER_NEGATIVE_CAP: usize = 4_000;
 
-/// 路径（规范化主键）→ 最近一次封面提取失败的 Unix 秒。
 fn no_cover_negative_cache() -> &'static Mutex<HashMap<String, u64>> {
     static CACHE: OnceLock<Mutex<HashMap<String, u64>>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
@@ -131,18 +121,15 @@ fn cover_now_unix_secs() -> u64 {
         .unwrap_or(0)
 }
 
-/// 记录该路径最近一次封面提取失败的 Unix 秒（幂等刷新 TTL）。
 fn mark_no_cover(key: &str, at_secs: u64) {
     if let Ok(mut map) = no_cover_negative_cache().lock() {
         map.insert(key.to_string(), at_secs);
-        // 容量保护：进程内常驻且只在此处增长，超过上限时整体清空重建
         if map.len() > NO_COVER_NEGATIVE_CAP {
             map.clear();
         }
     }
 }
 
-/// 是否命中无图负缓存（TLL 窗口内跳过重试）。
 fn is_no_cover_cached(key: &str, now_secs: u64) -> bool {
     no_cover_negative_cache()
         .lock()
@@ -158,7 +145,6 @@ pub fn clear_cover_cache(cache_dir: &Path) -> Result<(), String> {
     remove_cache_dir_contents(cache_dir)
 }
 
-/// 清空无图负缓存（用户主动重扫/清缓存时释放记忆，允许立即可重试提取）。
 pub fn clear_no_cover_negative_cache() {
     if let Ok(mut map) = no_cover_negative_cache().lock() {
         map.clear();
@@ -368,7 +354,6 @@ pub fn get_or_create_thumbnail(path: &Path, cache_dir: &Path) -> Option<String> 
         return Some(existing);
     }
 
-    // 无图负缓存：TTL 内提取失败过的路径直接回落默认图，不再重读文件
     if is_no_cover_cached(&path_key, now) {
         return None;
     }
@@ -402,11 +387,6 @@ pub fn get_or_create_thumbnail(path: &Path, cache_dir: &Path) -> Option<String> 
     None
 }
 
-/// 通用别名封面提取：从 [read_path] 读取音频标签中的内嵌封面，但缓存别名按
-/// [source_key]（稳定主键，如 SAF content URI）哈希。
-///
-/// 这样扫描阶段产出的缩略图，能在播放/列表展示时按同一 source_key 命中，
-/// 避免运行时再去读无法直接以文件路径访问的 content URI。
 fn get_or_create_thumbnail_aliased(
     source_key: &str,
     read_path: &Path,
@@ -421,7 +401,6 @@ fn get_or_create_thumbnail_aliased(
         return Some(existing);
     }
 
-    // 无图负缓存：TTL 内提取失败过的稳定主键直接回落默认图，不再重读
     if is_no_cover_cached(&key, now) {
         return None;
     }
@@ -457,10 +436,6 @@ fn get_or_create_thumbnail_aliased(
     None
 }
 
-/// 扫描 SAF 音频时从已打开的 `content://` fd 提取内嵌封面并写入封面缓存。
-///
-/// 读文件走 `/proc/self/fd/{fd}`，别名按 `source_path`（content URI）哈希，
-/// 与播放/列表时 `get_song_cover_thumbnail` 按同路径查找所命中的别名一致。
 pub fn get_or_create_thumbnail_from_fd(
     source_path: &str,
     fd: i32,
@@ -470,10 +445,6 @@ pub fn get_or_create_thumbnail_from_fd(
     get_or_create_thumbnail_aliased(source_path, Path::new(&fd_path), cache_dir)
 }
 
-/// 扫描 SAF 音频时从物化到应用内部存储的真实文件路径提取封面。
-///
-/// 别名仍按 `source_key`（content URI）哈希，与展示路径一致；读取走稳定真实路径，
-/// 比 `/proc/self/fd/{fd}` 更可靠，适用于复制成功后统一走路径式解析的场景。
 pub fn get_or_create_thumbnail_from_path(
     source_key: &str,
     real_path: &Path,
@@ -490,7 +461,6 @@ pub fn get_or_create_full_cover(path: &Path, cache_dir: &Path) -> Option<String>
         return Some(existing);
     }
 
-    // 无图负缓存：TTL 内提取失败过的路径直接回落默认图，不再重读文件（与桌面端一致）
     let now = cover_now_unix_secs();
     let path_key = normalize_path(&path.to_string_lossy());
     if is_no_cover_cached(&path_key, now) {
@@ -523,7 +493,6 @@ pub fn get_or_create_full_cover(path: &Path, cache_dir: &Path) -> Option<String>
                     }
                 }
 
-                // 将显示封面钳制到高质量边长，以免把原始数千像素的大图解码进内存。
                 let display_img = if should_resize {
                     img.resize(
                         FULL_COVER_EDGE_PX,
@@ -553,9 +522,6 @@ pub fn get_or_create_full_cover(path: &Path, cache_dir: &Path) -> Option<String>
     None
 }
 
-/// 获取歌曲缩略图封面（远程 URI 先保证缓存到本地）。
-///
-/// 成功后回写 `songs.cover_thumb_path`。
 pub async fn get_song_cover_thumbnail(
     cache_root: PathBuf,
     db_conn: Arc<Mutex<rusqlite::Connection>>,
@@ -575,9 +541,11 @@ pub async fn get_song_cover_thumbnail(
     let p = Path::new(&source_path);
     let p_buf = p.to_path_buf();
 
-    let result = std::thread::spawn(move || get_or_create_thumbnail(&p_buf, &cache_dir))
-        .join()
-        .map_err(|_| "缩略图生成线程异常".to_string())?;
+    let result = tokio::task::spawn_blocking(move || {
+        get_or_create_thumbnail(&p_buf, &cache_dir)
+    })
+    .await
+    .map_err(|e| format!("缩略图生成任务异常: {e}"))?;
 
     if let Some(cache_path_str) = result {
         if !cache_path_str.is_empty() {
@@ -593,7 +561,6 @@ pub async fn get_song_cover_thumbnail(
     Ok(String::new())
 }
 
-/// 获取歌曲高清封面（远程 URI 先保证缓存到本地）。
 pub async fn get_song_cover(
     cache_root: PathBuf,
     db_conn: Arc<Mutex<rusqlite::Connection>>,
@@ -613,9 +580,11 @@ pub async fn get_song_cover(
     let p = Path::new(&source_path);
     let p_buf = p.to_path_buf();
 
-    let result = std::thread::spawn(move || get_or_create_full_cover(&p_buf, &cache_dir))
-        .join()
-        .map_err(|_| "高清封面生成线程异常".to_string())?;
+    let result = tokio::task::spawn_blocking(move || {
+        get_or_create_full_cover(&p_buf, &cache_dir)
+    })
+    .await
+    .map_err(|e| format!("高清封面生成任务异常: {e}"))?;
 
     if let Some(cache_path_str) = result {
         return Ok(cache_path_str);

@@ -10,7 +10,6 @@ import '../common/full_dialog.dart';
 import '../common/stepped_list.dart';
 import '../local/local_music_hub.dart';
 
-/// 在线搜索页（P3）：跨已启用插件搜索 → 结果转播放队列。
 class OnlineSearchPage extends ConsumerStatefulWidget {
   const OnlineSearchPage({super.key});
 
@@ -46,7 +45,7 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
       final sources = await engine.store.loadSources();
       final enabled = sources.where((s) => s.enabled).toList();
       if (enabled.isEmpty) throw '尚未安装插件，点右上角 + 添加';
-      final service = PluginSearchService(engine, sources);
+      final service = PluginSearchService(engine, enabled);
       final results = await service.searchAll(kw, limit: 20);
       if (!mounted) return;
       setState(() {
@@ -72,8 +71,9 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
     if (url == null || url.isEmpty || !mounted) return;
     setState(() => _installing = true);
     try {
-      final result =
-          await ref.read(pluginManagerProvider.notifier).installFromUrl(url);
+      final result = await ref
+          .read(pluginManagerProvider.notifier)
+          .installFromUrl(url);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -86,15 +86,15 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('安装失败：$e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('安装失败：$e')));
       }
     } finally {
       if (mounted) setState(() => _installing = false);
     }
   }
 
-  /// 点结果：整组结果转播放队列，从点击项起播。
   Future<void> _play(int groupIndex, int itemIndex) async {
     final engine = await ref.read(pluginEngineProvider.future);
     final service = PluginSearchService(engine, _sources);
@@ -107,14 +107,13 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
     }
     await ref.read(playerProvider.notifier).playQueue(items, startIndex: start);
     if (!mounted) return;
-    // 网易云式：点歌后回 hub 并自动切到播放页。
     ref.read(localHubPageProvider.notifier).state = 1;
     Navigator.of(context).pop();
   }
 
   @override
   Widget build(BuildContext context) {
-    final s = context.watchScale(); // 屏径等比缩放
+    final s = context.watchScale();
     return Scaffold(
       appBar: AppBar(
         title: Text('搜索', style: TextStyle(fontSize: 15 * s)),
@@ -160,11 +159,8 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
   }
 
   Widget _buildBody(double s) {
-    // s：屏径等比缩放系数，由 build 传入。
     if (_searching) {
-      return Center(
-        child: CircularProgressIndicator(strokeWidth: 3 * s),
-      );
+      return Center(child: CircularProgressIndicator(strokeWidth: 3 * s));
     }
     if (_error != null) {
       return Center(
@@ -189,49 +185,54 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
     final tiles = <Widget>[];
     for (var gi = 0; gi < _results.length; gi++) {
       final (src, group) = _results[gi];
-      // 插件分组头：作为阶梯列表里的一档（行高由 itemExtent 紧约束撑满）。
-      tiles.add(Align(
-        alignment: Alignment.centerLeft,
-        child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: 3 * s),
-          child: Text(
-            src.name,
-            style: TextStyle(
-              fontSize: 12 * s,
-              color: const Color(0xFFFF8FA3),
-              fontWeight: FontWeight.w600,
+      tiles.add(
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: 3 * s),
+            child: Text(
+              src.name,
+              style: TextStyle(
+                fontSize: 12 * s,
+                color: const Color(0xFFFF8FA3),
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ),
-      ));
+      );
       for (var ri = 0; ri < group.length; ri++) {
         final r = group[ri];
         final quality = r.types
             .map((t) => t['type'])
             .whereType<String>()
             .join('/');
-        tiles.add(SteppedTile(
-          leading: ClipOval(
-            child: SizedBox(
-              width: 44 * s,
-              height: 44 * s,
-              child: (r.img != null && r.img!.isNotEmpty)
-                  ? Image.network(
-                      r.img!,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => const _ResultIcon(),
-                    )
-                  : const _ResultIcon(),
+        tiles.add(
+          SteppedTile(
+            leading: ClipOval(
+              child: SizedBox(
+                width: 44 * s,
+                height: 44 * s,
+                child: (r.img != null && r.img!.isNotEmpty)
+                    ? Image.network(
+                        r.img!,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) => const _ResultIcon(),
+                      )
+                    : const _ResultIcon(),
+              ),
             ),
+            title: r.name,
+            subtitle: quality.isEmpty ? r.singer : '${r.singer} · $quality',
+            onTap: () => _play(gi, ri),
           ),
-          title: r.name,
-          subtitle: quality.isEmpty ? r.singer : '${r.singer} · $quality',
-          onTap: () => _play(gi, ri),
-        ));
+        );
       }
     }
-    // 功能页同款圆屏阶梯列表：一屏约三行，焦点行最大铺满中部。
-    return SteppedListView(itemCount: tiles.length, itemBuilder: (_, i) => tiles[i]);
+    return SteppedListView(
+      itemCount: tiles.length,
+      itemBuilder: (_, i) => tiles[i],
+    );
   }
 }
 
@@ -240,7 +241,7 @@ class _ResultIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final s = context.watchScale(); // 屏径等比缩放
+    final s = context.watchScale();
     return Container(
       color: const Color(0xFF1A1A1E),
       child: Icon(

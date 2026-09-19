@@ -8,12 +8,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/db_path.dart';
 import '../rust/api.dart' as rust;
 
-/// 账号 API 默认基地址与签名密钥（与移动端一致，Rust 侧签名请求）。
 const defaultAuthBaseUrl = 'https://api.xianyumusic.cn/api';
-const defaultAuthApiSecret =
-    'bf027fedb4d1b4f969c10495f12f17042bf0de02de128200';
+const defaultAuthApiSecret = 'bf027fedb4d1b4f969c10495f12f17042bf0de02de128200';
 
-/// 已登录用户信息（服务端 user 对象的腕上子集）。
 class AuthUser {
   final String id;
   final String username;
@@ -34,33 +31,31 @@ class AuthUser {
   });
 
   factory AuthUser.fromJson(Map<String, dynamic> j) => AuthUser(
-        id: (j['id'] ?? '').toString(),
-        username: (j['username'] ?? '').toString(),
-        nickname: (j['nickname'] ?? '').toString(),
-        email: (j['email'] ?? '').toString(),
-        avatar: j['avatar']?.toString(),
-        ciyuanxiId: j['ciyuanxi_id']?.toString() ?? j['ciyuanxiId']?.toString(),
-        role: (j['role'] ?? 'user').toString(),
-      );
+    id: (j['id'] ?? '').toString(),
+    username: (j['username'] ?? '').toString(),
+    nickname: (j['nickname'] ?? '').toString(),
+    email: (j['email'] ?? '').toString(),
+    avatar: j['avatar']?.toString(),
+    ciyuanxiId: j['ciyuanxi_id']?.toString() ?? j['ciyuanxiId']?.toString(),
+    role: (j['role'] ?? 'user').toString(),
+  );
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'username': username,
-        'nickname': nickname,
-        'email': email,
-        'avatar': avatar,
-        'ciyuanxi_id': ciyuanxiId,
-        'role': role,
-      };
+    'id': id,
+    'username': username,
+    'nickname': nickname,
+    'email': email,
+    'avatar': avatar,
+    'ciyuanxi_id': ciyuanxiId,
+    'role': role,
+  };
 }
 
-/// 账号状态。
 class AuthState {
   final AuthUser? user;
   final bool loading;
   final String? error;
 
-  /// 服务端标记登录态失效（清理后引导重新登录）。
   final bool sessionExpired;
 
   const AuthState({
@@ -78,42 +73,36 @@ class AuthState {
     String? error,
     bool clearError = false,
     bool? sessionExpired,
-  }) =>
-      AuthState(
-        user: user ?? this.user,
-        loading: loading ?? this.loading,
-        error: clearError ? null : (error ?? this.error),
-        sessionExpired: sessionExpired ?? this.sessionExpired,
-      );
+  }) => AuthState(
+    user: user ?? this.user,
+    loading: loading ?? this.loading,
+    error: clearError ? null : (error ?? this.error),
+    sessionExpired: sessionExpired ?? this.sessionExpired,
+  );
 }
 
 class AuthException implements Exception {
   final String message;
-  /// 服务端业务码（200 之外的失败码），0 表示非 HTTP 业务错误
-  /// （本地构造/网络异常）。供扫码轮询区分「服务端明确判死」与瞬时故障。
   final int code;
   AuthException(this.message, {this.code = 0});
   @override
   String toString() => message;
 }
 
-/// 人机验证题目（服务端内置算术题，与移动端/桌面端 get_captcha 一致）。
 class HumanCaptcha {
   final String captchaId;
   final String question;
   const HumanCaptcha({required this.captchaId, required this.question});
 
   factory HumanCaptcha.fromJson(Map<String, dynamic> j) => HumanCaptcha(
-        captchaId: (j['captcha_id'] ?? '').toString(),
-        question: (j['question'] ?? '').toString(),
-      );
+    captchaId: (j['captcha_id'] ?? '').toString(),
+    question: (j['question'] ?? '').toString(),
+  );
 }
 
-/// 人机验证配置（服务端下发，与移动端 email_get_captcha_config 一致）。
 class HumanCaptchaConfig {
   final bool enabled;
 
-  /// 'off' / 'turnstile' / 'hcaptcha'。
   final String provider;
   final String siteKey;
   const HumanCaptchaConfig({
@@ -122,12 +111,10 @@ class HumanCaptchaConfig {
     this.siteKey = '',
   });
 
-  /// 第三方验证组件（Turnstile/hCaptcha）是否启用。
-  /// 启用时腕上端无法渲染 WebView 组件，引导走扫码登录。
-  bool get isProviderEnabled => enabled && siteKey.isNotEmpty && provider != 'off';
+  bool get isProviderEnabled =>
+      enabled && siteKey.isNotEmpty && provider != 'off';
 }
 
-/// 人机验证结果载荷（算术题：id+答案；第三方：token）。
 class HumanCaptchaPayload {
   final String captchaId;
   final String captchaAnswer;
@@ -142,25 +129,18 @@ class HumanCaptchaPayload {
 
   bool get isProviderToken => providerToken.isNotEmpty;
 
-  /// 并入登录请求体的 captcha 字段（与桌面端 withCaptcha 一致）。
   Map<String, dynamic> toBodyFields() => isProviderToken
       ? {
           'captcha_token': providerToken,
           'turnstile_token': providerToken,
           'captcha_provider': provider,
         }
-      : {
-          'captcha_id': captchaId,
-          'captcha_answer': captchaAnswer,
-        };
+      : {'captcha_id': captchaId, 'captcha_answer': captchaAnswer};
 }
 
-/// 腕上精简账号控制器：弦予号密码登录 / 凭证持久化（Rust auth 目录）/
-/// 通用带签名请求（后续云同步预留）。验证码/注册/资料编辑等重交互仍在手机端。
 class AuthNotifier extends StateNotifier<AuthState> {
   AuthNotifier(this._ref) : super(const AuthState());
 
-  /// 人机验证配置缓存（配置, 获取时间），10 分钟有效期，对齐移动端。
   static (HumanCaptchaConfig, DateTime)? _captchaConfigCache;
 
   final Ref _ref;
@@ -185,12 +165,14 @@ class AuthNotifier extends StateNotifier<AuthState> {
     return id;
   }
 
-  /// 启动时配置基地址/密钥并加载已存凭证。
   Future<void> init() async {
     try {
       final dir = await _dataDir();
       await rust.authSetBaseUrl(dataDir: dir, baseUrl: defaultAuthBaseUrl);
-      await rust.authSetApiSecret(dataDir: dir, apiSecret: defaultAuthApiSecret);
+      await rust.authSetApiSecret(
+        dataDir: dir,
+        apiSecret: defaultAuthApiSecret,
+      );
       final credsJson = await rust.authGetCredentials(dataDir: dir);
       if (credsJson.trim().isNotEmpty && credsJson != 'null') {
         final j = jsonDecode(credsJson) as Map<String, dynamic>;
@@ -200,14 +182,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
           state = AuthState(user: AuthUser.fromJson(userJson));
         }
       }
-    } catch (_) {
-      // 无凭证或初始化失败，保持未登录。
-    }
+    } catch (_) {}
   }
 
-  /// 发送带签名的账号请求，校验 code===200 并返回 data。
   Future<Map<String, dynamic>> requestAction(
-      String action, Map<String, dynamic> body) async {
+    String action,
+    Map<String, dynamic> body,
+  ) async {
     final dir = await _dataDir();
     final finalBody = Map<String, dynamic>.from(body);
     final token = _token;
@@ -236,22 +217,21 @@ class AuthNotifier extends StateNotifier<AuthState> {
     return (j['data'] as Map<String, dynamic>?) ?? const {};
   }
 
-  /// 服务端 user 字段 → [AuthUser]（兼容 user_id/id、avatar_url/avatar 双命名，
-  /// 扫码轮询与登录返回体共用）。
-  static AuthUser mapUser(Map<String, dynamic> j) => AuthUser(
-        id: (j['user_id'] ?? j['id'] ?? '').toString(),
-        username: (j['username'] ?? '').toString(),
-        nickname: ((j['nickname'] ?? '') as String).isNotEmpty
-            ? (j['nickname'] ?? '').toString()
-            : (j['username'] ?? '').toString(),
-        email: (j['email'] ?? '').toString(),
-        avatar: (j['avatar_url'] ?? j['avatar'])?.toString(),
-        ciyuanxiId: j['ciyuanxi_id']?.toString() ?? j['ciyuanxiId']?.toString(),
-        role: (j['role'] ?? 'user').toString(),
-      );
+  static AuthUser mapUser(Map<String, dynamic> j) {
+    final nickname = (j['nickname'] ?? '').toString();
+    return AuthUser(
+      id: (j['user_id'] ?? j['id'] ?? '').toString(),
+      username: (j['username'] ?? '').toString(),
+      nickname: nickname.isNotEmpty
+          ? nickname
+          : (j['username'] ?? '').toString(),
+      email: (j['email'] ?? '').toString(),
+      avatar: (j['avatar_url'] ?? j['avatar'])?.toString(),
+      ciyuanxiId: j['ciyuanxi_id']?.toString() ?? j['ciyuanxiId']?.toString(),
+      role: (j['role'] ?? 'user').toString(),
+    );
+  }
 
-  /// 弦予号 + 密码登录（成功即持久化凭证并更新状态）。
-  /// 服务端开启人机验证时必须携带 [captcha]（算术题答案或第三方 token）。
   Future<void> login({
     required String ciyuanxiId,
     required String password,
@@ -282,19 +262,15 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  /// 表单侧本地校验错误（不触发 loading，与登录请求错误共用 error 槽）。
   void setFormError(String msg) {
     state = state.copyWith(error: msg);
   }
 
-  /// 获取一次性人机验证题（算术题，purpose=auth）。
   Future<HumanCaptcha> fetchCaptcha() async {
     final data = await requestAction('get_captcha', {'purpose': 'auth'});
     return HumanCaptcha.fromJson(data);
   }
 
-  /// 获取服务端人机验证配置（10 分钟缓存，对齐移动端）。
-  /// 失败时保留旧缓存（若有），避免网络抖动误降级为算术题。
   Future<HumanCaptchaConfig> fetchCaptchaConfig() async {
     final cached = _captchaConfigCache;
     if (cached != null &&
@@ -304,7 +280,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
     try {
       final data = await requestAction('email_get_captcha_config', {});
       final cfg = HumanCaptchaConfig(
-        enabled: (data['enabled'] == true) &&
+        enabled:
+            (data['enabled'] == true) &&
             (data['site_key'] ?? '').toString().isNotEmpty,
         provider: (data['provider'] ?? 'off').toString(),
         siteKey: (data['site_key'] ?? '').toString(),
@@ -317,8 +294,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  /// 预校验算术题答案（不消费验证码，真实登录时服务端再校验）。
-  /// 第三方 token 模式跳过（服务端在登录请求中直验）。
   Future<void> verifyCaptcha(HumanCaptchaPayload payload) async {
     if (payload.isProviderToken) return;
     await requestAction('verify_captcha', {
@@ -337,8 +312,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
     );
   }
 
-  /// 扫码登录（桌面端同款）：生成二维码内容。免签接口 generate_tv_login_code。
-  /// 返回 (code, expireSeconds)；location 尽力而为取 IP 归属地，失败回退「手表」。
   Future<(String, int)> createQrLogin() async {
     final location = await _ipLocation();
     final data = await requestAction('generate_tv_login_code', {
@@ -351,8 +324,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
     return (code, expire);
   }
 
-  /// 轮询扫码状态：pending / scanned / logged_in（收尾登录态）/ invalid。
-  /// 返回登录后的用户（成功时），其余情况返回 null；[outStatus] 供 UI 展示。
   Future<AuthUser?> pollQrLogin({
     required String code,
     void Function(String status)? onStatus,
@@ -374,22 +345,17 @@ class AuthNotifier extends StateNotifier<AuthState> {
         return user;
       }
     } on AuthException catch (e) {
-      // 对齐桌面端语义：仅服务端明确判死（404 二维码无效/设备不匹配、
-      // 403 账号禁用）才结束轮询；限流 429、5xx、网络抖动均为瞬时故障，
-      // 保持 pending 由下个周期重试，避免误报「二维码已过期」。
       if (e.code == 404 || e.code == 403) {
         onStatus?.call('invalid');
       }
-    } catch (_) {
-      // 网络抖动：视为继续 pending。
-    }
+    } catch (_) {}
     return null;
   }
 
-  /// IP 归属地（供手机确认页展示「被扫码设备位置」），2.5s 超时回退。
   Future<String> _ipLocation() async {
+    final client = HttpClient();
     try {
-      final res = await HttpClient()
+      final res = await client
           .getUrl(Uri.parse('https://ipapi.co/json/'))
           .then((r) => r.close())
           .timeout(const Duration(milliseconds: 2500));
@@ -403,17 +369,18 @@ class AuthNotifier extends StateNotifier<AuthState> {
         ].whereType<String>().where((s) => s.isNotEmpty).toList();
         if (parts.isNotEmpty) return parts.join(' ');
       }
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      client.close();
+    }
     return '手表';
   }
 
-  /// 退出登录：清本地凭证 + Rust auth 目录凭证。
   Future<void> logout() async {
     await _clearLocalAuth();
     state = const AuthState();
   }
 
-  /// UI 展示完会话失效弹窗后调用。
   void consumeSessionExpired() {
     if (state.sessionExpired) state = const AuthState();
   }

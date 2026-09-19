@@ -1,4 +1,3 @@
-//! DMR 渲染器：设备描述 / SCPD / AVTransport SOAP 分发（双端同步一份代码，勿在本端私自改动）。
 
 use super::soap::{arg, extract_tag, format_upnp_time, parse_upnp_time, xml_escape, xml_unescape};
 use super::types::{DmrCommand, DmrHost};
@@ -15,19 +14,14 @@ pub const CM_SERVICE: &str = "urn:schemas-upnp-org:service:ConnectionManager:1";
 const UPNP_ERR_INVALID_ACTION: u16 = 401;
 const UPNP_ERR_TRANSITION: u16 = 701;
 
-/// DMR 共享状态：SOAP 端点写入 / HTTP 应答读取。
 pub struct DmrShared {
-    /// 0=disabled 1=enabled（desc.xml 与 control 端点未启用时返回 404/503）。
     pub enabled: AtomicU8,
     pub udn: std::sync::Mutex<String>,
     pub friendly_name: std::sync::Mutex<String>,
     pub port: std::sync::atomic::AtomicU16,
-    /// 当前投递的 URI / 元数据（GetPositionInfo 应答用）。
     pub current_uri: std::sync::Mutex<String>,
     pub current_meta: std::sync::Mutex<String>,
-    /// 宿主播放器状态读取。
     pub host: std::sync::Mutex<Option<Arc<dyn DmrHost>>>,
-    /// 控制点指令出口（宿主消费）。
     pub commands: Sender<DmrCommand>,
 }
 
@@ -46,7 +40,7 @@ impl DmrShared {
     }
 
     fn host(&self) -> Option<Arc<dyn DmrHost>> {
-        self.host.lock().unwrap().clone()
+        self.host.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 }
 
@@ -245,7 +239,6 @@ fn soap_fault(code: u16, desc: &str) -> Response {
         .unwrap()
 }
 
-/// 处理 POST /dlna/control/{service}。
 pub async fn handle_control(
     shared: &Arc<DmrShared>,
     service_id: &str,
@@ -278,8 +271,8 @@ pub async fn handle_control(
             if uri.is_empty() {
                 return soap_fault(UPNP_ERR_TRANSITION, "empty URI");
             }
-            *shared.current_uri.lock().unwrap() = uri.clone();
-            *shared.current_meta.lock().unwrap() = meta.clone();
+            *shared.current_uri.lock().unwrap_or_else(|e| e.into_inner()) = uri.clone();
+            *shared.current_meta.lock().unwrap_or_else(|e| e.into_inner()) = meta.clone();
             let title = extract_tag(&meta, "dc:title").unwrap_or_default();
             let artist = extract_tag(&meta, "dc:creator")
                 .or_else(|| extract_tag(&meta, "upnp:artist"))
@@ -333,8 +326,8 @@ pub async fn handle_control(
                 return soap_fault(UPNP_ERR_TRANSITION, "no host");
             };
             let snap = host.playback_snapshot();
-            let uri = shared.current_uri.lock().unwrap().clone();
-            let meta = shared.current_meta.lock().unwrap().clone();
+            let uri = shared.current_uri.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            let meta = shared.current_meta.lock().unwrap_or_else(|e| e.into_inner()).clone();
             let inner = format!(
                 "<Track>1</Track>\
                  <TrackDuration>{}</TrackDuration>\
@@ -405,14 +398,12 @@ pub async fn handle_control(
     }
 }
 
-/// 提取 `<tag attr="...">` 的属性值（首个匹配，大小写不敏感）。
 fn extract_attr(xml: &str, tag: &str, attr: &str) -> Option<String> {
     let lower = xml.to_ascii_lowercase();
     let open = format!("<{}", tag.to_ascii_lowercase());
     let start = lower.find(&open)?;
     let tag_end = lower[start..].find('>')? + start;
     let seg = &xml[start..tag_end];
-    // 在标签内找 attr="value" / attr='value'。
     let pat = format!("{}=", attr.to_ascii_lowercase());
     let seg_lower = seg.to_ascii_lowercase();
     let pos = seg_lower.find(&pat)? + pat.len();
@@ -425,7 +416,6 @@ fn extract_attr(xml: &str, tag: &str, attr: &str) -> Option<String> {
     Some(rest[1..end].to_string())
 }
 
-/// 处理 SUBSCRIBE / UNSUBSCRIBE / GET /dlna/event/*（GENA 订阅桩）。
 pub fn handle_event(method: &str) -> Response {
     if method.eq_ignore_ascii_case("SUBSCRIBE") {
         Response::builder()

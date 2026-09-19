@@ -1,4 +1,3 @@
-//! axum HTTP 服务组装：媒体代理 + DMR 控制端点共端口（双端同步一份代码，勿在本端私自改动）。
 
 use super::dmr;
 use super::media_server::{serve_cover, serve_media, MediaRegistry};
@@ -12,18 +11,15 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tokio::sync::watch;
 
-/// 端口扫描范围（9958 被占则向上找，最多 21 个）。
 const PORT_RANGE: std::ops::RangeInclusive<u16> = 9958..=9978;
 
 pub struct HttpServer {
     pub port: u16,
-    /// 优雅停机句柄（测试用；生产端随进程退出销毁）。
     #[allow(dead_code)]
     shutdown_tx: watch::Sender<bool>,
 }
 
 impl HttpServer {
-    /// 停机（仅测试调用，避免测试残留监听）。
     #[allow(dead_code)]
     pub async fn stop(self) {
         let _ = self.shutdown_tx.send(true);
@@ -47,8 +43,8 @@ async fn dmr_desc(State(st): State<AppState>) -> Response {
     if st.dmr.enabled.load(Ordering::SeqCst) == 0 {
         return not_found();
     }
-    let udn = st.dmr.udn.lock().unwrap().clone();
-    let name = st.dmr.friendly_name.lock().unwrap().clone();
+    let udn = st.dmr.udn.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let name = st.dmr.friendly_name.lock().unwrap_or_else(|e| e.into_inner()).clone();
     let port = st.dmr.port.load(Ordering::SeqCst);
     Response::builder()
         .status(StatusCode::OK)
@@ -78,12 +74,9 @@ async fn dmr_control(
 }
 
 async fn dmr_event(State(st): State<AppState>, Path(_service): Path<String>) -> Response {
-    // 渲染器关闭时订阅也拒绝。
     if st.dmr.enabled.load(Ordering::SeqCst) == 0 {
         return not_found();
     }
-    // GENA 订阅桩：SUBSCRIBE 以自定义 method 发出，axum 0.8 允许任意 method 匹配 any()；
-    // 统一应答 200 + SID，避免部分控制点报错。
     dmr::handle_event("SUBSCRIBE")
 }
 
@@ -91,13 +84,7 @@ async fn not_found_handler() -> Response {
     not_found()
 }
 
-/// 启动单端口 axum 服务（媒体 + DMR）。
-///
-/// TCP 监听与 serve 常驻任务均在专用 runtime 上（IO 资源与创建它的
-/// runtime 绑定），绑定结果经 oneshot 回传调用方。
 pub async fn start(state: AppState) -> Result<HttpServer, String> {
-    // 媒体路由单独挂 registry 状态（serve_media/serve_cover 只依赖 MediaRegistry），
-    // DMR 路由用完整 AppState，合并后统一以 AppState 提供外层状态。
     let media_routes = Router::new()
         .route("/media/cover/{token}", get(serve_cover))
         .route("/media/{token}", get(serve_media).head(serve_media))

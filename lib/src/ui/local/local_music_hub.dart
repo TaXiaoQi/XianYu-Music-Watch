@@ -23,22 +23,16 @@ import '../link/link_page.dart';
 import '../settings/settings_view.dart';
 import 'local_library_view.dart';
 
-/// 音乐 tab 当前页（0 选择 / 1 播放 / 2 歌词）。
-/// 开屏默认 1：打开 App 直接落在播放页（网易云手表式）。
-/// 歌曲列表点歌后置 1 再返回，实现「点歌自动进播放页」。
 final localHubPageProvider = StateProvider<int>((ref) => 1);
 
-/// 本地当前曲歌词行（自动跟随 playerProvider 当前曲目变化）。
-final _localLyricsProvider = FutureProvider.autoDispose<List<LyricLine>>(
-  (ref) async {
-    final cur = ref.watch(playerProvider).current;
-    if (cur == null) return const [];
-    return ref.watch(lyricsRepositoryProvider).fetchLyrics(cur);
-  },
-);
+final _localLyricsProvider = FutureProvider.autoDispose<List<LyricLine>>((
+  ref,
+) async {
+  final cur = ref.watch(playerProvider).current;
+  if (cur == null) return const [];
+  return ref.watch(lyricsRepositoryProvider).fetchLyrics(cur);
+});
 
-/// 音乐 tab 主壳（网易云手表版形态）：选择页 ↔ 播放页 ↔ 歌词页
-/// 三页左右横移 + 底部圆点指示；无复杂转场。
 class LocalMusicHub extends ConsumerStatefulWidget {
   const LocalMusicHub({super.key});
 
@@ -47,15 +41,14 @@ class LocalMusicHub extends ConsumerStatefulWidget {
 }
 
 class _LocalMusicHubState extends ConsumerState<LocalMusicHub> {
-  // 开屏默认落在播放页（provider 初始 1，与此保持一致）。
   final PageController _pageCtrl = PageController(initialPage: 1);
   int _page = 1;
+  ProviderSubscription<int>? _pageSub;
 
   @override
   void initState() {
     super.initState();
-    // 歌曲列表点歌 → 跳播放页。
-    ref.listenManual(localHubPageProvider, (prev, next) {
+    _pageSub = ref.listenManual(localHubPageProvider, (prev, next) {
       if (!mounted || next == _page) return;
       _pageCtrl.animateToPage(
         next,
@@ -67,28 +60,24 @@ class _LocalMusicHubState extends ConsumerState<LocalMusicHub> {
 
   @override
   void dispose() {
+    _pageSub?.close();
     _pageCtrl.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    // 只盯封面字段：播放进度逐秒刷新 playerProvider，若整层 watch 会
-    // 连带重建 CoverBackdrop——ImageFilter 实例每次都变，触发全屏模糊
-    // 重栅格化（表上是明显的周期性卡顿）。
-    final coverPath =
-        ref.watch(playerProvider.select((s) => s.current?.coverPath));
-    final coverUrl =
-        ref.watch(playerProvider.select((s) => s.current?.coverUrl));
-    // 独立模式根路由：返回语义（先翻页/最左页退后台）收口在共享的
-    // RootBackScope——鸿蒙侧滑返回被系统抢走时经 popRoute 到这里转成
-    // 翻页，修掉「往右滑直接退到表盘、选择页永远进不去」的问题。
+    final coverPath = ref.watch(
+      playerProvider.select((s) => s.current?.coverPath),
+    );
+    final coverUrl = ref.watch(
+      playerProvider.select((s) => s.current?.coverUrl),
+    );
     return RootBackScope(
       pageCtrl: _pageCtrl,
       child: Scaffold(
         body: Stack(
           children: [
-            // 全屏封面模糊背景（网易云手表版）：三页共享一层，横移时背景不动。
             Positioned.fill(
               child: CoverBackdrop(
                 cover: CoverRef(filePath: coverPath, url: coverUrl),
@@ -98,8 +87,6 @@ class _LocalMusicHubState extends ConsumerState<LocalMusicHub> {
               controller: _pageCtrl,
               onPageChanged: (i) {
                 setState(() => _page = i);
-                // 回写 provider：表冠门禁（选择页/播放页守卫）都读它，
-                // 只 setState 不回写会让门禁永远停在初始页。
                 ref.read(localHubPageProvider.notifier).state = i;
               },
               children: [
@@ -112,9 +99,7 @@ class _LocalMusicHubState extends ConsumerState<LocalMusicHub> {
               left: 0,
               right: 0,
               bottom: 10,
-              child: Center(
-                child: PageDots(count: 3, current: _page),
-              ),
+              child: Center(child: PageDots(count: 3, current: _page)),
             ),
           ],
         ),
@@ -123,8 +108,6 @@ class _LocalMusicHubState extends ConsumerState<LocalMusicHub> {
   }
 }
 
-/// 选择页：音乐源入口（网易云样式：彩色圆形图标 + 文字 + 箭头）。
-/// 支持表冠滚动列表（每档约一个条目 + 档位振动）。
 class _SourcePickerPage extends ConsumerStatefulWidget {
   const _SourcePickerPage();
 
@@ -136,17 +119,18 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
   @override
   Widget build(BuildContext context) {
     final s = context.watchScale();
-    // 对齐移动端：无任何已启用音源插件时隐藏 每日推荐/音源榜单。
-    final hasPlugins =
-        ref.watch(pluginManagerProvider).sources.any((p) => p.enabled);
+    final hasPlugins = ref
+        .watch(pluginManagerProvider)
+        .sources
+        .any((p) => p.enabled);
     final specs = <(Color, IconData, String, VoidCallback)>[
       (
         const Color(0xFFE8A33D),
         Icons.account_circle_rounded,
         '账号',
-        () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const AccountView()),
-            ),
+        () => Navigator.of(
+          context,
+        ).push(MaterialPageRoute<void>(builder: (_) => const AccountView())),
       ),
       if (hasPlugins) ...[
         (
@@ -154,17 +138,16 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
           Icons.recommend_rounded,
           '每日推荐',
           () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                    builder: (_) => const DailyRecommendPage()),
-              ),
+            MaterialPageRoute<void>(builder: (_) => const DailyRecommendPage()),
+          ),
         ),
         (
           const Color(0xFF4A90D9),
           Icons.leaderboard_rounded,
           '音源榜单',
-          () => Navigator.of(context).push(
-                MaterialPageRoute<void>(builder: (_) => const TopListPage()),
-              ),
+          () => Navigator.of(
+            context,
+          ).push(MaterialPageRoute<void>(builder: (_) => const TopListPage())),
         ),
       ],
       (
@@ -172,32 +155,32 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
         Icons.travel_explore_rounded,
         '搜索',
         () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const OnlineSearchPage()),
-            ),
+          MaterialPageRoute<void>(builder: (_) => const OnlineSearchPage()),
+        ),
       ),
       (
         const Color(0xFFFF4D6E),
         Icons.library_music_rounded,
         '本地音乐',
         () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const LocalLibraryView()),
-            ),
+          MaterialPageRoute<void>(builder: (_) => const LocalLibraryView()),
+        ),
       ),
       (
         const Color(0xFFD94A8C),
         Icons.queue_music_rounded,
         '我的歌单',
         () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const CloudPlaylistsPage()),
-            ),
+          MaterialPageRoute<void>(builder: (_) => const CloudPlaylistsPage()),
+        ),
       ),
       (
         const Color(0xFF5FA97C),
         Icons.settings_rounded,
         '设置',
-        () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const SettingsView()),
-            ),
+        () => Navigator.of(
+          context,
+        ).push(MaterialPageRoute<void>(builder: (_) => const SettingsView())),
       ),
     ];
     return Scaffold(
@@ -205,13 +188,9 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
       body: SafeArea(
         child: SteppedListView(
           itemCount: specs.length + 1,
-          // 表头「功能」（One UI 系统设置样式，与设置页等二级页统一）。
           header: const PageTitleHeader('功能'),
-          // 本页在 PageView 中：表冠是全局流，仅第 0 页且无上层推送页时
-          // 才归本页，否则隐藏页会误滚动误振动。
           rotaryGuard: () => ref.read(localHubPageProvider) == 0,
           itemBuilder: (context, i) {
-            // 第一位固定为腕上联动入口（初次配对只能手表发起，必须显眼）。
             if (i == 0) return const LinkEntryTile();
             final (color, icon, label, onTap) = specs[i - 1];
             return SteppedTile(
@@ -234,7 +213,6 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
   }
 }
 
-/// 本地播放页：通用 PlayPageBody（本地数据源，表冠调本地音量）。
 class _LocalPlayPage extends ConsumerWidget {
   const _LocalPlayPage();
 
@@ -242,27 +220,21 @@ class _LocalPlayPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final st = ref.watch(playerProvider);
     final vol = ref.watch(volumeProvider);
-    // watch 收藏态：红心键显隐与实心/描边随点随变（无当前歌时 liked=null 隐藏键）。
     final cur = st.current;
-    final liked =
-        cur == null ? null : ref.watch(favoritesProvider).contains(cur.path);
+    final liked = cur == null
+        ? null
+        : ref.watch(favoritesProvider).contains(cur.path);
     return PlayPageBody(
-      sourceBuilder: () => LocalPlayerSource(
-        st,
-        ref.read(playerProvider.notifier),
-        vol,
-        liked,
-      ),
+      sourceBuilder: () =>
+          LocalPlayerSource(st, ref.read(playerProvider.notifier), vol, liked),
       emptyText: '还没有在播的歌',
       emptyActionLabel: '无音乐，去选歌',
       onEmptyAction: () => ref.read(localHubPageProvider.notifier).state = 0,
-      // 表冠门禁：仅播放页是 PageView 当前页时才调音量。
       rotaryGuard: () => ref.read(localHubPageProvider) == 1,
     );
   }
 }
 
-/// 本地歌词页。
 class _LocalLyricsPage extends ConsumerWidget {
   const _LocalLyricsPage();
 
@@ -276,7 +248,6 @@ class _LocalLyricsPage extends ConsumerWidget {
       position: st.position,
       isPlaying: st.isPlaying,
       onSeek: (secs) => ref.read(playerProvider.notifier).seek(secs),
-      // 表冠门禁：仅歌词页是 PageView 当前页时才滚动歌词。
       rotaryGuard: () => ref.read(localHubPageProvider) == 1,
     );
   }

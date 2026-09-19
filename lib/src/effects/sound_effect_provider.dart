@@ -5,15 +5,21 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Rust DSP 音效管线是否可用：Rust 播放输出（AAudio 管线）仅 Android 有实现，
-/// 鸿蒙表走 not(android) 分支恒报错——音效 UI 照常展示，DSP 效果组置灰，
-/// 变速变调组经 just_audio 原生 speed/pitch 兜底。
 final bool kDspPipelineSupported = !kIsWeb && Platform.isAndroid;
 
-/// 10 段 EQ 频率标签（与 Rust equalizer.rs 的 EQ_FREQUENCIES 一致）。
-const eqFreqLabels = ['31', '62', '125', '250', '500', '1k', '2k', '4k', '8k', '16k'];
+const eqFreqLabels = [
+  '31',
+  '62',
+  '125',
+  '250',
+  '500',
+  '1k',
+  '2k',
+  '4k',
+  '8k',
+  '16k',
+];
 
-/// 内置 EQ 预设（与桌面端/移动端 freqsPreset 对齐）。
 class EqPreset {
   final String name;
   final List<double> gains;
@@ -32,7 +38,6 @@ const List<EqPreset> eqPresets = <EqPreset>[
   EqPreset('高音增强', [0, 0, 0, 0, 0, 1, 2, 3, 4, 4]),
 ];
 
-/// 混响预设（卷积 IR 列表，与桌面端 convolutions 对齐）。
 class ReverbPreset {
   final String label;
   final int dry;
@@ -49,7 +54,6 @@ const List<ReverbPreset> reverbPresets = <ReverbPreset>[
   ReverbPreset('教堂', 60, 45),
 ];
 
-/// 算法混响预设。
 const List<ReverbPreset> algoReverbPresets = <ReverbPreset>[
   ReverbPreset('算法大厅', 85, 40),
   ReverbPreset('算法房间', 90, 30),
@@ -57,20 +61,19 @@ const List<ReverbPreset> algoReverbPresets = <ReverbPreset>[
   ReverbPreset('算法弹簧', 88, 35),
 ];
 
-/// 音效设置（camelCase，与 Rust SoundEffectSettings JSON 对齐，可部分省略）。
 class SoundEffectSettings {
-  final double pitchShift; // 50~200
-  final double playbackRate; // 50~200
+  final double pitchShift;
+  final double playbackRate;
   final bool preservesPitch;
-  final String reverbKind; // none | convolution | algorithmic
+  final String reverbKind;
   final String reverbPreset;
   final double reverbDry;
   final double reverbWet;
-  final String spatialMode; // none | surround3d | d8 | d36 | virtual
+  final String spatialMode;
   final double spatialSpeed;
   final double spatialRadius;
   final double spatialIntensity;
-  final String virtualSurroundMode; // 5.1 | 7.1
+  final String virtualSurroundMode;
   final double virtualSurroundSpread;
   final bool vocalRemoval;
   final bool vibratoEnabled;
@@ -86,12 +89,12 @@ class SoundEffectSettings {
   final double trebleGain;
   final bool distortionEnabled;
   final double distortionAmount;
-  final String distortionType; // soft | hard
+  final String distortionType;
   final bool delayEnabled;
   final double delayTime;
   final double delayFeedback;
   final double delayMix;
-  final String delayType; // single | pingpong
+  final String delayType;
   final bool flangerEnabled;
   final double flangerRate;
   final double flangerDepth;
@@ -285,7 +288,8 @@ class SoundEffectSettings {
       spatialRadius: spatialRadius ?? this.spatialRadius,
       spatialIntensity: spatialIntensity ?? this.spatialIntensity,
       virtualSurroundMode: virtualSurroundMode ?? this.virtualSurroundMode,
-      virtualSurroundSpread: virtualSurroundSpread ?? this.virtualSurroundSpread,
+      virtualSurroundSpread:
+          virtualSurroundSpread ?? this.virtualSurroundSpread,
       vocalRemoval: vocalRemoval ?? this.vocalRemoval,
       vibratoEnabled: vibratoEnabled ?? this.vibratoEnabled,
       vibratoRate: vibratoRate ?? this.vibratoRate,
@@ -345,188 +349,174 @@ class SoundEffectSettings {
     );
   }
 
-  /// 构建传给 Rust SoundEffectSettings 的完整 JSON（camelCase）。
   Map<String, dynamic> toRustJson() => {
-        'pitchShift': pitchShift,
-        'playbackRate': playbackRate,
-        'preservesPitch': preservesPitch,
-        'reverbKind': reverbKind,
-        'reverbPreset': reverbPreset,
-        'reverbDry': _clamp01(reverbDry),
-        'reverbWet': _clamp01(reverbWet),
-        'spatialMode': spatialMode,
-        'spatialSpeed': spatialSpeed,
-        'spatialRadius': spatialRadius,
-        'spatialIntensity': spatialIntensity,
-        'virtualSurroundMode': virtualSurroundMode,
-        'virtualSurroundSpread': virtualSurroundSpread,
-        'vocalRemoval': vocalRemoval,
-        'vibrato': {
-          'enabled': vibratoEnabled,
-          'rate': vibratoRate,
-          'depth': vibratoDepth,
-        },
-        'tremolo': {
-          'enabled': tremoloEnabled,
-          'rate': tremoloRate,
-          'depth': tremoloDepth,
-        },
-        'bassBoost': {
-          'enabled': bassBoostEnabled,
-          'gain': bassBoostGain,
-          'dynamic': bassBoostDynamic,
-        },
-        'treble': {
-          'enabled': trebleEnabled,
-          'gain': trebleGain,
-        },
-        'distortion': {
-          'enabled': distortionEnabled,
-          'amount': distortionAmount,
-          'distortionType': distortionType,
-        },
-        'delay': {
-          'enabled': delayEnabled,
-          'timeMs': delayTime,
-          'feedback': delayFeedback,
-          'mix': delayMix,
-          'delayType': delayType,
-        },
-        'flanger': {
-          'enabled': flangerEnabled,
-          'rate': flangerRate,
-          'depth': flangerDepth,
-          'feedback': flangerFeedback,
-          'mix': flangerMix,
-        },
-        'phaser': {
-          'enabled': phaserEnabled,
-          'rate': phaserRate,
-          'depth': phaserDepth,
-          'feedback': phaserFeedback,
-          'mix': phaserMix,
-        },
-        'compressor': {
-          'enabled': compressorEnabled,
-          'threshold': compressorThreshold,
-          'ratio': compressorRatio,
-          'attack': compressorAttack,
-          'release': compressorRelease,
-        },
-        'noiseGate': {
-          'enabled': noiseGateEnabled,
-          'threshold': noiseGateThreshold,
-        },
-        'limiter': {
-          'enabled': limiterEnabled,
-          'threshold': limiterThreshold,
-        },
-        'exciter': {
-          'enabled': exciterEnabled,
-          'amount': exciterAmount,
-          'frequency': exciterFrequency,
-        },
-        'subBass': {
-          'enabled': subBassEnabled,
-          'amount': subBassAmount,
-          'frequency': subBassFrequency,
-        },
-        'loFi': {
-          'enabled': loFiEnabled,
-          'sampleRate': loFiSampleRate,
-          'bitDepth': loFiBitDepth,
-        },
-        'stereoWiden': {
-          'enabled': stereoWidenEnabled,
-          'amount': stereoWidenAmount,
-        },
-        'monoMerge': monoMerge,
-        'channelSwap': channelSwap,
-        'v4aEnabled': v4aEnabled,
-        'bypass': bypass,
-        'audioBoost': audioBoost,
-      };
+    'pitchShift': pitchShift,
+    'playbackRate': playbackRate,
+    'preservesPitch': preservesPitch,
+    'reverbKind': reverbKind,
+    'reverbPreset': reverbPreset,
+    'reverbDry': _clamp01(reverbDry),
+    'reverbWet': _clamp01(reverbWet),
+    'spatialMode': spatialMode,
+    'spatialSpeed': spatialSpeed,
+    'spatialRadius': spatialRadius,
+    'spatialIntensity': spatialIntensity,
+    'virtualSurroundMode': virtualSurroundMode,
+    'virtualSurroundSpread': virtualSurroundSpread,
+    'vocalRemoval': vocalRemoval,
+    'vibrato': {
+      'enabled': vibratoEnabled,
+      'rate': vibratoRate,
+      'depth': vibratoDepth,
+    },
+    'tremolo': {
+      'enabled': tremoloEnabled,
+      'rate': tremoloRate,
+      'depth': tremoloDepth,
+    },
+    'bassBoost': {
+      'enabled': bassBoostEnabled,
+      'gain': bassBoostGain,
+      'dynamic': bassBoostDynamic,
+    },
+    'treble': {'enabled': trebleEnabled, 'gain': trebleGain},
+    'distortion': {
+      'enabled': distortionEnabled,
+      'amount': distortionAmount,
+      'distortionType': distortionType,
+    },
+    'delay': {
+      'enabled': delayEnabled,
+      'timeMs': delayTime,
+      'feedback': delayFeedback,
+      'mix': delayMix,
+      'delayType': delayType,
+    },
+    'flanger': {
+      'enabled': flangerEnabled,
+      'rate': flangerRate,
+      'depth': flangerDepth,
+      'feedback': flangerFeedback,
+      'mix': flangerMix,
+    },
+    'phaser': {
+      'enabled': phaserEnabled,
+      'rate': phaserRate,
+      'depth': phaserDepth,
+      'feedback': phaserFeedback,
+      'mix': phaserMix,
+    },
+    'compressor': {
+      'enabled': compressorEnabled,
+      'threshold': compressorThreshold,
+      'ratio': compressorRatio,
+      'attack': compressorAttack,
+      'release': compressorRelease,
+    },
+    'noiseGate': {'enabled': noiseGateEnabled, 'threshold': noiseGateThreshold},
+    'limiter': {'enabled': limiterEnabled, 'threshold': limiterThreshold},
+    'exciter': {
+      'enabled': exciterEnabled,
+      'amount': exciterAmount,
+      'frequency': exciterFrequency,
+    },
+    'subBass': {
+      'enabled': subBassEnabled,
+      'amount': subBassAmount,
+      'frequency': subBassFrequency,
+    },
+    'loFi': {
+      'enabled': loFiEnabled,
+      'sampleRate': loFiSampleRate,
+      'bitDepth': loFiBitDepth,
+    },
+    'stereoWiden': {'enabled': stereoWidenEnabled, 'amount': stereoWidenAmount},
+    'monoMerge': monoMerge,
+    'channelSwap': channelSwap,
+    'v4aEnabled': v4aEnabled,
+    'bypass': bypass,
+    'audioBoost': audioBoost,
+  };
 
   static double _clamp01(double v) => v.clamp(0.0, 1.0).toDouble();
 
   Map<String, dynamic> toJson() => {
-        'pitchShift': pitchShift,
-        'playbackRate': playbackRate,
-        'preservesPitch': preservesPitch,
-        'reverbKind': reverbKind,
-        'reverbPreset': reverbPreset,
-        'reverbDry': reverbDry,
-        'reverbWet': reverbWet,
-        'spatialMode': spatialMode,
-        'spatialSpeed': spatialSpeed,
-        'spatialRadius': spatialRadius,
-        'spatialIntensity': spatialIntensity,
-        'virtualSurroundMode': virtualSurroundMode,
-        'virtualSurroundSpread': virtualSurroundSpread,
-        'vocalRemoval': vocalRemoval,
-        'vibratoEnabled': vibratoEnabled,
-        'vibratoRate': vibratoRate,
-        'vibratoDepth': vibratoDepth,
-        'tremoloEnabled': tremoloEnabled,
-        'tremoloRate': tremoloRate,
-        'tremoloDepth': tremoloDepth,
-        'bassBoostEnabled': bassBoostEnabled,
-        'bassBoostGain': bassBoostGain,
-        'bassBoostDynamic': bassBoostDynamic,
-        'trebleEnabled': trebleEnabled,
-        'trebleGain': trebleGain,
-        'distortionEnabled': distortionEnabled,
-        'distortionAmount': distortionAmount,
-        'distortionType': distortionType,
-        'delayEnabled': delayEnabled,
-        'delayTime': delayTime,
-        'delayFeedback': delayFeedback,
-        'delayMix': delayMix,
-        'delayType': delayType,
-        'flangerEnabled': flangerEnabled,
-        'flangerRate': flangerRate,
-        'flangerDepth': flangerDepth,
-        'flangerFeedback': flangerFeedback,
-        'flangerMix': flangerMix,
-        'phaserEnabled': phaserEnabled,
-        'phaserRate': phaserRate,
-        'phaserDepth': phaserDepth,
-        'phaserFeedback': phaserFeedback,
-        'phaserMix': phaserMix,
-        'compressorEnabled': compressorEnabled,
-        'compressorThreshold': compressorThreshold,
-        'compressorRatio': compressorRatio,
-        'compressorAttack': compressorAttack,
-        'compressorRelease': compressorRelease,
-        'noiseGateEnabled': noiseGateEnabled,
-        'noiseGateThreshold': noiseGateThreshold,
-        'limiterEnabled': limiterEnabled,
-        'limiterThreshold': limiterThreshold,
-        'exciterEnabled': exciterEnabled,
-        'exciterAmount': exciterAmount,
-        'exciterFrequency': exciterFrequency,
-        'subBassEnabled': subBassEnabled,
-        'subBassAmount': subBassAmount,
-        'subBassFrequency': subBassFrequency,
-        'loFiEnabled': loFiEnabled,
-        'loFiSampleRate': loFiSampleRate,
-        'loFiBitDepth': loFiBitDepth,
-        'stereoWidenEnabled': stereoWidenEnabled,
-        'stereoWidenAmount': stereoWidenAmount,
-        'monoMerge': monoMerge,
-        'channelSwap': channelSwap,
-        'v4aEnabled': v4aEnabled,
-        'bypass': bypass,
-        'audioBoost': audioBoost,
-        'eqGains': eqGains,
-      };
+    'pitchShift': pitchShift,
+    'playbackRate': playbackRate,
+    'preservesPitch': preservesPitch,
+    'reverbKind': reverbKind,
+    'reverbPreset': reverbPreset,
+    'reverbDry': reverbDry,
+    'reverbWet': reverbWet,
+    'spatialMode': spatialMode,
+    'spatialSpeed': spatialSpeed,
+    'spatialRadius': spatialRadius,
+    'spatialIntensity': spatialIntensity,
+    'virtualSurroundMode': virtualSurroundMode,
+    'virtualSurroundSpread': virtualSurroundSpread,
+    'vocalRemoval': vocalRemoval,
+    'vibratoEnabled': vibratoEnabled,
+    'vibratoRate': vibratoRate,
+    'vibratoDepth': vibratoDepth,
+    'tremoloEnabled': tremoloEnabled,
+    'tremoloRate': tremoloRate,
+    'tremoloDepth': tremoloDepth,
+    'bassBoostEnabled': bassBoostEnabled,
+    'bassBoostGain': bassBoostGain,
+    'bassBoostDynamic': bassBoostDynamic,
+    'trebleEnabled': trebleEnabled,
+    'trebleGain': trebleGain,
+    'distortionEnabled': distortionEnabled,
+    'distortionAmount': distortionAmount,
+    'distortionType': distortionType,
+    'delayEnabled': delayEnabled,
+    'delayTime': delayTime,
+    'delayFeedback': delayFeedback,
+    'delayMix': delayMix,
+    'delayType': delayType,
+    'flangerEnabled': flangerEnabled,
+    'flangerRate': flangerRate,
+    'flangerDepth': flangerDepth,
+    'flangerFeedback': flangerFeedback,
+    'flangerMix': flangerMix,
+    'phaserEnabled': phaserEnabled,
+    'phaserRate': phaserRate,
+    'phaserDepth': phaserDepth,
+    'phaserFeedback': phaserFeedback,
+    'phaserMix': phaserMix,
+    'compressorEnabled': compressorEnabled,
+    'compressorThreshold': compressorThreshold,
+    'compressorRatio': compressorRatio,
+    'compressorAttack': compressorAttack,
+    'compressorRelease': compressorRelease,
+    'noiseGateEnabled': noiseGateEnabled,
+    'noiseGateThreshold': noiseGateThreshold,
+    'limiterEnabled': limiterEnabled,
+    'limiterThreshold': limiterThreshold,
+    'exciterEnabled': exciterEnabled,
+    'exciterAmount': exciterAmount,
+    'exciterFrequency': exciterFrequency,
+    'subBassEnabled': subBassEnabled,
+    'subBassAmount': subBassAmount,
+    'subBassFrequency': subBassFrequency,
+    'loFiEnabled': loFiEnabled,
+    'loFiSampleRate': loFiSampleRate,
+    'loFiBitDepth': loFiBitDepth,
+    'stereoWidenEnabled': stereoWidenEnabled,
+    'stereoWidenAmount': stereoWidenAmount,
+    'monoMerge': monoMerge,
+    'channelSwap': channelSwap,
+    'v4aEnabled': v4aEnabled,
+    'bypass': bypass,
+    'audioBoost': audioBoost,
+    'eqGains': eqGains,
+  };
 
-  /// 转换为 Rust EqualizerSettings 兼容 JSON（10 段 EQ，任一频带非 0 即启用）。
   Map<String, dynamic> toEqualizerRustJson() => {
-        'enabled': eqGains.any((g) => g != 0),
-        'preamp': 0.0,
-        'gains': eqGains,
-      };
+    'enabled': eqGains.any((g) => g != 0),
+    'preamp': 0.0,
+    'gains': eqGains,
+  };
 
   factory SoundEffectSettings.fromJson(Map<String, dynamic> j) {
     final s = SoundEffectSettings(
@@ -542,7 +532,8 @@ class SoundEffectSettings {
       spatialRadius: (j['spatialRadius'] as num?)?.toDouble() ?? 5,
       spatialIntensity: (j['spatialIntensity'] as num?)?.toDouble() ?? 9,
       virtualSurroundMode: j['virtualSurroundMode'] as String? ?? '7.1',
-      virtualSurroundSpread: (j['virtualSurroundSpread'] as num?)?.toDouble() ?? 10,
+      virtualSurroundSpread:
+          (j['virtualSurroundSpread'] as num?)?.toDouble() ?? 10,
       vocalRemoval: j['vocalRemoval'] as bool? ?? false,
       vibratoEnabled: j['vibratoEnabled'] as bool? ?? false,
       vibratoRate: (j['vibratoRate'] as num?)?.toDouble() ?? 5,
@@ -574,7 +565,8 @@ class SoundEffectSettings {
       phaserFeedback: (j['phaserFeedback'] as num?)?.toDouble() ?? 30,
       phaserMix: (j['phaserMix'] as num?)?.toDouble() ?? 50,
       compressorEnabled: j['compressorEnabled'] as bool? ?? false,
-      compressorThreshold: (j['compressorThreshold'] as num?)?.toDouble() ?? -18,
+      compressorThreshold:
+          (j['compressorThreshold'] as num?)?.toDouble() ?? -18,
       compressorRatio: (j['compressorRatio'] as num?)?.toDouble() ?? 4,
       compressorAttack: (j['compressorAttack'] as num?)?.toDouble() ?? 8,
       compressorRelease: (j['compressorRelease'] as num?)?.toDouble() ?? 400,
@@ -620,19 +612,21 @@ class SoundEffectState {
 
 class SoundEffectManager extends StateNotifier<SoundEffectState> {
   SoundEffectManager()
-      : super(SoundEffectState(settings: const SoundEffectSettings())) {
+    : super(SoundEffectState(settings: const SoundEffectSettings())) {
     _load();
   }
 
   static const _key = 'xianyu_sound_effect_v1';
+
+  bool _dirty = false;
 
   Future<void> _load() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_key);
       if (raw != null && raw.isNotEmpty) {
+        if (_dirty) return;
         final decoded = jsonDecode(raw) as Map<String, dynamic>;
-        // 新版为 { settings, customEqPresets } 包装；兼容旧版扁平 settings。
         final settingsRaw = decoded.containsKey('settings')
             ? decoded['settings'] as Map<String, dynamic>
             : decoded;
@@ -649,6 +643,7 @@ class SoundEffectManager extends StateNotifier<SoundEffectState> {
     SoundEffectSettings next, {
     List<CustomEqPreset>? customEqPresets,
   }) async {
+    _dirty = true;
     state = SoundEffectState(
       settings: next,
       customEqPresets: customEqPresets ?? state.customEqPresets,
@@ -663,8 +658,9 @@ class SoundEffectManager extends StateNotifier<SoundEffectState> {
         _key,
         jsonEncode({
           'settings': state.settings.toJson(),
-          'customEqPresets':
-              state.customEqPresets.map((p) => p.toJson()).toList(),
+          'customEqPresets': state.customEqPresets
+              .map((p) => p.toJson())
+              .toList(),
         }),
       );
     } catch (_) {}
@@ -689,16 +685,15 @@ class SoundEffectManager extends StateNotifier<SoundEffectState> {
 
   Future<void> resetEq() async {
     await _update(
-        state.settings.copyWith(eqGains: const [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]));
+      state.settings.copyWith(eqGains: const [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+    );
   }
 
-  /// 重置所有音效（含 EQ）。
   Future<void> resetAll() async {
     await _update(const SoundEffectSettings());
   }
 }
 
-/// 用户自定义 EQ 预设（数据结构与移动端互通；表端 UI 暂不暴露管理入口）。
 class CustomEqPreset {
   final String name;
   final List<double> gains;
@@ -707,14 +702,14 @@ class CustomEqPreset {
   Map<String, dynamic> toJson() => {'name': name, 'gains': gains};
 
   factory CustomEqPreset.fromJson(Map<String, dynamic> j) => CustomEqPreset(
-        j['name'] as String? ?? '未命名',
-        (j['gains'] as List? ?? const [])
-            .map((e) => (e as num).toDouble())
-            .toList(),
-      );
+    j['name'] as String? ?? '未命名',
+    (j['gains'] as List? ?? const [])
+        .map((e) => (e as num).toDouble())
+        .toList(),
+  );
 }
 
 final soundEffectProvider =
     StateNotifierProvider<SoundEffectManager, SoundEffectState>((ref) {
-  return SoundEffectManager();
-});
+      return SoundEffectManager();
+    });

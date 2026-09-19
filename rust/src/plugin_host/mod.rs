@@ -1,18 +1,3 @@
-//! QuickJS 插件宿主引擎（移动端移植）
-//!
-//! 每个插件独占一个 AsyncRuntime + AsyncContext（完全隔离），
-//! 通过 host_shim.js 复刻浏览器环境，原生桥（__xyNative*）提供：
-//!   - HTTP（reqwest，含 Cookie 注入/捕获）
-//!   - Cookie / Storage（PluginStore 持久化）
-//!   - zlib inflate/deflate（flate2）
-//!   - 文本解码（encoding_rs，TextDecoder 全编码标签支持）
-//!   - 随机字节 / 日志 / 延时
-//!
-//! 超时双保险：interrupt handler 打断同步死循环；外层 tokio timeout
-//! 兜底挂起的原生 future（触发后销毁实例）。
-//!
-//! 结果协议（与 host_shim.js 的 __xyOk/__xyErr 对齐）：
-//!   {"ok":true,"data":...} / {"ok":false,"error":"..."}
 
 mod http;
 mod store;
@@ -79,10 +64,7 @@ pub struct PluginInstance {
     pub kind: PluginKind,
     #[allow(dead_code)]
     pub metadata: serde_json::Value,
-    // ctx 必须先于 runtime 声明：parallel 模式下 ctx 析构把指针送入
-    // runtime 的 drop 通道，由 runtime Drop 统一释放
     pub ctx: AsyncContext,
-    // runtime 字段仅用于持有句柄直到实例销毁
     #[allow(dead_code)]
     pub runtime: AsyncRuntime,
     deadline_ms: Arc<AtomicI64>,
@@ -110,7 +92,7 @@ fn json_quote(s: &str) -> String {
 }
 
 fn take_logs(logs: &Arc<StdMutex<Vec<EngineLog>>>, call_id: u64) -> Vec<EngineLog> {
-    let mut guard = logs.lock().unwrap();
+    let mut guard = logs.lock().unwrap_or_else(|e| e.into_inner());
     let mut out = Vec::new();
     guard.retain(|entry| {
         if entry.call_id == call_id {
@@ -213,7 +195,7 @@ fn register_bridges<'js>(
         let current_call = current_call.clone();
         let f = Function::new(ctx.clone(), move |level: String, message: String| {
             let call_id = current_call.load(Ordering::Relaxed);
-            let mut guard = logs.lock().unwrap();
+            let mut guard = logs.lock().unwrap_or_else(|e| e.into_inner());
             if guard.len() < MAX_LOG_ENTRIES {
                 guard.push(EngineLog {
                     level,
@@ -294,8 +276,6 @@ fn register_bridges<'js>(
     }
 
     // ---- __xyNativeDecodeText(base64, label) -> string 同步（浏览器 TextDecoder 语义）----
-    // 插件（如 Baka 酷我）用 new TextDecoder("gb18030") 解码歌词，shim 无法用
-    // 纯 JS 覆盖全部 WHATWG 编码标签，统一桥到 encoding_rs 解码
     {
         let f = Function::new(
             ctx.clone(),
@@ -454,7 +434,6 @@ fn json_error(message: &str) -> String {
     format!("{{\"ok\":false,\"error\":{}}}", json_quote(message))
 }
 
-/// 把 rquickjs 错误转成可读消息：JS 异常时提取异常消息与堆栈
 fn engine_error_message<'js>(ctx: &Ctx<'js>, e: &rquickjs::Error) -> String {
     if matches!(e, rquickjs::Error::Exception) {
         let v = ctx.catch();
@@ -485,7 +464,6 @@ fn json_ok_bool(data: bool) -> String {
     format!("{{\"ok\":true,\"data\":{}}}", data)
 }
 
-/// promise 结果统一转 JSON 协议字符串（拒绝时提取异常消息）
 async fn promise_to_json<'js>(
     ctx: &Ctx<'js>,
     promise: Promise<'js>,
@@ -508,7 +486,6 @@ async fn promise_to_json<'js>(
     }
 }
 
-/// 将调用 promise 链接到 __xyOk/__xyErr 序列化
 fn chain_result_serialization<'js>(
     globals: &rquickjs::Object<'js>,
     promise: Promise<'js>,
@@ -563,7 +540,6 @@ impl PluginEngine {
         Ok((runtime, ctx, deadline))
     }
 
-    /// 环境初始化：原生桥 + shim + 依赖包 + __xyPostSetup
     async fn setup_context(
         &self,
         ctx: &AsyncContext,
@@ -733,7 +709,6 @@ impl PluginEngine {
                                 script_owned.as_str(),
                             ))?;
                             if !setup_result.is_null() && !setup_result.is_undefined() {
-                                // 同步加载失败，返回错误 JSON
                                 let s = rquickjs::String::from_js(&ctx, setup_result)?;
                                 return Ok(Some(s.to_string()?));
                             }
@@ -744,7 +719,6 @@ impl PluginEngine {
                             Ok(Some(json)) => return Ok(json),
                             Ok(None) => {}
                         }
-                        // 等待 inited 事件（驱动 job 队列直到 resolve/reject）
                         let init_promise: Promise = match globals.get("__xyLxInitPromise") {
                             Ok(p) => p,
                             Err(e) => return Err(engine_error_message(&ctx, &e)),
@@ -836,7 +810,6 @@ impl PluginEngine {
             }
         };
 
-        // 同插件调用串行：日志按 call_id 归属 + 避免插件内部状态被并发覆盖
         let _guard = instance.call_lock.lock().await;
 
         let call_id = instance.call_seq.fetch_add(1, Ordering::Relaxed) + 1;
@@ -866,7 +839,6 @@ impl PluginEngine {
                             Ok(call_fn.call((method_owned.as_str(), args_owned.as_str()))?)
                         }
                         PluginKind::Lx => {
-                            // LX: method 固定为 request，参数取 args[0]
                             let data_json = extract_first_arg(&args_owned);
                             let call_fn: Function = globals.get("__xyLxRequest")?;
                             Ok(call_fn.call((data_json.as_str(),))?)
@@ -895,7 +867,6 @@ impl PluginEngine {
 
         match outcome {
             Err(_) => {
-                // 外层超时：原生 future 挂起，实例 JS 状态未知，销毁重建
                 self.destroy(plugin_id).await;
                 call_err(
                     format!("方法调用超时: {} ({}ms)", method, timeout_ms),
@@ -952,7 +923,6 @@ use std::sync::OnceLock;
 
 static ENGINE: OnceLock<PluginEngine> = OnceLock::new();
 
-/// 获取全局插件引擎。首次调用时以 `data_dir` 初始化存储路径。
 pub fn global_engine(data_dir: &str) -> &'static PluginEngine {
     ENGINE.get_or_init(|| {
         let store_path = std::path::Path::new(data_dir).join("plugin_host_store.json");

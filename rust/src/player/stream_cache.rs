@@ -1,16 +1,3 @@
-//! 在线音频流式缓存模块
-//!
-//! 核心思路：把在线音乐流式下载到本地缓存文件，同时用 StreamingTempFileReader
-//! 包装该文件供本地引擎（rodio Decoder）播放。这样所有音乐都走统一的
-//! File::open + Decoder 路径，设备切换恢复天然支持，无需维护 RemoteRangeReader。
-//!
-//! 流程：
-//! 1. start_streaming_download 创建缓存文件 + 启动后台下载线程
-//! 2. 下载够最小缓冲（512KB）后即可开始播放
-//! 3. StreamingTempFileReader 在读取追上下载进度时阻塞等待
-//! 4. 下载完成后标记 complete，reader 正常读到 EOF
-//! 5. 缓存持久化到 app_data_dir，重启后自动扫描重建索引
-//! 6. LRU 策略淘汰旧缓存，上限用户可配置
 
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -21,14 +8,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime};
 
-/// 清洗插件传入的 URL：移除首尾的反引号、引号、逗号等脏字符。
-///
-/// 前端虽有 sanitizeMediaUrl，但部分插件返回的 URL 包装字符可能穿透到 Rust 端，
-/// 导致 reqwest 无法解析 URL 或请求到错误的地址。此处做最后一道防线。
 fn sanitize_stream_url(raw: &str) -> String {
     let trimmed = raw.trim();
-    // 找到 http:// 或 https:// 的最早起始位置
-    // 注意：必须同时搜索两者并取最小位置，避免 https:// URL 路径中包含 http:// 时匹配错误
     let http_idx = trimmed.find("http://");
     let https_idx = trimmed.find("https://");
     let start = match (http_idx, https_idx) {
@@ -38,12 +19,10 @@ fn sanitize_stream_url(raw: &str) -> String {
         (None, None) => return trimmed.to_string(),
     };
     let candidate = &trimmed[start..];
-    // 从 URL 起始处截断到第一个出现的包装符/空白
     let end = candidate
         .find(|c: char| matches!(c, '`' | '\'' | '"' | '<' | '>' | ' ' | '\t' | '\n' | '\r' | '\u{2018}' | '\u{2019}' | '\u{201c}' | '\u{201d}' | '\u{ff02}' | '\u{ff07}'))
         .unwrap_or(candidate.len());
     let mut result = candidate[..end].to_string();
-    // 循环移除尾部逗号、分号、反引号等
     loop {
         let trimmed_end = result.trim_end_matches(|c: char| matches!(c, ',' | '，' | ';' | '；' | '`' | '\'' | '"' | ' ' | '\u{2018}' | '\u{2019}' | '\u{201c}' | '\u{201d}' | '\u{ff02}' | '\u{ff07}'));
         if trimmed_end.len() == result.len() {
@@ -54,19 +33,15 @@ fn sanitize_stream_url(raw: &str) -> String {
     result
 }
 
-/// Combined Read + Seek trait for use in trait objects (Rust 不允许 dyn 中出现多个非 auto trait)。
 pub trait ReadSeek: Read + Seek {}
 impl<T: Read + Seek> ReadSeek for T {}
 
-/// 对已完整下载的缓存文件执行 CENC 后处理解密（就地，长度不变）。
-/// 若文件不是 CENC 加密则直接返回成功（无操作）。
 fn decrypt_cenc_file(path: &std::path::Path, cek: &str) -> Result<(), String> {
     let mut data = std::fs::read(path).map_err(|e| format!("读取缓存文件失败: {}", e))?;
     let key = crate::player::cenc::cek_to_key(cek).map_err(|e| e.to_string())?;
     let decrypted = crate::player::cenc::decrypt_cenc_in_place(&mut data, &key)
         .map_err(|e| format!("CENC 解密失败: {}", e))?;
     if decrypted {
-        // 就地写回：不截断（长度不变），避免破坏已打开的 reader 句柄
         let mut f = OpenOptions::new()
             .write(true)
             .open(path)
@@ -82,13 +57,8 @@ fn decrypt_cenc_file(path: &std::path::Path, cek: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// 最小缓冲字节数：下载够这个量后才开始播放，避免起播立即卡顿。
-/// 256KB ≈ 16s @ 128kbps / 6.4s @ 320kbps，加快起播、减少慢速 CDN 等待（对齐桌面端）。
-/// 配合 StreamingTempFileReader 的阻塞等待机制，即使播放追上下载进度也能平滑等待。
 pub const MIN_BUFFER_BYTES: u64 = 256 * 1024;
 
-/// 流式临时文件读取器：包装 File，实现 Read + Seek。
-/// 读取位置接近下载进度时阻塞等待，直到数据就绪。
 pub struct StreamingTempFileReader {
     file: File,
     downloaded_bytes: Arc<AtomicU64>,
@@ -96,14 +66,12 @@ pub struct StreamingTempFileReader {
     download_failed: Arc<AtomicBool>,
     pos: u64,
     total_bytes: Option<u64>,
-    /// When true, blocks reads until download thread finishes post-download QMC check/decryption
     post_check_pending: Option<Arc<AtomicBool>>,
 }
 
 impl Read for StreamingTempFileReader {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         loop {
-            // Block reads if post-download QMC check/decryption is pending
             if let Some(ref flag) = self.post_check_pending {
                 if flag.load(Ordering::Relaxed) {
                     if self.download_failed.load(Ordering::Relaxed) {
@@ -126,10 +94,6 @@ impl Read for StreamingTempFileReader {
             {
                 return Ok(0);
             }
-            // 注意：此 read() 在音频回调线程调用（经 rodio Decoder → Source::next()）。
-            // 阻塞会导致音频 underrun → 卡音破音。用 3ms 短 sleep 让 cpal 输出缓冲
-            // （通常 ≥50ms）能吸收单次等待。配合 timeBeginPeriod(1)（output/shared.rs
-            // 初始化时调用）使 Windows sleep 真正达到毫秒精度，否则默认 ~15ms。
             std::thread::sleep(Duration::from_millis(3));
         }
     }
@@ -165,13 +129,11 @@ impl Seek for StreamingTempFileReader {
                 self.pos = target;
                 return self.file.seek(SeekFrom::Start(target)).map(|_| target);
             }
-            // seek 通常在暂停态调用，阻塞影响小；仍用 3ms 短 sleep 保持一致。
             std::thread::sleep(Duration::from_millis(3));
         }
     }
 }
 
-/// 流式临时文件状态：在 AudioSource 中传递，设备切换恢复时重建 reader。
 #[derive(Clone)]
 pub struct StreamingTempFileState {
     pub path: String,
@@ -179,20 +141,12 @@ pub struct StreamingTempFileState {
     pub download_complete: Arc<AtomicBool>,
     pub download_failed: Arc<AtomicBool>,
     pub total_bytes: Option<u64>,
-    /// QMC2 ekey (if provided by the plugin or extracted from JSON response).
-    /// 使用 Arc<Mutex> 允许 download_thread 在运行时从 JSON 响应中提取并更新 ekey。
     pub ekey: Arc<std::sync::Mutex<Option<String>>>,
-    /// CENC 内容密钥（汽水音乐等音源加密音轨），由插件从 PlayAuth 解密得到。
-    /// 由播放/插件侧在解析歌曲时写入，供 new_reader_with_decryption 包装 CencDecryptReader。
     pub cek: Arc<std::sync::Mutex<Option<String>>>,
-    /// CENC 流式解密元数据（moov 在文件头部时提前解析，供 reader 包装解密）
     pub cenc_metadata:
         Arc<std::sync::Mutex<Option<crate::player::cenc::CencMetadata>>>,
-    /// CENC 流式解密是否已激活（true = reader 用 CencDecryptReader，false = 需整文件解密）
     pub cenc_streaming: Arc<AtomicBool>,
-    /// When Some(true), blocks reads until download thread finishes post-download QMC check/decryption
     pub post_check_pending: Option<Arc<AtomicBool>>,
-    /// 下载失败原因（供前端诊断）
     pub download_error: Arc<std::sync::Mutex<Option<String>>>,
 }
 
@@ -251,26 +205,19 @@ impl StreamingTempFileState {
         })
     }
 
-    /// Returns the ekey for QMC2 decryption, if available.
     pub fn ekey(&self) -> Option<String> {
         self.ekey.lock().ok().and_then(|e| e.clone())
     }
 
-    /// Returns the cek for CENC decryption, if available.
     pub fn cek(&self) -> Option<String> {
         self.cek.lock().ok().and_then(|c| c.clone())
     }
 
-    /// 创建 reader，根据加密类型自动包装解密层：
-    /// - CENC 流式：CencDecryptReader（moov 在头部时，按样本 AES-CTR 流式解密 + 虚拟 enca→mp4a 补丁）
-    /// - QMC 流式：QmcDecryptReader（纯位置流密码，任意位置独立解密）
-    /// - 无加密：裸 StreamingTempFileReader
     pub fn new_reader_with_decryption(
         &self,
     ) -> std::io::Result<Box<dyn ReadSeek + Send + Sync + 'static>> {
         let reader = self.new_reader()?;
 
-        // CENC 流式解密：moov 在头部时已由下载线程预解析元数据
         if self.cenc_streaming.load(Ordering::Relaxed) {
             if let Ok(md_lock) = self.cenc_metadata.lock() {
                 if let Some(ref metadata) = *md_lock {
@@ -287,7 +234,6 @@ impl StreamingTempFileState {
             }
         }
 
-        // QMC 流式解密
         let ekey = self.ekey();
         if let Some(ekey_str) = ekey {
             match crate::player::qmc2::QmcCrypto::from_ekey(&ekey_str) {
@@ -314,7 +260,6 @@ impl StreamingTempFileState {
         self.downloaded_bytes.load(Ordering::Relaxed)
     }
 
-    /// 返回下载失败原因（供前端诊断）
     pub fn download_error(&self) -> Option<String> {
         self.download_error.lock().ok().and_then(|e| e.clone())
     }
@@ -327,12 +272,10 @@ struct CacheEntry {
     downloaded_bytes: Arc<AtomicU64>,
     download_complete: Arc<AtomicBool>,
     download_failed: Arc<AtomicBool>,
-    /// 下载线程句柄（detach，不阻塞；线程结束后自然回收）
     _download_handle: Option<std::thread::JoinHandle<()>>,
 }
 
 struct StreamCacheManager {
-    /// key = url_hash（文件名，也是持久化到磁盘的标识）
     entries: HashMap<String, CacheEntry>,
     max_size_bytes: u64,
     current_size: u64,
@@ -344,16 +287,16 @@ impl StreamCacheManager {
             let oldest_key = self
                 .entries
                 .iter()
+                .filter(|(_, entry)| entry.download_complete.load(Ordering::Relaxed))
                 .min_by_key(|(_, entry)| entry.last_accessed)
                 .map(|(k, _)| k.clone());
 
-            if let Some(key) = oldest_key {
-                if let Some(entry) = self.entries.remove(&key) {
-                    let _ = std::fs::remove_file(&entry.path);
-                    self.current_size = self.current_size.saturating_sub(entry.size);
-                }
-            } else {
+            let Some(key) = oldest_key else {
                 break;
+            };
+            if let Some(entry) = self.entries.remove(&key) {
+                let _ = std::fs::remove_file(&entry.path);
+                self.current_size = self.current_size.saturating_sub(entry.size);
             }
         }
     }
@@ -366,8 +309,6 @@ impl StreamCacheManager {
         }
     }
 
-    /// 扫描持久化缓存目录，重建 LRU 索引。
-    /// 使用文件修改时间作为 last_accessed，使 LRU 跨重启仍然有效。
     fn init_from_disk(&mut self) {
         let dir = cache_dir();
         let read_dir = match std::fs::read_dir(&dir) {
@@ -435,14 +376,12 @@ fn cache() -> &'static Mutex<StreamCacheManager> {
     })
 }
 
-/// 设置缓存上限（用户可配置）
 pub fn set_max_cache_size(bytes: u64) {
     let mut mgr = cache().lock().unwrap_or_else(|e| e.into_inner());
     mgr.max_size_bytes = bytes;
     mgr.evict_if_needed();
 }
 
-/// 获取当前缓存大小
 pub fn current_cache_size() -> u64 {
     cache()
         .lock()
@@ -450,7 +389,6 @@ pub fn current_cache_size() -> u64 {
         .current_size
 }
 
-/// 获取缓存上限
 pub fn max_cache_size() -> u64 {
     cache()
         .lock()
@@ -458,9 +396,6 @@ pub fn max_cache_size() -> u64 {
         .max_size_bytes
 }
 
-/// 持久化缓存目录：
-/// Windows: %APPDATA%\com.xymusic.desktop\stream_cache\
-/// 其他平台: ~/com.xymusic.desktop/stream_cache/（回退 temp_dir）
 fn cache_dir() -> PathBuf {
     #[cfg(target_os = "windows")]
     {
@@ -484,8 +419,6 @@ fn url_hash(url: &str) -> String {
     hex::encode(&hasher.finalize()[..16])
 }
 
-/// 为在线音频创建流式缓存文件并启动后台下载。
-/// 如果同一 URL 的缓存已存在（下载完成），直接复用。
 pub fn start_streaming_download(
     url: &str,
     headers: Option<&std::collections::HashMap<String, String>>,
@@ -493,13 +426,11 @@ pub fn start_streaming_download(
     ekey: Option<&str>,
     cek: Option<&str>,
 ) -> Result<StreamingTempFileState, String> {
-    // Rust 端 URL 清洗：移除插件可能返回的反引号、引号、逗号等脏字符
     let cleaned_url = sanitize_stream_url(url);
     let url = cleaned_url.as_str();
     let hash = url_hash(url);
     let mut mgr = cache().lock().map_err(|e| e.to_string())?;
 
-    // 已有缓存：检查是否下载完成
     if let Some(entry) = mgr.entries.get(&hash) {
         if entry.download_failed.load(Ordering::Relaxed) {
             if let Some(failed) = mgr.entries.remove(&hash) {
@@ -514,8 +445,6 @@ pub fn start_streaming_download(
         if entry.download_complete.load(Ordering::Relaxed)
             && !entry.download_failed.load(Ordering::Relaxed)
         {
-            // [CENC] 复用已完成缓存：若文件仍是加密态且提供了 cek，就地解密。
-            // 解密失败则移除缓存，走全新下载。
             if let Some(cek_str) = cek {
                 if decrypt_cenc_file(&entry.path, cek_str).is_err() {
                     let failed = mgr.entries.remove(&hash);
@@ -525,7 +454,6 @@ pub fn start_streaming_download(
                     }
                 }
             }
-            // 重新查找（可能已被移除）
             if let Some(entry) = mgr.entries.get_mut(&hash) {
                 let downloaded = entry.size;
                 return Ok(StreamingTempFileState {
@@ -543,7 +471,6 @@ pub fn start_streaming_download(
                 });
             }
         } else {
-            // 下载进行中：复用同一个文件和下载状态
             return Ok(StreamingTempFileState {
                 path: entry.path.to_string_lossy().to_string(),
                 downloaded_bytes: entry.downloaded_bytes.clone(),
@@ -560,7 +487,6 @@ pub fn start_streaming_download(
         }
     }
 
-    // 创建缓存文件
     let temp_path = cache_dir().join(format!("{}.dat", hash));
 
     let file = OpenOptions::new()
@@ -581,7 +507,6 @@ pub fn start_streaming_download(
     let cenc_metadata = Arc::new(std::sync::Mutex::new(None));
     let cenc_streaming = Arc::new(AtomicBool::new(false));
 
-    // 启动后台下载线程
     let url_clone = url.to_string();
     let hash_clone = hash.clone();
     let headers_clone = headers.cloned();
@@ -598,8 +523,6 @@ pub fn start_streaming_download(
     let dl_cenc_streaming = cenc_streaming.clone();
 
     let handle = std::thread::spawn(move || {
-        // 专用线程内建临时 runtime：下载走异步 reqwest（不再链接 blocking 模块），
-        // 对外仍通过原子计数汇报进度，读取侧无需感知差异。
         let rt = match tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -660,16 +583,10 @@ pub fn start_streaming_download(
     })
 }
 
-/// 从 JSON 响应文本中递归提取音频 URL 和 ekey。
-/// 优先检查常见字段名（url, data, musicUrl, audioUrl, src, link, file, path），
-/// 然后递归搜索任意层级的字符串值中以 http:// 或 https:// 开头且含音频扩展名的链接。
-/// 最后回退到任意 HTTP URL（不检查音频特征），并搜索 ekey 字段。
 fn extract_audio_info_from_json(body: &str) -> Option<(String, Option<String>)> {
-    // 处理双重编码 JSON：有些 API 返回 JSON 字符串包裹的 JSON
     let value: serde_json::Value = match serde_json::from_str(body) {
         Ok(v) => v,
         Err(_) => {
-            // 尝试去掉外层引号后重新解析
             let trimmed = body.trim().trim_matches('"');
             if trimmed != body.trim() {
                 if let Ok(v) = serde_json::from_str(trimmed) {
@@ -683,7 +600,6 @@ fn extract_audio_info_from_json(body: &str) -> Option<(String, Option<String>)> 
         }
     };
 
-    // 优先字段名列表（按常见 API 返回格式排序）
     let priority_keys = [
         "url", "musicUrl", "audioUrl", "playUrl", "play_url", "music_url",
         "link", "src", "file", "fileUrl", "file_url",
@@ -693,7 +609,6 @@ fn extract_audio_info_from_json(body: &str) -> Option<(String, Option<String>)> 
         "play", "download", "downloadUrl", "download_url",
     ];
 
-    // 第一轮：检查优先字段名（接受任何 http/https URL，不检查音频特征）
     for key in &priority_keys {
         if let Some(found) = find_url_by_key(&value, key) {
             let ekey = find_ekey_in_json(&value);
@@ -701,14 +616,11 @@ fn extract_audio_info_from_json(body: &str) -> Option<(String, Option<String>)> 
         }
     }
 
-    // 第二轮：递归搜索任意看起来像音频 URL 的字符串
     if let Some(url) = find_any_audio_url(&value) {
         let ekey = find_ekey_in_json(&value);
         return Some((url, ekey));
     }
 
-    // 第三轮：回退到任意 HTTP/HTTPS URL（不检查音频特征）
-    // 某些 CDN URL 没有标准音频扩展名，但仍可播放
     if let Some(url) = find_any_http_url(&value) {
         let ekey = find_ekey_in_json(&value);
         return Some((url, ekey));
@@ -729,30 +641,18 @@ fn sanitize_extracted_audio_url(url: &str) -> String {
         .to_string()
 }
 
-/// 从非音频文本响应中提取真实音频 URL。
-///
-/// 部分插件返回的播放地址其实是 API 端点，服务端可能以 `text/plain`
-/// 返回真实直链，也可能 Content-Type 不准但正文是 JSON 或 HTML。
-/// 提取策略（按优先级）：
-///   1. 解析 JSON（含双重编码处理）
-///   2. 纯文本直链（去掉引号后以 http 开头）
-///   3. 从任意文本中扫描 HTTP URL（处理 HTML/错误页等）
 fn extract_audio_info_from_text(body: &str) -> Option<(String, Option<String>)> {
-    // 策略 1：尝试 JSON 解析
     if let Some(info) = extract_audio_info_from_json(body) {
         return Some(info);
     }
 
-    // 策略 2：纯文本直链（去掉外层引号/空白后以 http 开头）
     let trimmed = sanitize_extracted_audio_url(body);
     if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
-        // 音频特征检查宽松化：只要不是明显非音频 URL 就接受
         if looks_like_audio_url(&trimmed) || !is_obviously_non_audio_url(&trimmed) {
             return Some((trimmed, None));
         }
     }
 
-    // 策略 3：从任意文本中扫描第一个 HTTP URL（处理 HTML/错误页等）
     if let Some(url) = extract_url_from_raw_text(body) {
         return Some((url, None));
     }
@@ -760,13 +660,11 @@ fn extract_audio_info_from_text(body: &str) -> Option<(String, Option<String>)> 
     None
 }
 
-/// 在 JSON 中搜索 ekey 字段
 fn find_ekey_in_json(value: &serde_json::Value) -> Option<String> {
     let ekey_keys = ["ekey", "eKey", "encryptKey", "encryptionKey"];
     find_string_by_keys(value, &ekey_keys)
 }
 
-/// 在 JSON 中按指定 key 列表搜索非空字符串值
 fn find_string_by_keys(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
     match value {
         serde_json::Value::Object(map) => {
@@ -798,7 +696,6 @@ fn find_string_by_keys(value: &serde_json::Value, keys: &[&str]) -> Option<Strin
     }
 }
 
-/// 在 JSON 值中查找指定 key 对应的 URL 字符串
 fn find_url_by_key(value: &serde_json::Value, key: &str) -> Option<String> {
     match value {
         serde_json::Value::Object(map) => {
@@ -809,12 +706,10 @@ fn find_url_by_key(value: &serde_json::Value, key: &str) -> Option<String> {
                         return Some(clean);
                     }
                 }
-                // 嵌套对象/数组中继续查找同一 key
                 if let Some(found) = find_url_by_key(v, key) {
                     return Some(found);
                 }
             }
-            // 在其他字段中继续查找
             for v in map.values() {
                 if let Some(found) = find_url_by_key(v, key) {
                     return Some(found);
@@ -834,7 +729,6 @@ fn find_url_by_key(value: &serde_json::Value, key: &str) -> Option<String> {
     }
 }
 
-/// 递归搜索 JSON 中任意以 http 开头且看起来像音频 URL 的字符串
 fn find_any_audio_url(value: &serde_json::Value) -> Option<String> {
     match value {
         serde_json::Value::String(s) => {
@@ -867,9 +761,6 @@ fn find_any_audio_url(value: &serde_json::Value) -> Option<String> {
     }
 }
 
-/// 递归搜索 JSON 中任意以 http 开头的 URL 字符串（不检查音频特征）。
-/// 作为最后回退手段：某些 CDN 音频 URL 没有标准扩展名或已知域名。
-/// 跳过明显非音频的 URL（如 .html、.htm、图片扩展名、CSS/JS 等）。
 fn find_any_http_url(value: &serde_json::Value) -> Option<String> {
     match value {
         serde_json::Value::String(s) => {
@@ -879,7 +770,6 @@ fn find_any_http_url(value: &serde_json::Value) -> Option<String> {
                     return Some(clean);
                 }
             }
-            // 处理协议相对 URL：//cdn.example.com/path
             if s.starts_with("//") {
                 let full = format!("https:{}", s);
                 if !is_obviously_non_audio_url(&full) {
@@ -908,7 +798,6 @@ fn find_any_http_url(value: &serde_json::Value) -> Option<String> {
     }
 }
 
-/// 判断 URL 明显不是音频链接（排除 HTML、图片、CSS、JS 等）
 fn is_obviously_non_audio_url(url: &str) -> bool {
     let lower = url.to_lowercase();
     lower.contains(".html")
@@ -935,13 +824,9 @@ fn is_obviously_non_audio_url(url: &str) -> bool {
         || lower.contains(".docx")
 }
 
-/// 使用正则从任意文本（非 JSON）中提取第一个 HTTP/HTTPS URL。
-/// 用于处理 HTML 响应、错误页面、或格式异常的文本中隐藏的音频 URL。
 fn extract_url_from_raw_text(text: &str) -> Option<String> {
-    // 简单扫描：查找 http:// 或 https:// 开头的子串
     for prefix in &["https://", "http://"] {
         if let Some(start) = text.find(prefix) {
-            // 从起始位置截取到下一个空白字符或引号
             let rest = &text[start..];
             let end = rest
                 .find(|c: char| c.is_whitespace() || c == '"' || c == '\'' || c == '<' || c == '>' || c == ',' || c == '}')
@@ -955,10 +840,8 @@ fn extract_url_from_raw_text(text: &str) -> Option<String> {
     None
 }
 
-/// 判断 URL 是否看起来像音频链接（包含常见音频扩展名或路径特征）
 fn looks_like_audio_url(url: &str) -> bool {
     let lower = url.to_lowercase();
-    // 检查常见音频扩展名
     lower.contains(".mp3")
         || lower.contains(".flac")
         || lower.contains(".m4a")
@@ -969,7 +852,6 @@ fn looks_like_audio_url(url: &str) -> bool {
         || lower.contains(".opus")
         || lower.contains(".mga")
         || lower.contains(".mgg")
-        // QQ音乐/酷狗/酷我/网易云等流媒体域名
         || lower.contains("stream.qqmusic")
         || lower.contains("ws.stream.qqmusic")
         || lower.contains("dl.stream.qqmusic")
@@ -987,54 +869,42 @@ fn looks_like_audio_url(url: &str) -> bool {
         || lower.contains("nmobi.kuwo")
         || lower.contains("sr.kuwo")
         || lower.contains("antiserver")
-        // 咪咕音乐
         || lower.contains("migu.cn")
         || lower.contains("miguvideo")
-        // 第三方 API 代理域名
         || lower.contains("haitangw")
         || lower.contains("musicapi")
-        // 没有明确扩展名但路径中含 music/song/track/play 等关键词
         || (lower.contains("/music") || lower.contains("/song") || lower.contains("/track") || lower.contains("/play"))
 }
 
-/// 检查文件头魔数是否为已知音频格式。
-/// 支持 MP3 (含 ID3 标签)、FLAC、RIFF/WAV、OGG、M4A/MP4、AAC ADTS、AIFF。
 fn is_valid_audio_header(bytes: &[u8]) -> bool {
     if bytes.len() < 4 {
         return false;
     }
 
-    // MP3: ID3 标签开头
     if &bytes[..3] == b"ID3" {
         return true;
     }
 
-    // MP3: 同步字 (第一字节 0xFF，第二字节高3位为 111)
     if bytes[0] == 0xFF && (bytes[1] & 0xE0) == 0xE0 {
         return true;
     }
 
-    // FLAC
     if &bytes[..4] == b"fLaC" {
         return true;
     }
 
-    // RIFF (WAV)
     if &bytes[..4] == b"RIFF" {
         return true;
     }
 
-    // OGG
     if &bytes[..4] == b"OggS" {
         return true;
     }
 
-    // AIFF
     if &bytes[..4] == b"FORM" {
         return true;
     }
 
-    // M4A/MP4: bytes 4-7 为 "ftyp"
     if bytes.len() >= 8 && &bytes[4..8] == b"ftyp" {
         return true;
     }
@@ -1051,9 +921,6 @@ fn apply_stream_request_headers(
         .map(|hdrs| hdrs.keys().any(|key| key.eq_ignore_ascii_case("user-agent")))
         .unwrap_or(false);
 
-    // 插件提供的 User-Agent 必须优先。JOOX 等音源会严格校验 UA；
-    // 如果先设置默认 UA 再追加插件 UA，最终请求可能携带重复 User-Agent，
-    // 服务端会直接返回 403。
     if !has_plugin_user_agent {
         if let Some(ua) = user_agent {
             req = req.header(reqwest::header::USER_AGENT, ua);
@@ -1075,8 +942,6 @@ fn apply_stream_request_headers(
     req
 }
 
-/// 下载主体。在专用线程的临时 current-thread runtime 中执行（见 spawn 处），
-/// 通过原子计数向读取侧汇报进度，架构与阻塞版完全一致。
 async fn download_thread(
     url: &str,
     hash: &str,
@@ -1104,8 +969,6 @@ async fn download_thread(
         }
     };
 
-    // [CENC] 加密音源需在下载完成后做后处理解密。提前置位 post_check_pending，
-    // 使 is_buffer_ready 与 reader 在解密完成前阻塞，避免解码器读到未解密的 enca 文件。
     let has_cek = cek.lock().map(|c| c.is_some()).unwrap_or(false);
     if has_cek {
         post_check_pending.store(true, Ordering::Relaxed);
@@ -1114,9 +977,7 @@ async fn download_thread(
     let client = match reqwest::Client::builder()
         .timeout(Duration::from_secs(120))
         .connect_timeout(Duration::from_secs(10))
-        // SSRF 纵深：跳转目标做 IP 字面量校验，防重定向到内网
         .redirect(crate::security::ssrf::ip_literal_redirect_policy())
-        // DNS pinning：连接复用校验时刻已钉住的公网 IP，杜绝 rebinding TOCTOU
         .dns_resolver(crate::security::ssrf::pinned_dns_resolver())
         .gzip(true)
         .brotli(true)
@@ -1145,7 +1006,6 @@ async fn download_thread(
         return;
     }
 
-    // 检查 Content-Type
     let content_type = response
         .headers()
         .get(reqwest::header::CONTENT_TYPE)
@@ -1158,12 +1018,8 @@ async fn download_thread(
         || content_type.contains("application/xml")
         || content_type.contains("text/xml");
     if is_non_audio {
-        // 部分 Baka 插件的 getMediaSource 返回的是 API 端点 URL（如酷狗 PHP 接口），
-        // 响应可能是 JSON、text/plain 直链、甚至 HTML 页面。
-        // 对所有非音频内容类型统一尝试解析正文提取 URL 并重试下载。
         let body_text: String = response.text().await.unwrap_or_default();
         if let Some((real_url, json_ekey)) = extract_audio_info_from_text(&body_text) {
-            // 如果 JSON 中包含 ekey，更新共享 ekey 字段供后续 QMC 解密使用
             if let Some(ref ek) = json_ekey {
                 if let Ok(mut ekey_guard) = ekey.lock() {
                     if ekey_guard.is_none() {
@@ -1171,7 +1027,6 @@ async fn download_thread(
                     }
                 }
             }
-            // 用提取到的 URL 重新请求
             let retry_req = apply_stream_request_headers(client.get(&real_url), headers, user_agent);
             match retry_req.send().await {
                 Ok(retry_resp) if retry_resp.status().is_success() => {
@@ -1187,10 +1042,8 @@ async fn download_thread(
                         || retry_ct.contains("application/xml")
                         || retry_ct.contains("text/xml")
                     {
-                        // 二次提取：重试 URL 仍返回非音频内容，尝试再次提取
                         let retry_body: String = retry_resp.text().await.unwrap_or_default();
                         if let Some((real_url2, _)) = extract_audio_info_from_text(&retry_body) {
-                            // 用二次提取的 URL 再次请求
                             let resp2_req = apply_stream_request_headers(
                                 client.get(&real_url2),
                                 headers,
@@ -1245,7 +1098,6 @@ async fn download_thread(
                             return;
                         }
                     } else {
-                        // 重试 URL 返回的是音频内容，直接使用
                         response = retry_resp;
                     }
                 }
@@ -1289,7 +1141,6 @@ async fn download_thread(
     let mut cenc_probe_done = false;
 
     loop {
-        // Response 未实现 AsyncRead，用原生的 chunk() 逐块读取
         match response.chunk().await {
             Ok(Some(chunk)) => {
                 if let Err(e) = file.write_all(&chunk) {
@@ -1299,7 +1150,6 @@ async fn download_thread(
                 bytes_written += chunk.len() as u64;
                 downloaded_bytes.store(bytes_written, Ordering::Relaxed);
 
-                // [CENC 流式] 下载达到 512KB 后尝试解析 moov（若在头部则启用流式解密）
                 if has_cek && !cenc_probe_done && bytes_written >= MIN_BUFFER_BYTES {
                     cenc_probe_done = true;
                     let probe_len = bytes_written.min(1024 * 1024) as usize;
@@ -1348,9 +1198,6 @@ async fn download_thread(
         }
     }
 
-    // 验证下载内容的文件头魔数，防止 CDN 返回错误页/加密数据等非音频内容
-    // 即使 Content-Type 为 audio/mpeg，仍可能返回非音频数据（如 vkey 过期时的错误响应）
-    // 注意：当 ekey 存在时（QMC 加密音源），文件头是加密数据而非有效音频头，跳过此验证
     let has_ekey = ekey.lock().map(|e| e.is_some()).unwrap_or(false);
     if !has_ekey {
         if let Ok(mut verify_file) = File::open(&path) {
@@ -1372,8 +1219,6 @@ async fn download_thread(
         }
     }
 
-    // [CENC] 后处理解密：仅当流式解密未激活（moov 在文件尾部）时才整文件就地解密。
-    // 若流式已激活（cenc_streaming=true），样本在 reader 层按需解密，无需后处理。
     if has_cek && !cenc_streaming.load(Ordering::Relaxed) {
         let cek_str = cek.lock().ok().and_then(|c| c.clone());
         if let Some(ref cek_str) = cek_str {
@@ -1388,15 +1233,12 @@ async fn download_thread(
 
     download_complete.store(true, Ordering::Relaxed);
 
-    // 更新缓存大小
     if let Ok(mut mgr) = cache().lock() {
         mgr.update_size(hash, bytes_written);
     }
 }
 
-/// 等待最小缓冲就绪（在 commands.rs 的 async 上下文中用 tokio::time::sleep 轮询）
 pub fn is_buffer_ready(state: &StreamingTempFileState) -> bool {
-    // Wait for post-download QMC check/decryption if pending
     if let Some(ref flag) = state.post_check_pending {
         if flag.load(Ordering::Relaxed) {
             return false;
@@ -1405,8 +1247,6 @@ pub fn is_buffer_ready(state: &StreamingTempFileState) -> bool {
     state.downloaded_bytes() >= MIN_BUFFER_BYTES || state.is_download_finished()
 }
 
-/// 检查指定 URL 是否已缓存且下载完成。
-/// 用于播放前探测：若已缓存则直接复用，跳过插件重复请求（Baka 等前置请求易失败的音源）。
 pub fn is_url_cached(url: &str) -> bool {
     let hash = url_hash(url);
     let mgr = cache().lock().unwrap_or_else(|e| e.into_inner());
@@ -1418,9 +1258,6 @@ pub fn is_url_cached(url: &str) -> bool {
     false
 }
 
-/// 将指定 URL 的播放缓存复制为目标下载文件。
-/// 仅当该 URL 已完整缓存且未失败（download_complete && !download_failed && size > 0）时执行复制，
-/// 避免重复下载。返回写入的字节数。
 pub fn copy_cache_to(url: &str, dest_path: &str) -> Result<u64, String> {
     let hash = url_hash(url);
     let src_path = {
@@ -1435,15 +1272,12 @@ pub fn copy_cache_to(url: &str, dest_path: &str) -> Result<u64, String> {
         {
             return Err("缓存未下载完成".to_string());
         }
-        // 刷新访问时间，避免复制期间被 LRU 淘汰
         entry.last_accessed = SystemTime::now();
         entry.path.clone()
     };
     std::fs::copy(&src_path, dest_path).map_err(|e| format!("复制缓存文件失败: {}", e))
 }
 
-/// 等待指定 URL 缓存下载完成（轮询，供前端 'wait' 失败行为使用）。
-/// 返回最终是否完成且有效（未失败且字节数 > 0）。
 pub fn wait_url_complete(url: &str, timeout_secs: u64) -> bool {
     let hash = url_hash(url);
     let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);
@@ -1454,7 +1288,6 @@ pub fn wait_url_complete(url: &str, timeout_secs: u64) -> bool {
                 entry.download_complete.load(Ordering::Relaxed)
                     || entry.download_failed.load(Ordering::Relaxed)
             } else {
-                // URL 不在缓存中（从未下载或已被淘汰），无法等待
                 return false;
             }
         };
@@ -1474,7 +1307,6 @@ pub fn wait_url_complete(url: &str, timeout_secs: u64) -> bool {
     }
 }
 
-/// 清理所有缓存
 pub fn clear_all() {
     if let Some(mgr) = STREAM_CACHE.get() {
         if let Ok(mut mgr) = mgr.lock() {

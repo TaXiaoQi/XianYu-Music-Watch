@@ -1,13 +1,9 @@
-//! 插件 Cookie / Storage 持久化存储
-//!
-//! 原实现在前端 localStorage（pluginCookieStore.ts），插件引擎迁至 Rust 后
-//! 由本模块接管：Cookie 存储为扁平 name -> {value, domain} 映射，
-//! Storage 为 key -> string 映射，整体持久化到 app_data_dir/plugin_host_store.json。
-//! 语义与原 localStorage 实现逐一对齐（含双向子串域名匹配）。
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct CookieEntry {
@@ -28,6 +24,8 @@ pub struct PluginStoreData {
 pub struct PluginStore {
     data: Mutex<PluginStoreData>,
     path: Option<std::path::PathBuf>,
+    dirty: AtomicBool,
+    last_persist_secs: AtomicU64,
 }
 
 fn url_hostname(url: &str) -> String {
@@ -46,6 +44,8 @@ impl PluginStore {
         Self {
             data: Mutex::new(data),
             path,
+            dirty: AtomicBool::new(false),
+            last_persist_secs: AtomicU64::new(0),
         }
     }
 
@@ -64,13 +64,39 @@ impl PluginStore {
         }
     }
 
-    /// 对应 setCookie(url, {name, value, domain?})
+    fn unix_secs() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
+    }
+
+    fn persist_throttled(&self, data: &PluginStoreData) {
+        self.dirty.store(true, Ordering::Release);
+        let now = Self::unix_secs();
+        if now.saturating_sub(self.last_persist_secs.load(Ordering::Relaxed)) < 2 {
+            return;
+        }
+        self.last_persist_secs.store(now, Ordering::Relaxed);
+        self.dirty.store(false, Ordering::Release);
+        self.persist(data);
+    }
+
+    pub fn flush_if_dirty(&self) {
+        if !self.dirty.swap(false, Ordering::AcqRel) {
+            return;
+        }
+        self.last_persist_secs.store(Self::unix_secs(), Ordering::Relaxed);
+        let data = self.data.lock().unwrap_or_else(|e| e.into_inner());
+        self.persist(&data);
+    }
+
     pub fn set_cookie(&self, url: &str, name: &str, value: &str, domain: Option<&str>) -> bool {
         let host = url_hostname(url);
         if name.is_empty() {
             return false;
         }
-        let mut data = self.data.lock().unwrap();
+        let mut data = self.data.lock().unwrap_or_else(|e| e.into_inner());
         let domain = domain
             .filter(|d| !d.is_empty())
             .map(|d| d.to_string())
@@ -82,17 +108,16 @@ impl PluginStore {
                 domain,
             },
         );
-        self.persist(&data);
+        self.persist_throttled(&data);
         true
     }
 
-    /// 对应 getCookies(url)：双向子串域名匹配
     pub fn get_cookies_for_url(&self, url: &str) -> HashMap<String, CookieEntry> {
         let host = url_hostname(url);
         if host.is_empty() {
             return HashMap::new();
         }
-        let data = self.data.lock().unwrap();
+        let data = self.data.lock().unwrap_or_else(|e| e.into_inner());
         data.cookies
             .iter()
             .filter(|(_, c)| {
@@ -103,7 +128,6 @@ impl PluginStore {
             .collect()
     }
 
-    /// 拼接 "name=value; ..." Cookie 请求头（对应 getCookiesForUrl）
     pub fn cookie_header_for_url(&self, url: &str) -> String {
         self.get_cookies_for_url(url)
             .iter()
@@ -112,10 +136,9 @@ impl PluginStore {
             .join("; ")
     }
 
-    /// 域名包含指定关键字的 Cookie 头（对应 getPluginBilibiliCookies）
     pub fn cookie_header_for_domain(&self, domain_filter: &str) -> String {
         let filter = domain_filter.to_lowercase();
-        let data = self.data.lock().unwrap();
+        let data = self.data.lock().unwrap_or_else(|e| e.into_inner());
         data.cookies
             .iter()
             .filter(|(_, c)| c.domain.to_lowercase().contains(&filter) && !c.value.is_empty())
@@ -124,7 +147,6 @@ impl PluginStore {
             .join("; ")
     }
 
-    /// 对应 captureCookiesFromResponse：解析 Set-Cookie 行并存储
     pub fn capture_set_cookies(&self, url: &str, set_cookie_values: &[String]) {
         if set_cookie_values.is_empty() {
             return;
@@ -134,7 +156,7 @@ impl PluginStore {
             return;
         }
         let mut changed = false;
-        let mut data = self.data.lock().unwrap();
+        let mut data = self.data.lock().unwrap_or_else(|e| e.into_inner());
         for raw in set_cookie_values {
             let first = raw.split(';').next().unwrap_or("");
             let mut parts = first.splitn(2, '=');
@@ -153,35 +175,34 @@ impl PluginStore {
             changed = true;
         }
         if changed {
-            self.persist(&data);
+            self.persist_throttled(&data);
         }
     }
 
     pub fn storage_set(&self, key: &str, value: &str) {
-        let mut data = self.data.lock().unwrap();
+        let mut data = self.data.lock().unwrap_or_else(|e| e.into_inner());
         data.storage.insert(key.to_string(), value.to_string());
-        self.persist(&data);
+        self.persist_throttled(&data);
     }
 
     pub fn storage_get(&self, key: &str) -> Option<String> {
-        self.data.lock().unwrap().storage.get(key).cloned()
+        self.data.lock().unwrap_or_else(|e| e.into_inner()).storage.get(key).cloned()
     }
 
     pub fn storage_remove(&self, key: &str) {
-        let mut data = self.data.lock().unwrap();
+        let mut data = self.data.lock().unwrap_or_else(|e| e.into_inner());
         if data.storage.remove(key).is_some() {
-            self.persist(&data);
+            self.persist_throttled(&data);
         }
     }
 
-    /// 一次性迁移 localStorage 旧数据：Rust 侧已有的条目优先（更新），仅补缺
     pub fn import_local(
         &self,
         cookies: HashMap<String, CookieEntry>,
         storage: HashMap<String, String>,
     ) {
         let mut changed = false;
-        let mut data = self.data.lock().unwrap();
+        let mut data = self.data.lock().unwrap_or_else(|e| e.into_inner());
         for (name, entry) in cookies {
             if name.is_empty() || entry.value.is_empty() {
                 continue;
@@ -194,15 +215,13 @@ impl PluginStore {
             changed = true;
         }
         if changed {
-            self.persist(&data);
+            self.persist_throttled(&data);
         }
     }
 
-    /// 覆盖式写入 Cookie（用户变量显式同步场景，对齐桌面端
-    /// storePluginCookie 的 localStorage 覆写语义：新值必须生效）。
     pub fn upsert_cookies(&self, cookies: HashMap<String, CookieEntry>) {
         let mut changed = false;
-        let mut data = self.data.lock().unwrap();
+        let mut data = self.data.lock().unwrap_or_else(|e| e.into_inner());
         for (name, entry) in cookies {
             if name.is_empty() || entry.value.is_empty() {
                 continue;
@@ -211,16 +230,22 @@ impl PluginStore {
             changed = true;
         }
         if changed {
-            self.persist(&data);
+            self.persist_throttled(&data);
         }
     }
 
     pub fn cookie_snapshot(&self) -> HashMap<String, CookieEntry> {
-        self.data.lock().unwrap().cookies.clone()
+        self.data.lock().unwrap_or_else(|e| e.into_inner()).cookies.clone()
     }
 
     pub fn storage_snapshot(&self) -> HashMap<String, String> {
-        self.data.lock().unwrap().storage.clone()
+        self.data.lock().unwrap_or_else(|e| e.into_inner()).storage.clone()
+    }
+}
+
+impl Drop for PluginStore {
+    fn drop(&mut self) {
+        self.flush_if_dirty();
     }
 }
 
@@ -244,12 +269,9 @@ mod tests {
             None
         ));
 
-        // 双向子串匹配（与原前端 getCookies 语义一致）：同 host 命中
         let header = store.cookie_header_for_url("https://www.bilibili.com/foo");
         assert!(header.contains("SESSDATA=abc123"));
         assert!(!header.contains("kg_token"));
-        // api.bilibili.com 与 www.bilibili.com 互不包含，不命中
-        // （原实现同样如此，跨子域靠 cookie_header_for_domain）
         let api = store.cookie_header_for_url("https://api.bilibili.com/foo");
         assert!(!api.contains("SESSDATA"));
 
@@ -267,7 +289,6 @@ mod tests {
             "old_value",
             None
         ));
-        // import_local 补缺：同名字段不覆盖
         let mut m = HashMap::new();
         m.insert(
             "SESSDATA".to_string(),
@@ -278,12 +299,10 @@ mod tests {
         );
         store.import_local(m.clone(), HashMap::new());
         assert!(store.cookie_header_for_domain("bilibili").contains("old_value"));
-        // upsert_cookies 覆盖：新值必须生效（用户变量显式同步语义）
         store.upsert_cookies(m);
         let header = store.cookie_header_for_domain("bilibili");
         assert!(header.contains("SESSDATA=new_value"));
         assert!(!header.contains("old_value"));
-        // 空值不写入
         let mut empty = HashMap::new();
         empty.insert(
             "buvid3".to_string(),
@@ -309,7 +328,6 @@ mod tests {
                 "invalid".to_string(),
             ],
         );
-        // capture 使用响应 URL 的 host（y.qq.com）作为 domain
         let header = store.cookie_header_for_url("https://y.qq.com/");
         assert!(header.contains("uin=12345"));
         assert!(header.contains("qqmusic_key=QK"));
@@ -347,9 +365,7 @@ mod tests {
             },
         );
         store.import_local(cookies, HashMap::new());
-        // Rust 侧已有条目优先
         assert_eq!(store.cookie_header_for_url("https://a.com/"), "k=rust");
-        // 仅补缺的新条目
         assert_eq!(store.cookie_header_for_url("https://b.com/"), "new=v");
     }
 }

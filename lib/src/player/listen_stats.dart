@@ -6,29 +6,18 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../auth/auth_provider.dart';
 import 'player_provider.dart';
 
-/// 腕上端独立播放的听歌时长统计与增量上报。
-///
-/// 统计口径与移动端对齐：按播放进度增量结算（position 每周期真实推进的
-/// 秒数），播放器死亡/卡死时 position 不动、增量恒为 0，不会虚计时长。
-/// 上报走统一 delta 协议（stats_mode="delta"）：只报自上次成功上报后的
-/// 增量，服务端做合计并回传账号累计/今日/本周三个真源值，多端显示一致。
 class ListenStatsState {
-  /// 本端本地累计（秒，独立播放），delta 基线的一部分。
   final double localTotal;
 
-  /// 本端当日累计（秒，跨天自动归零）。
   final double localDaily;
 
-  /// 待上报增量：累计 / 当日（上报失败保留，下轮重试）。
   final double pendingTotal;
   final double pendingDaily;
 
-  /// 服务端账号三源值（登录态显示基准，秒）。
   final int serverTotal;
   final int serverDaily;
   final int serverWeekly;
 
-  /// 是否已完成过一次服务端对齐（false 时卡片显示本地值）。
   final bool synced;
 
   const ListenStatsState({
@@ -42,7 +31,6 @@ class ListenStatsState {
     this.synced = false,
   });
 
-  /// 显示值 = 服务端真源 + 本端未上报增量（多端一致且实时）。
   int get displayTotal => serverTotal + pendingTotal.round();
   int get displayDaily => serverDaily + pendingDaily.round();
   int get displayWeekly => serverWeekly + pendingDaily.round();
@@ -56,17 +44,16 @@ class ListenStatsState {
     int? serverDaily,
     int? serverWeekly,
     bool? synced,
-  }) =>
-      ListenStatsState(
-        localTotal: localTotal ?? this.localTotal,
-        localDaily: localDaily ?? this.localDaily,
-        pendingTotal: pendingTotal ?? this.pendingTotal,
-        pendingDaily: pendingDaily ?? this.pendingDaily,
-        serverTotal: serverTotal ?? this.serverTotal,
-        serverDaily: serverDaily ?? this.serverDaily,
-        serverWeekly: serverWeekly ?? this.serverWeekly,
-        synced: synced ?? this.synced,
-      );
+  }) => ListenStatsState(
+    localTotal: localTotal ?? this.localTotal,
+    localDaily: localDaily ?? this.localDaily,
+    pendingTotal: pendingTotal ?? this.pendingTotal,
+    pendingDaily: pendingDaily ?? this.pendingDaily,
+    serverTotal: serverTotal ?? this.serverTotal,
+    serverDaily: serverDaily ?? this.serverDaily,
+    serverWeekly: serverWeekly ?? this.serverWeekly,
+    synced: synced ?? this.synced,
+  );
 }
 
 class ListenStatsNotifier extends StateNotifier<ListenStatsState> {
@@ -77,7 +64,6 @@ class ListenStatsNotifier extends StateNotifier<ListenStatsState> {
 
   final Ref _ref;
   static const Duration _tickInterval = Duration(seconds: 15);
-  /// 待上报增量达到该阈值才发起网络请求，表端省电省流量。
   static const double _flushThreshold = 60;
 
   Timer? _tickTimer;
@@ -88,8 +74,7 @@ class ListenStatsNotifier extends StateNotifier<ListenStatsState> {
   bool _persistDirty = false;
   Timer? _persistTimer;
 
-  /// 账号页打开时主动对齐一次（零增量也回传服务端现值）。
-  Future<void> refresh() => _flush(force: true);
+  Future<void> refresh() => _flush();
 
   void _tick() {
     final player = _ref.read(playerProvider);
@@ -99,11 +84,10 @@ class ListenStatsNotifier extends StateNotifier<ListenStatsState> {
     double delta = 0;
     final pos = player.position;
     if (_lastPos >= 0 && pos > _lastPos) {
-      final wallSec =
-          now.difference(_lastTick).inMilliseconds / 1000.0;
+      final wallSec = now.difference(_lastTick).inMilliseconds / 1000.0;
       final d = pos - _lastPos;
-      // 超出墙钟的跳变（seek）不计，倒退（切歌归零）不计。
-      if (d <= wallSec + 2) delta = d;
+      final speed = player.speed > 0 ? player.speed : 1.0;
+      if (d <= wallSec * speed + 2) delta = d;
     }
     _lastPos = pos;
     _lastTick = now;
@@ -135,7 +119,7 @@ class ListenStatsNotifier extends StateNotifier<ListenStatsState> {
     }
   }
 
-  Future<void> _flush({bool force = false}) async {
+  Future<void> _flush() async {
     if (_reportBusy) return;
     final pendingTotal = state.pendingTotal;
     final pendingDaily = state.pendingDaily;
@@ -143,16 +127,14 @@ class ListenStatsNotifier extends StateNotifier<ListenStatsState> {
     if (!_ref.read(authProvider).isLoggedIn) return;
     _reportBusy = true;
     try {
-      final data = await _ref.read(authProvider.notifier).requestAction(
-        'report_listen_stats',
-        {
-          'stats_mode': 'delta',
-          'delta_duration': pendingTotal.round(),
-          'delta_daily_duration': pendingDaily.round(),
-        },
-      );
+      final data = await _ref
+          .read(authProvider.notifier)
+          .requestAction('report_listen_stats', {
+            'stats_mode': 'delta',
+            'delta_duration': pendingTotal.round(),
+            'delta_daily_duration': pendingDaily.round(),
+          });
       if (data['reset_at'] != null) {
-        // 服务端重置：本地统计与基线全部清零，从零重新累计。
         _dailyDate = _today();
         state = const ListenStatsState(localDaily: 0);
         _lastPos = _ref.read(playerProvider).position;
@@ -161,8 +143,12 @@ class ListenStatsNotifier extends StateNotifier<ListenStatsState> {
         return;
       }
       state = state.copyWith(
-        pendingTotal: 0,
-        pendingDaily: 0,
+        pendingTotal: (state.pendingTotal - pendingTotal)
+            .clamp(0.0, double.infinity)
+            .toDouble(),
+        pendingDaily: (state.pendingDaily - pendingDaily)
+            .clamp(0.0, double.infinity)
+            .toDouble(),
         serverTotal: (data['server_total_duration'] as num?)?.toInt() ?? 0,
         serverDaily: (data['server_daily_duration'] as num?)?.toInt() ?? 0,
         serverWeekly: (data['server_weekly_duration'] as num?)?.toInt() ?? 0,
@@ -170,7 +156,6 @@ class ListenStatsNotifier extends StateNotifier<ListenStatsState> {
       );
       _schedulePersist();
     } catch (_) {
-      // 失败保留 pending，下轮阈值或 force 重试。
     } finally {
       _reportBusy = false;
     }
@@ -189,7 +174,6 @@ class ListenStatsNotifier extends StateNotifier<ListenStatsState> {
         _dailyDate = _today();
         return;
       }
-      // 手写轻量解析，避免引入依赖：键值均为简单类型。
       final m = _decodeFlat(raw);
       _dailyDate = m['dailyDate'] as String? ?? _today();
       final today = _today();
@@ -210,7 +194,6 @@ class ListenStatsNotifier extends StateNotifier<ListenStatsState> {
     }
   }
 
-  /// 平铺 JSON（数字/字符串/布尔），与存储格式一一对应。
   Map<String, Object?> _decodeFlat(String raw) {
     final out = <String, Object?>{};
     final body = raw.trim();
@@ -244,21 +227,25 @@ class ListenStatsNotifier extends StateNotifier<ListenStatsState> {
   Future<void> _persistNow() async {
     if (!_persistDirty) return;
     _persistDirty = false;
+    await _persistSnapshot(state, _dailyDate);
+  }
+
+  Future<void> _persistSnapshot(ListenStatsState s, String date) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       String q(Object v) => v.toString();
       await prefs.setString(
         'listenStats',
         '{'
-        '"localTotal":${q(state.localTotal)},'
-        '"localDaily":${q(state.localDaily)},'
-        '"pendingTotal":${q(state.pendingTotal)},'
-        '"pendingDaily":${q(state.pendingDaily)},'
-        '"serverTotal":${q(state.serverTotal)},'
-        '"serverDaily":${q(state.serverDaily)},'
-        '"serverWeekly":${q(state.serverWeekly)},'
-        '"synced":${state.synced ? 1 : 0},'
-        '"dailyDate":"$_dailyDate"}',
+            '"localTotal":${q(s.localTotal)},'
+            '"localDaily":${q(s.localDaily)},'
+            '"pendingTotal":${q(s.pendingTotal)},'
+            '"pendingDaily":${q(s.pendingDaily)},'
+            '"serverTotal":${q(s.serverTotal)},'
+            '"serverDaily":${q(s.serverDaily)},'
+            '"serverWeekly":${q(s.serverWeekly)},'
+            '"synced":${s.synced ? 1 : 0},'
+            '"dailyDate":"$date"}',
       );
     } catch (_) {}
   }
@@ -267,17 +254,20 @@ class ListenStatsNotifier extends StateNotifier<ListenStatsState> {
   void dispose() {
     _tickTimer?.cancel();
     _persistTimer?.cancel();
-    _persistNow();
+    final dirty = _persistDirty;
+    _persistDirty = false;
+    if (dirty) {
+      unawaited(_persistSnapshot(state, _dailyDate));
+    }
     super.dispose();
   }
 }
 
 final listenStatsProvider =
     StateNotifierProvider<ListenStatsNotifier, ListenStatsState>(
-  (ref) => ListenStatsNotifier(ref),
-);
+      (ref) => ListenStatsNotifier(ref),
+    );
 
-/// 秒数 → 紧凑中文时长（账号页显示用）。
 String formatListenDuration(int secs) {
   if (secs < 60) return '$secs 秒';
   final h = secs ~/ 3600;

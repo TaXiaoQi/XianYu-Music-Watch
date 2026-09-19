@@ -1,7 +1,3 @@
-//! DLNA 双向投屏核心门面（双端同步一份代码，勿在本端私自改动）。
-//!
-//! - 发送端（DMC）：SSDP 搜索渲染器 → 本机媒体服务包装直链/本地文件 → AVTransport SOAP 控制。
-//! - 接收端（DMR）：SSDP alive 广播 + AVTransport SOAP 端点 → 指令交给宿主播放器（`DmrHost`）。
 
 pub mod dmr;
 pub mod discovery;
@@ -13,7 +9,6 @@ pub mod spawn;
 pub mod ssdp;
 pub mod types;
 
-// 移动端专属：FRB 桥接宿主（桌面端无此文件）。
 pub mod bridge;
 
 pub use types::{
@@ -35,10 +30,8 @@ struct RendererSession {
 pub struct DlnaCore {
     client: reqwest::Client,
     registry: Arc<media_server::MediaRegistry>,
-    httpd_port: AtomicU64, // 0 = 未启动
-    /// DMR 共享状态（ensure_httpd 时创建，httpd 与 enable_renderer 共享）。
+    httpd_port: AtomicU64,
     dmr_shared: OnceLock<Arc<dmr::DmrShared>>,
-    /// 渲染器指令接收端（宿主单次取走：移动端长轮询 / 桌面端 emit 循环）。
     dmr_rx: tokio::sync::Mutex<Option<mpsc::Receiver<DmrCommand>>>,
     renderer: Mutex<Option<RendererSession>>,
     device_cache: Mutex<HashMap<String, DlnaDevice>>,
@@ -69,12 +62,11 @@ impl DlnaCore {
 
     // ---------------- 发送端（DMC） ----------------
 
-    /// 搜索局域网 DLNA 渲染器（结果带描述解析，失败的设备跳过）。
     pub async fn search_devices(&self, timeout_ms: u64) -> Vec<DlnaDevice> {
         let locations = ssdp::search_renderers(timeout_ms).await;
         let mut out: Vec<DlnaDevice> = Vec::new();
         {
-            let cache = self.device_cache.lock().unwrap();
+            let cache = self.device_cache.lock().unwrap_or_else(|e| e.into_inner());
             for loc in &locations {
                 if let Some(dev) = cache.values().find(|d| &d.location == loc) {
                     out.push(dev.clone());
@@ -100,7 +92,6 @@ impl DlnaCore {
         out
     }
 
-    /// 惰性启动本机媒体/DMR 服务，返回实际端口。
     pub async fn ensure_httpd(&self) -> Result<u16, String> {
         let cur = self.httpd_port.load(Ordering::SeqCst) as u16;
         if cur != 0 {
@@ -119,13 +110,10 @@ impl DlnaCore {
         Ok(server.port)
     }
 
-    /// TTL 续投：热替换 token 上游（电视不断流）。
     pub fn update_media_token(&self, token: &str, payload: MediaPayload) -> bool {
         self.registry.update(token, payload)
     }
 
-    /// 投递到设备：创建媒体/封面 URL → SetAVTransportURI（含 DIDL-Lite 元数据）。
-    /// 返回 [CastMediaInfo]（token 供续投）。
     #[allow(clippy::too_many_arguments)]
     pub async fn cast_set_uri(
         &self,
@@ -212,7 +200,7 @@ impl DlnaCore {
 
     pub async fn cast_set_volume(&self, dev: &DlnaDevice, percent: u8) -> Result<(), String> {
         let Some(rcs) = dev.rcs_control_url.clone() else {
-            return Ok(()); // 设备不支持音量控制则静默跳过
+            return Ok(());
         };
         let inner = format!(
             "<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>{}</DesiredVolume>",
@@ -229,7 +217,6 @@ impl DlnaCore {
         Ok(())
     }
 
-    /// 查询电视端播放状态（GetPositionInfo + GetTransportInfo）。
     pub async fn cast_get_state(&self, dev: &DlnaDevice) -> Result<CastTransportState, String> {
         let avt = dev
             .avt_control_url
@@ -288,14 +275,12 @@ impl DlnaCore {
 
     // ---------------- 接收端（DMR） ----------------
 
-    /// 启动渲染器：SSDP 广播 + DMR 端点启用。指令经 [DlnaCore::take_dmr_command_rx] 交给宿主。
     pub async fn enable_renderer(
         &self,
         cfg: RendererConfig,
         host: Arc<dyn DmrHost>,
     ) -> Result<u16, String> {
         let port = self.ensure_httpd().await?;
-        // 停掉旧会话（幂等）。
         self.disable_renderer().await;
 
         let udn = if cfg.udn.trim().is_empty() {
@@ -309,10 +294,10 @@ impl DlnaCore {
             .get()
             .ok_or_else(|| "httpd 未初始化".to_string())?
             .clone();
-        *shared.udn.lock().unwrap() = udn.clone();
-        *shared.friendly_name.lock().unwrap() = cfg.friendly_name.clone();
+        *shared.udn.lock().unwrap_or_else(|e| e.into_inner()) = udn.clone();
+        *shared.friendly_name.lock().unwrap_or_else(|e| e.into_inner()) = cfg.friendly_name.clone();
         shared.port.store(port, Ordering::SeqCst);
-        *shared.host.lock().unwrap() = Some(host);
+        *shared.host.lock().unwrap_or_else(|e| e.into_inner()) = Some(host);
         shared.enabled.store(1, Ordering::SeqCst);
 
         let advertiser = ssdp::SsdpAdvertiser::start(ssdp::AdvertiseConfig {
@@ -321,7 +306,7 @@ impl DlnaCore {
         })
         .await?;
 
-        *self.renderer.lock().unwrap() = Some(RendererSession {
+        *self.renderer.lock().unwrap_or_else(|e| e.into_inner()) = Some(RendererSession {
             advertiser,
             friendly_name: cfg.friendly_name,
             port,
@@ -329,20 +314,19 @@ impl DlnaCore {
         Ok(port)
     }
 
-    /// 关闭渲染器（byebye 下线，端点停用）。
     pub async fn disable_renderer(&self) {
-        let session = self.renderer.lock().unwrap().take();
+        let session = self.renderer.lock().unwrap_or_else(|e| e.into_inner()).take();
         if let Some(s) = session {
             s.advertiser.stop();
         }
         if let Some(shared) = self.dmr_shared.get() {
             shared.enabled.store(0, Ordering::SeqCst);
-            *shared.host.lock().unwrap() = None;
+            *shared.host.lock().unwrap_or_else(|e| e.into_inner()) = None;
         }
     }
 
     pub fn renderer_running(&self) -> bool {
-        self.renderer.lock().unwrap().is_some()
+        self.renderer.lock().unwrap_or_else(|e| e.into_inner()).is_some()
     }
 
     pub fn renderer_info(&self) -> Option<(String, u16)> {
@@ -353,12 +337,10 @@ impl DlnaCore {
             .map(|s| (s.friendly_name.clone(), s.port))
     }
 
-    /// 取走渲染器指令接收端（仅一次；桌面端 emit 循环用）。
     pub async fn take_dmr_command_rx(&self) -> Option<mpsc::Receiver<DmrCommand>> {
         self.dmr_rx.lock().await.take()
     }
 
-    /// 长轮询下一条 DMR 指令（超时返回 None；移动端 FRB 用）。
     #[allow(dead_code)]
     pub async fn dmr_next_command(&self, timeout_ms: u64) -> Option<DmrCommand> {
         let mut guard = self.dmr_rx.lock().await;
@@ -370,7 +352,6 @@ impl DlnaCore {
     }
 }
 
-/// 构建 DIDL-Lite 元数据（电视端显示标题/歌手/封面）。
 fn build_didl(
     media_url: &str,
     cover_url: Option<&str>,

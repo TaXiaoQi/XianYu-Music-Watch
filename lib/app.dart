@@ -14,12 +14,6 @@ import 'src/sync/sync_provider.dart';
 import 'src/ui/local/local_music_hub.dart';
 import 'src/ui/link/linkage_home.dart';
 
-/// 弦予腕上版入口：全屏音乐页（左侧功能列表 ↔ 中间播放 ↔ 右侧歌词横移），
-/// 开屏落在播放页；设置/账号从左侧功能列表进入（插件管理并入设置）。
-///
-/// 主页随运行模式动态切换（热切，不重启进程）：联动模式 [LinkageHome]
-/// （三页：功能/播放/歌词，低占用、常驻后台、手机一播放即推送）；
-/// 独立模式 [LocalMusicHub]（完整独立播放，联动仅保留手动入口）。
 class XianYuWatchApp extends ConsumerStatefulWidget {
   const XianYuWatchApp({super.key});
 
@@ -28,48 +22,47 @@ class XianYuWatchApp extends ConsumerStatefulWidget {
 }
 
 class _XianYuWatchAppState extends ConsumerState<XianYuWatchApp> {
-  // 左缘返回条要触发 Navigator 弹栈/根路由后台驻留，而该条叠在
-  // Navigator 之上（MaterialApp.builder 层），拿不到 Navigator
-  // 的祖先链，只能用 GlobalKey 直取。
   final GlobalKey<NavigatorState> _navKey = GlobalKey<NavigatorState>();
+  ProviderSubscription<String>? _modeSub;
+  ProviderSubscription<AsyncValue<AppSettings>>? _settingsSub;
 
   @override
   void initState() {
     super.initState();
-    // 模式热切换：首页随 appModeProvider 重建后，清掉残留的二级页路由
-    // 栈（切换入口在设置/设备联动等二级页内），保证落在新模式首页。
-    ref.listenManual(appModeProvider, (prev, next) {
+    _modeSub = ref.listenManual(appModeProvider, (prev, next) {
       if (prev != null && prev != next) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _navKey.currentState?.popUntil((route) => route.isFirst);
         });
       }
     });
-    // 链路初始化（读配对地址 → 自动连接 / 退避重连 / 心跳）+ 账号凭证恢复。
     Future.microtask(() {
-      // 先创建 SyncNotifier 注册登录态监听：登录/凭证恢复后自动触发首次云同步。
       ref.read(syncProvider.notifier);
       ref.read(linkControllerProvider.notifier).init();
       ref.read(authProvider.notifier).init();
     });
-    // Wear OS 环境模式监听（进出 ambient 压暗 UI + 暂停刷新）。
     initAmbientListener(ref);
-    // 屏幕常亮设置应用（设置-播放，原生 FLAG_KEEP_SCREEN_ON）。
-    ref.listenManual(settingsProvider, (prev, next) {
+    _settingsSub = ref.listenManual(settingsProvider, (prev, next) {
       _applyKeepScreenOn(next.valueOrNull?.keepScreenOn ?? true);
     });
   }
 
+  @override
+  void dispose() {
+    _modeSub?.close();
+    _settingsSub?.close();
+    super.dispose();
+  }
+
   static Future<void> _applyKeepScreenOn(bool enable) {
-    return const MethodChannel('xianyu/keep_screen')
-        .invokeMethod('set', {'enable': enable})
-        .catchError((_) {});
+    return const MethodChannel(
+      'xianyu/keep_screen',
+    ).invokeMethod('set', {'enable': enable}).catchError((_) {});
   }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      // 多任务卡片标题取 MaterialApp.title（覆盖 manifest label），debug 带·测试。
       title: kDebugMode ? '腕上弦予·测试' : '腕上弦予',
       debugShowCheckedModeBanner: false,
       navigatorKey: _navKey,
@@ -83,20 +76,32 @@ class _XianYuWatchAppState extends ConsumerState<XianYuWatchApp> {
           surface: Colors.black,
         ),
       ),
-      // builder 包住 Navigator：所有路由（含推送页）在 ambient 下统一压暗；
-      // 并在最上层叠一条左缘返回条（系统级边缘返回在本机不可靠，见
-      // _EdgeBackStrip 注释）。
       builder: (context, child) => Consumer(
         builder: (context, ref, _) {
           Widget nav = child ?? const SizedBox.shrink();
           if (ref.watch(ambientModeProvider)) {
             nav = ColorFiltered(
-              // 全局压暗至 60%：OLED 防烧屏 + 省电，保留最低可读性。
               colorFilter: const ColorFilter.matrix(<double>[
-                0.6, 0, 0, 0, 0, //
-                0, 0.6, 0, 0, 0, //
-                0, 0, 0.6, 0, 0, //
-                0, 0, 0, 1, 0, //
+                0.6,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0.6,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0.6,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                0,
               ]),
               child: nav,
             );
@@ -113,8 +118,6 @@ class _XianYuWatchAppState extends ConsumerState<XianYuWatchApp> {
       home: Consumer(
         builder: (context, ref, _) {
           final mode = ref.watch(appModeProvider);
-          // 联动模式顺带请求原生低占用前台保活（退后台后链路仍在，手机播放
-          // 可快速拉起）；独立模式不申请，保持最小占用。
           if (mode == appModeLink) LinkKeepAlive.start();
           return mode == appModeLink
               ? const LinkageHome()
@@ -125,13 +128,6 @@ class _XianYuWatchAppState extends ConsumerState<XianYuWatchApp> {
   }
 }
 
-/// 左缘返回条：叠在所有路由之上（MaterialApp.builder 层）。鸿蒙侧的返回
-/// 主链路是系统手势/返回键 → Index.onBackPress → popRoute（Dart 决策弹栈/
-/// 翻页/退后台，见 RootBackScope）；本条是兜底自绘：仅「从左缘 26dp 内
-/// 起手、向右滑」的横滑触发 maybePop——系统手势没派发到的固件上仍有返回，
-/// 二级页弹栈，根路由经 RootBackScope 后台驻留；其余横滑照常归页面
-/// （播放页翻页等）。竖滑与点按没有对应回调，手势竞技场直接放行，不影响
-/// 列表滚动和左缘附近的按钮点击。
 class _EdgeBackStrip extends StatefulWidget {
   const _EdgeBackStrip({required this.navigatorKey});
 
@@ -158,7 +154,6 @@ class _EdgeBackStripState extends State<_EdgeBackStrip> {
         onHorizontalDragUpdate: (d) => _dx += d.delta.dx,
         onHorizontalDragEnd: (d) {
           final velocity = d.primaryVelocity ?? 0;
-          // 快甩（>300dp/s）或明确向右拖出 60dp 都算返回意图。
           final isBack = velocity > 300 || _dx >= 60 * s;
           _dx = 0;
           if (!isBack) return;
@@ -169,10 +164,6 @@ class _EdgeBackStripState extends State<_EdgeBackStrip> {
   }
 }
 
-/// 手机端发起的配对确认（叠在全部路由之上）：有请求时显示完整确认页
-/// （非浮卡，圆屏弧缘不再裁切内容）。内容垂直居中、上下留白填充；设备名
-/// 超长换行使内容超屏时可滚动，滚动结束吸附到最近端（头部/按钮完整可见），
-/// 不超屏时始终居中。允许 → 采纳连接（后续自动进控制页）；拒绝 → 关闭并回绝。
 class _PairRequestHost extends ConsumerStatefulWidget {
   const _PairRequestHost();
 
@@ -193,15 +184,14 @@ class _PairRequestHostState extends ConsumerState<_PairRequestHost> {
   Widget build(BuildContext context) {
     final s = context.watchScale();
     final name = ref.watch(
-        linkControllerProvider.select((st) => st.incomingName));
+      linkControllerProvider.select((st) => st.incomingName),
+    );
     if (name.isEmpty) return const SizedBox.shrink();
     final vh = MediaQuery.of(context).size.height;
     return Container(
       color: const Color(0xFF0C0C0F),
       child: NotificationListener<ScrollEndNotification>(
         onNotification: (n) {
-          // 滚动结束吸附：内容超屏时对齐最近端（头部或按钮完整可见），
-          // 不停在半截；不超屏时本就居中，无需处理。
           final m = n.metrics;
           if (!m.hasContentDimensions || m.maxScrollExtent <= 0) return false;
           final target =
@@ -219,27 +209,33 @@ class _PairRequestHostState extends ConsumerState<_PairRequestHost> {
           controller: _scroll,
           padding: EdgeInsets.symmetric(horizontal: 30 * s, vertical: 14 * s),
           child: ConstrainedBox(
-            // 最小高度撑满视口（扣除自身纵向 padding）：内容少时垂直
-            // 居中，上下留白填充；内容多时自然撑开、可滚动。
             constraints: BoxConstraints(minHeight: vh - 28 * s),
             child: Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.watch_rounded,
-                      size: 44 * s, color: const Color(0xFF4A90D9)),
+                  Icon(
+                    Icons.watch_rounded,
+                    size: 44 * s,
+                    color: const Color(0xFF4A90D9),
+                  ),
                   SizedBox(height: 12 * s),
-                  Text('配对请求',
-                      style: TextStyle(
-                          fontSize: 18 * s, fontWeight: FontWeight.bold)),
+                  Text(
+                    '配对请求',
+                    style: TextStyle(
+                      fontSize: 18 * s,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                   SizedBox(height: 8 * s),
                   Text(
                     '「${name.isEmpty ? '手机' : name}」请求连接腕上弦予',
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                        fontSize: 13 * s,
-                        height: 1.35,
-                        color: Colors.white.withValues(alpha: 0.6)),
+                      fontSize: 13 * s,
+                      height: 1.35,
+                      color: Colors.white.withValues(alpha: 0.6),
+                    ),
                   ),
                   SizedBox(height: 20 * s),
                   Row(
@@ -253,7 +249,9 @@ class _PairRequestHostState extends ConsumerState<_PairRequestHost> {
                         style: FilledButton.styleFrom(
                           backgroundColor: const Color(0xFFFF4D6E),
                           padding: EdgeInsets.symmetric(
-                              horizontal: 18 * s, vertical: 5 * s),
+                            horizontal: 18 * s,
+                            vertical: 5 * s,
+                          ),
                           minimumSize: Size(0, 36 * s),
                           textStyle: TextStyle(fontSize: 13.5 * s),
                         ),
@@ -266,7 +264,9 @@ class _PairRequestHostState extends ConsumerState<_PairRequestHost> {
                             .rejectIncoming(),
                         style: OutlinedButton.styleFrom(
                           padding: EdgeInsets.symmetric(
-                              horizontal: 18 * s, vertical: 5 * s),
+                            horizontal: 18 * s,
+                            vertical: 5 * s,
+                          ),
                           minimumSize: Size(0, 36 * s),
                           textStyle: TextStyle(fontSize: 13.5 * s),
                         ),

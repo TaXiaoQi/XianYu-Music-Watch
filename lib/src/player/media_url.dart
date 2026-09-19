@@ -1,36 +1,27 @@
-// media_url.dart - 播放直链清洗与请求头补齐
-//
-// 对齐桌面端 utils/mediaUrl.ts：插件直链常带反引号/引号/逗号等脏字符，
-// 且酷狗/网易云等 CDN 防盗链要求 Referer/Origin，缺失时返回错误页或空响应，
-// 最终表现为 ExoPlayer「加载但不播放」（UnrecognizedInputFormatException）。
-
-import '../rust/api.dart';
-
-/// 从尾部逐字符剥离非 URL 字符（引号/逗号/分号/空白等）。
 bool _isTrailingDirtyChar(int code) {
-  return code == 0x2c || // ,
-      code == 0x3b || // ;
-      code == 0x60 || // `
-      code == 0x27 || // '
-      code == 0x22 || // "
-      code == 0x3e || // >
-      code == 0x3c || // <
-      code == 0x2018 || // ‘
-      code == 0x2019 || // ’
-      code == 0x201c || // “
-      code == 0x201d || // ”
-      code == 0x201b || // ‛
-      code == 0x201f || // ‟
-      code == 0x2033 || // ″
-      code == 0x02b9 || // ʹ
-      code == 0x02ca || // ʊ
-      code == 0xff0c || // ，
-      code == 0xff1b || // ；
-      code == 0xff02 || // ＂
-      code == 0xff07 || // ＇
-      code == 0xff1e || // ＞
-      code == 0xff1c || // ＜
-      code <= 0x20; // 空白控制字符
+  return code == 0x2c ||
+      code == 0x3b ||
+      code == 0x60 ||
+      code == 0x27 ||
+      code == 0x22 ||
+      code == 0x3e ||
+      code == 0x3c ||
+      code == 0x2018 ||
+      code == 0x2019 ||
+      code == 0x201c ||
+      code == 0x201d ||
+      code == 0x201b ||
+      code == 0x201f ||
+      code == 0x2033 ||
+      code == 0x02b9 ||
+      code == 0x02ca ||
+      code == 0xff0c ||
+      code == 0xff1b ||
+      code == 0xff02 ||
+      code == 0xff07 ||
+      code == 0xff1e ||
+      code == 0xff1c ||
+      code <= 0x20;
 }
 
 String _stripTrailingDirty(String s) {
@@ -41,7 +32,6 @@ String _stripTrailingDirty(String s) {
   return end > 0 ? s.substring(0, end) : '';
 }
 
-/// 清洗插件返回的媒体 URL：定位 http(s):// 起点，剥离尾部脏字符。
 String sanitizeMediaUrl(String raw) {
   if (raw.isEmpty) return '';
   final httpsIdx = raw.indexOf('https://');
@@ -63,14 +53,13 @@ bool _hasHeader(Map<String, String> headers, String name) {
 }
 
 void _setHeaderIfMissing(
-    Map<String, String> headers, String name, String value) {
+  Map<String, String> headers,
+  String name,
+  String value,
+) {
   if (!_hasHeader(headers, name)) headers[name] = value;
 }
 
-/// 为播放直链补齐通用请求头。
-///
-/// 插件有时只返回 URL，不返回防盗链 headers。酷狗等第三方代理接口在 UA 与
-/// Referer 缺失时可能返回错误页或空响应，最终表现为「加载但不播放」。
 Map<String, String>? normalizeMediaRequestHeaders(
   String url,
   Map<String, String>? rawHeaders,
@@ -90,25 +79,30 @@ Map<String, String>? normalizeMediaRequestHeaders(
   if (uri != null) {
     final host = uri.host.toLowerCase();
     final path = uri.path.toLowerCase();
-    final isKugouLike = host.contains('kugou') ||
+    final isKugouLike =
+        host.contains('kugou') ||
         host.contains('kg.') ||
         host.contains('haitangw.cc') ||
         path.contains('/kgqq/') ||
         path.contains('/kugou/');
-    final isNeteaseLike = host.contains('music.126.net') ||
+    final isNeteaseLike =
+        host.contains('music.126.net') ||
         host.contains('music.163.com') ||
         host.contains('netease') ||
         path.contains('/netease/') ||
         path.contains('/wy/');
-    final isKuwoLike = host.contains('kuwo.cn') ||
+    final isKuwoLike =
+        host.contains('kuwo.cn') ||
         host.contains('kuwo.com') ||
         host.contains('kuwo') ||
         path.contains('/kuwo/') ||
         path.contains('/kw/');
-    final isJooxLike = host.contains('joox.com') ||
+    final isJooxLike =
+        host.contains('joox.com') ||
         host.contains('music.joox.com') ||
         path.contains('/joox/');
-    final isQishuiLike = host.contains('douyin.com') ||
+    final isQishuiLike =
+        host.contains('douyin.com') ||
         host.contains('pglstatp-toutiao.com') ||
         host.contains('pangolin-sdk-toutiao.com') ||
         host.contains('bytescm.com') ||
@@ -116,7 +110,8 @@ Map<String, String>? normalizeMediaRequestHeaders(
         host.contains('bytecdn.cn') ||
         host.contains('toutiao.com') ||
         path.contains('/qishui/');
-    final isBilibiliLike = host.contains('bilivideo.com') ||
+    final isBilibiliLike =
+        host.contains('bilivideo.com') ||
         host.contains('bilivideo.cn') ||
         host.contains('hdslb.com') ||
         host.contains('bilibili.com');
@@ -126,7 +121,11 @@ Map<String, String>? normalizeMediaRequestHeaders(
           ? '${uri.scheme}://${uri.host}/'
           : 'https://www.kugou.com/';
       _setHeaderIfMissing(headers, 'Referer', referer);
-      _setHeaderIfMissing(headers, 'Origin', referer.replaceAll(RegExp(r'/$'), ''));
+      _setHeaderIfMissing(
+        headers,
+        'Origin',
+        referer.replaceAll(RegExp(r'/$'), ''),
+      );
     } else if (isNeteaseLike) {
       _setHeaderIfMissing(headers, 'Referer', 'https://music.163.com/');
       _setHeaderIfMissing(headers, 'Origin', 'https://music.163.com');
@@ -147,39 +146,6 @@ Map<String, String>? normalizeMediaRequestHeaders(
   return headers.isNotEmpty ? headers : null;
 }
 
-/// B站取流会话 Cookie 合并（对齐桌面端 withBilibiliStreamCookie）。
-///
-/// B站插件调 API（api.bilibili.com / www.bilibili.com）时 Cookie 存在后端
-/// PluginStore，但取流 CDN（bilivideo.com）与 API 域名不同，URL 域匹配不会
-/// 命中。按 domain 关键字过滤拼接 Cookie 头补上，避免 CDN 匿名分流只返回
-/// 几秒预览流。已带 Cookie 或非 B 站域时原样返回；查询失败静默降级。
-Future<Map<String, String>?> withBilibiliStreamCookie(
-  String url,
-  Map<String, String>? headers, {
-  required Future<String> dataDir,
-}) async {
-  final hasCookie =
-      headers?.keys.any((k) => k.toLowerCase() == 'cookie') ?? false;
-  if (hasCookie) return headers;
-  final host = Uri.tryParse(url)?.host.toLowerCase() ?? '';
-  if (!host.contains('bilivideo') &&
-      !host.contains('hdslb') &&
-      !host.contains('bilibili')) {
-    return headers;
-  }
-  try {
-    final cookie = await pluginEngineCookieHeaderForDomain(
-      dataDir: await dataDir,
-      domain: 'bilibili',
-    );
-    if (cookie.isEmpty) return headers;
-    return {...?headers, 'Cookie': cookie};
-  } catch (_) {
-    return headers;
-  }
-}
-
-/// 解析得到的播放源：直链 + 可选请求头 + 实际命中的音质档位（LX 多档回退时可知实际档）。
 class ResolvedMediaUrl {
   const ResolvedMediaUrl({required this.url, this.headers, this.quality});
   final String url;
