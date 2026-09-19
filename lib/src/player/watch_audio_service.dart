@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:audio_service/audio_service.dart' as asrv;
-import 'package:flutter/foundation.dart';
 
 import 'player_provider.dart'
     show WatchAudioHandler, activePlayerNotifier, audioHandler;
@@ -32,8 +31,6 @@ Future<void> initWatchAudioService() {
     audioHandler = h;
     final notifier = activePlayerNotifier;
     if (notifier != null) h.bindNotifier(notifier);
-    debugPrint('[audio_service] 初始化完成');
-  }, onError: (Object e, StackTrace st) {
-    debugPrint('[audio_service] 初始化失败: $e\n$st');
-  });
+    // 初始化失败不重抛：调用方均为 fire-and-forget，吞掉异常避免未处理错误。
+  }, onError: (Object e, StackTrace st) {});
 }

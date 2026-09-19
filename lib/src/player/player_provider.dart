@@ -228,8 +228,7 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     );
     try {
       await _playAt(startIndex);
-    } catch (e, st) {
-      debugPrint('[play] playQueue 异常: $e\n$st');
+    } catch (e) {
       state = state.copyWith(isPlaying: false, error: e.toString());
     }
   }
@@ -279,7 +278,6 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
       return true;
     } catch (e) {
       if (epoch != _playEpoch) return false;
-      debugPrint('[play] 起播失败 path=${item.path} error=$e');
       // 在线歌起播异常：autoswitch 时自动换源，成功即由新 _playAt 接管。
       if (item.onlineSongJson != null && item.onlineSongJson!.isNotEmpty) {
         if (await _autoSwitchSource(item, index: index)) return true;
@@ -563,7 +561,6 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
 
   Future<void> _onPlaybackError(Object e) async {
     if (state.current == null) return;
-    debugPrint('[play] 播放错误: $e');
     // 在线歌中途出错：缓存文件自愈 → 自动换源 → 缓存源损坏时直连兜底。
     final item = state.current!;
     if (item.onlineSongJson != null && item.onlineSongJson!.isNotEmpty) {
@@ -858,9 +855,7 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
       try {
         final dbPath = await _ref.read(dbPathProvider.future);
         jsonStr = await loadPlaybackSession(dbPath: dbPath);
-      } catch (e) {
-        debugPrint('[session] 读取播放会话失败: $e');
-      }
+      } catch (_) {}
       if (jsonStr.isEmpty || jsonStr == 'null') return;
 
       final data = jsonDecode(jsonStr) as Map<String, dynamic>;
@@ -918,12 +913,8 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
         // 恢复态也挂上媒体卡片（暂停态通知，表上可一键续播）。
         audioHandler?.syncMediaItem(currentItem, currentItem.durationMs / 1000.0);
         _syncPlaybackState();
-      } catch (e) {
-        debugPrint('[session] 曲目预加载失败: $e');
-      }
-    } catch (e) {
-      debugPrint('[session] 恢复播放会话异常: $e');
-    }
+      } catch (_) {}
+    } catch (_) {}
   }
 
   String _titleFromPath(String p) {

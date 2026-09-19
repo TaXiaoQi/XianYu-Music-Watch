@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -59,11 +58,9 @@ class SyncNotifier extends StateNotifier<SyncState> {
     _ref.listen<AuthState>(authProvider, (prev, next) {
       final wasIn = prev?.isLoggedIn ?? false;
       if (!wasIn && next.isLoggedIn) {
-        debugPrint('[sync] 登录态 → 登录/凭证恢复，尝试自动同步');
         syncOnLoginSuccess();
         _startAutoTimer();
       } else if (wasIn && !next.isLoggedIn) {
-        debugPrint('[sync] 登录态 → 已登出，清理同步标记');
         _onLogout();
       }
     });
@@ -102,7 +99,6 @@ class SyncNotifier extends StateNotifier<SyncState> {
 
   Future<void> _autoTick() async {
     if (state.syncing || !_ref.read(authProvider).isLoggedIn) return;
-    debugPrint('[sync] 定时自动同步（仅上传）');
     await syncUpload();
   }
 
@@ -111,7 +107,6 @@ class SyncNotifier extends StateNotifier<SyncState> {
     if (!state.autoSync || _loginSyncInProgress) return;
     final prefs = await SharedPreferences.getInstance();
     if (prefs.getBool(_loginSyncedKey) == true) {
-      debugPrint('[sync] 自动同步跳过：本设备已同步过');
       return;
     }
     _loginSyncInProgress = true;
@@ -146,14 +141,12 @@ class SyncNotifier extends StateNotifier<SyncState> {
   Future<void> _runSteps(
       String doneLabel, List<(String, Future<void> Function())> steps) async {
     if (state.syncing) return;
-    debugPrint('[sync] 批次开始：${steps.map((s) => s.$1).join(' → ')}');
     state = state.copyWith(syncing: true, clearError: true);
     final errors = <String>[];
     for (final (label, run) in steps) {
       try {
         await run();
       } catch (e) {
-        debugPrint('[sync] $label 失败: $e');
         errors.add('$label：${e is AuthException ? e.message : e}');
       }
     }
@@ -161,8 +154,6 @@ class SyncNotifier extends StateNotifier<SyncState> {
     // 无论成败都写「已同步」标记：失败已在账号页同步卡展示、可手动重试；
     // 否则网络抖动一次就变成每次冷启动全量重拉（服务端日志像被同步了好几遍）。
     await prefs.setBool(_loginSyncedKey, true);
-    debugPrint(
-        '[sync] $doneLabel${errors.isEmpty ? '' : '（${errors.length} 项失败）'}');
     state = state.copyWith(
       syncing: false,
       lastSyncAt: DateTime.now(),
@@ -215,11 +206,9 @@ class SyncNotifier extends StateNotifier<SyncState> {
       final tracked = (prefs.getStringList(_syncedFavKey) ?? []).toSet();
       final gone = tracked.where((p) => !cloudPaths.contains(p)).toList();
       if (gone.isNotEmpty) {
-        final removed =
-            await _ref.read(favoritesProvider.notifier).removeByPaths(gone);
+        await _ref.read(favoritesProvider.notifier).removeByPaths(gone);
         tracked.removeAll(gone);
         await prefs.setStringList(_syncedFavKey, tracked.toList());
-        debugPrint('[sync] 收藏跟随云端删除 $removed 条');
       }
     }
     if (favs.isEmpty) return;
@@ -340,7 +329,6 @@ class SyncNotifier extends StateNotifier<SyncState> {
         }
       }
       await prefs.setStringList(_cloudPluginIdsKey, cloudInstalled.toList());
-      debugPrint('[sync] 插件跟随云端卸载：${gonePlugins.join(', ')}');
     }
     if (items.isEmpty) return;
     final manager = _ref.read(pluginManagerProvider.notifier);

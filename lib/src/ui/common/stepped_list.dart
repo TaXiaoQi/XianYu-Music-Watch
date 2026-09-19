@@ -55,16 +55,16 @@ class PageTitleHeader extends StatelessWidget {
 
 /// 圆屏阶梯列表（One UI 表盘同款观感，全部二级页与功能页统一适配）：
 /// 行为圆角胶囊卡片，一档一个条目——居中焦点行最大铺满中部，上下行
-/// 陡衰减缩小（1.0 → 相邻 ~0.73 → 隔行 ~0.59 → ~0.56 封底），
-/// 复刻 WearOS 原版梯形列表。
+/// 陡衰减缩小（1.0 → 相邻 ~0.73 → 隔行 ~0.60 → 三行 ~0.53 → 长尾缓降
+/// 趋 0.32，无高位平台），复刻 WearOS 原版梯形列表。
 ///
 /// 间距跟随条大小等比缩放（用户澄清，WearOS 原版观感）：远处行不仅条
 /// 本身缩小，其上下占用的**行高槽位也同步缩小**（行高 = 胶囊高×scale×
 /// 1.06，缝隙随条等比缩放、紧凑衔接）——梯形列表若用固定大小间距，远处条已压缩
 /// 到最小、间距仍是标准大小，会出现「远处行距拉得很开」的大空隙 bug；
 /// 等比缝让整体紧凑堆叠成密度均匀的阶梯。焦点最大槽占满屏中部，相邻
-/// 0.78 槽，远处 ~0.6；右缘有弧形滚动位置指示；表冠逐档滚动 + 档位
-/// 振动；触控拖动/甩动由吸附物理直接落位最近档位。
+/// ~0.73 槽，远处缓降至 ~0.32；右缘有弧形滚动位置指示；表冠逐档滚动 +
+/// 档位振动；触控拖动/甩动由吸附物理直接落位最近档位。
 ///
 /// 距离/缩放用「名义均匀档距」（_pitchBase）计算（与偏移量一一对应、无
 /// 依赖环），行高/吸附则按实际测量槽位累加计算——两者在图层面解耦，保证
@@ -105,8 +105,8 @@ class SteppedListView extends StatefulWidget {
 
 class _SteppedListViewState extends State<SteppedListView> {
   // 名义均匀档距 60*s：仅用于「距离→缩放」的归一化（焦点 1.0 →
-  // 相邻 ~0.73 → 隔行 ~0.59 → ~0.56 封底）与行高基准。注意它
-  // 只是「虚拟档距」，真实行高在 _rowH 里额外乘 _rowSpacing 留呼吸缝。
+  // 相邻 ~0.73 → 隔行 ~0.60 → 三行 ~0.53 → 长尾缓降 0.32）与行高基准。
+  // 注意它只是「虚拟档距」，真实行高在 _rowH 里额外乘 _rowSpacing 留呼吸缝。
   static const double _pitchBase = 60;
 
   /// 胶囊标准高（60*s）：焦点行满高基准，其余行高 = 该值 ×scale×1.1。
@@ -121,18 +121,22 @@ class _SteppedListViewState extends State<SteppedListView> {
   /// 3.6s，远处缝随条等比收到 ~2s）。
   static const double _rowSpacing = 1.06;
 
-  /// scale 封底（远处行最小倍率）。
-  static const double _minScale = 0.55;
+  /// scale 渐近底（远处行趋近而不低于的倍率）。0.55 高位封底会让三行外
+  /// 全部挤在 0.55~0.565（差异 <3% 不可辨）——用户反馈「除中间放大外
+  /// 上下大小都一样」的根因：原版远场是持续缩小的长尾，无高位平台，
+  /// 故降为 0.32 让逐行衰减一直可辨。
+  static const double _minScale = 0.32;
 
   /// 陡降幂（>1）与半高半径：Lorentzian 幂曲线 scale = min + (1-min)/
-  /// (1+(d/τ)^p)——近场高台、远场陡降，复刻系统设置原版梯形：收敛后
-  /// 焦点 1.0 → 相邻 ~0.73 → 隔行 ~0.59 → 再外 ~0.56 → 缓趋 [_minScale]。
-  /// τ=0.81/p=3.3 按 OverflowBox 修复后的真实渲染对照系统截图校准：
-  /// 修复前行被槽位钳制二次缩小（旧曲线观感偏陡的假象），修复后
-  /// 0.78/0.64 偏平，此组参数落回系统比例。纯指数衰减无法两头兼顾：
-  /// τ 调大近场变大时远场跟着一起放大，观感变成整页放大而非中间突出。
-  static const double _decayTau = 0.81;
-  static const double _decayPow = 3.3;
+  /// (1+(d/τ)^p)——近场高台、远场长尾缓降。τ=1.234/p=1.324 与
+  /// [_minScale]=0.32 联合拟合两个系统实测锚点（收敛后相邻 0.726、
+  /// 隔行 0.60 不变），同时让三行外保持可见的逐行衰减
+  /// （0.53 → 0.49 → 0.46 → 0.44 → …）；旧参数 τ=0.81/p=3.3 配 0.55
+  /// 封底在隔行之外立刻压平成平台（用户反馈「上下大小都一样」）。
+  /// 纯指数衰减无法两头兼顾：τ 调大近场变大时远场跟着一起放大，
+  /// 观感变成整页放大而非中间突出。
+  static const double _decayTau = 1.234;
+  static const double _decayPow = 1.324;
 
   /// build/LayoutBuilder 里确定的视口与顶部留白（供几何辅助方法读取）。
   double _viewportH = 0;
@@ -405,12 +409,17 @@ class _SteppedListViewState extends State<SteppedListView> {
         // 甩动冲向尾部时框架还按「尾部行 0.55 小槽」测量 maxScrollExtent，
         // 真实居中偏移被吸附 clamp 咬住 → 焦点行停在圆心偏下、怎么滚都
         // 差一截（用户诊断：底部空白不够）。最坏情况（按全列最小槽测量）
-        // 需要补 ≈ 2 档生长量（Σ 尾部收敛生长 ≈ 50s，用户实测校准），
-        // 这里给 2×(1−0.55)×63.6s ≈ 57s 保证 _snapFor(尾部任一行) 恒可达；
+        // 需要补 ≈ 2 档生长量（Σ 尾部收敛生长，用户实测校准），这里给
+        // 2×(1−0.32)×63.6s ≈ 86s 保证 _snapFor(尾部任一行) 恒可达；
         // 吸附目标始终是精确居中偏移，多余余量只在视口外、永不停留。
         final tailPad = _round
             ? endPad + nomPitch * _rowSpacing * (1 - _minScale) * 2
             : endPad;
+        // 尾部补偿中「非内容」的量：滚动指示算亮弧长度时要从内容总高
+        // 里扣除，否则弧长被 padding 虚增压短。
+        final padExtra = _round
+            ? nomPitch * _rowSpacing * (1 - _minScale) * 2
+            : 0.0;
         _viewportH = viewportH;
         _startPad = startPad;
         final hasHeader = header != null;
@@ -472,7 +481,8 @@ class _SteppedListViewState extends State<SteppedListView> {
                       // 空隙不再按标准档位留白。方屏全宽等大恒一。
                       final rowH = _rowH(scale);
                       // 圆屏：Lorentzian 幂曲线——相邻 ~0.73、隔行
-                      // ~0.59，0.55 封底防远处行缩没；方屏恒 1。
+                      // ~0.60，长尾缓降趋 0.32（远处行持续缩小，无
+                      // 高位平台）；方屏恒 1。
                       // 透明度双层：随尺寸浅衰减（0.55+0.45·scale）+
                       // 边缘淡化——系统对快出视线的条在缩小之外还做
                       // 淡化（用户校准）：行中心距视口上/下缘一个档距
@@ -542,6 +552,7 @@ class _SteppedListViewState extends State<SteppedListView> {
                       controller: _scroll,
                       strokeWidth: 3.5 * s,
                       round: round,
+                      extraExtent: padExtra,
                     ),
                   ),
                 ),
@@ -599,17 +610,22 @@ class _SnapPhysics extends ClampingScrollPhysics {
 }
 
 /// 右缘滚动位置指示：圆屏 = 110° 导轨贴圆屏右缘（亮弧长度 = 视口占内容
-/// 比，位置随滚动进度移动）；方屏 = 右缘竖直圆角短条贴直边。重绘由
-/// ScrollController 监听驱动。
+/// 比、最小 2.5% 保底，位置随滚动进度移动）；方屏 = 右缘竖直圆角短条贴
+/// 直边。重绘由 ScrollController 监听驱动。
 class _ScrollThumbPainter extends CustomPainter {
   _ScrollThumbPainter({
     required this.controller,
     required this.strokeWidth,
     required this.round,
+    this.extraExtent = 0.0,
   }) : super(repaint: controller);
 
   final ScrollController controller;
   final double strokeWidth;
+
+  /// 尾部吸附补偿等「非内容」padding 的量：从内容总高中扣除，否则亮弧
+  /// 比真实视口占比偏短（列表越长补偿越多，短弧越明显）。
+  final double extraExtent;
 
   /// 圆屏画弧形导轨+亮弧；方屏画竖直圆角短条。
   final bool round;
@@ -641,18 +657,27 @@ class _ScrollThumbPainter extends CustomPainter {
       );
       return;
     }
-    // 圆屏：导轨总长 55°（用户校准：110° 减半）；亮弧长度 = 视口占内容比、
-    // 限制在导轨的 2%~2.5%（长度校准值，不动）；暗导轨全程铺垫、极淡
-    // （0.08，提供位置参照）。亮弧用 WearOS 灰白（alpha 0.72）——黑底上
-    // 原来的 0.45 太淡、几乎看不清（用户反馈，仅改颜色不动长度）。
-    const span = 55 * math.pi / 180;
-    final thumbFrac = (pos.viewportDimension / total).clamp(0.02, 0.025);
-    final off = (pos.pixels / pos.maxScrollExtent).clamp(0.0, 1.0);
+    // 圆屏：导轨总长 110° 贴圆屏右缘（系统同款；旧值 55° 是亮弧被钳成
+    // 小点时代的补偿校准，弧长修正后一并还原）；亮弧长度 = 视口占内容比
+    // （total 扣除 [extraExtent] 虚增），最小 2.5% 保底——旧代码
+    // clamp(0.02, 0.025) 把上限也钳到 2.5%，任何列表都只剩一个小点
+    // （用户反馈「滚动条很小、间隔很宽」的根因）。半径外沿距表框 1px
+    // 贴住屏缘（旧内缩 strokeWidth×1.6 会在弧与表框之间留一圈宽缝）。
+    // 暗导轨全程铺垫、极淡（0.08，提供位置参照）；亮弧 WearOS 灰白
+    // （alpha 0.72）。
+    const span = 110 * math.pi / 180;
+    final content = math.max(
+      pos.maxScrollExtent + pos.viewportDimension - extraExtent,
+      pos.viewportDimension,
+    );
+    final thumbFrac = (pos.viewportDimension / content).clamp(0.025, 1.0);
+    final off =
+        (pos.pixels / math.max(pos.maxScrollExtent, 1.0)).clamp(0.0, 1.0);
     final thumb = span * thumbFrac;
     final start = -span / 2 + off * (span - thumb);
     final rect = Rect.fromCircle(
       center: size.center(Offset.zero),
-      radius: size.shortestSide / 2 - strokeWidth * 1.6,
+      radius: size.shortestSide / 2 - strokeWidth / 2 - 1.0,
     );
     // 暗导轨：全程淡弧，亮弧在其上滑动（系统样式）。
     canvas.drawArc(

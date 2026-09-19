@@ -1627,9 +1627,7 @@ async fn fetch_tx_lyric(song_info: &LyricSongInfo) -> Result<Option<LyricResult>
                             lyric = parsed.lyric;
                             lxlyric = parsed.lxlyric;
                         }
-                        Err(e) => {
-                            eprintln!("[lyric_fetcher] tx musicu lyric 解密失败 err={}", e);
-                        }
+                        Err(_) => {}
                     }
                 }
                 if !trans_field.trim().is_empty() {
@@ -1647,11 +1645,6 @@ async fn fetch_tx_lyric(song_info: &LyricSongInfo) -> Result<Option<LyricResult>
                 }
             }
         }
-    } else {
-        eprintln!(
-            "[lyric_fetcher] tx musicu 失败 status={}",
-            resp.status
-        );
     }
 
     // Fallback to old API
