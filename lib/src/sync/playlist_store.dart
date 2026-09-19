@@ -15,6 +15,7 @@ class CloudSong {
   final String source;
   final String format;
   final Map<String, dynamic> musicInfo;
+  final bool addedInApp;
 
   const CloudSong({
     required this.path,
@@ -27,6 +28,7 @@ class CloudSong {
     this.source = '',
     this.format = '',
     this.musicInfo = const {},
+    this.addedInApp = false,
   });
 
   bool get isOnline =>
@@ -54,6 +56,7 @@ class CloudSong {
       source: (j['source'] ?? '').toString(),
       format: (j['format'] ?? '').toString(),
       musicInfo: musicInfo,
+      addedInApp: j['addedInApp'] == true,
     );
   }
 
@@ -68,6 +71,7 @@ class CloudSong {
         'source': source,
         'format': format,
         'musicInfo': musicInfo,
+        'addedInApp': addedInApp,
       };
 
   QueueItem toQueueItem() {
@@ -97,27 +101,61 @@ class CloudPlaylist {
   final String cloudId;
   final String name;
   final List<CloudSong> songs;
+  final String? sourcePluginId;
+  final String? sourceUrl;
+  final Map<String, dynamic>? sourceRaw;
 
   const CloudPlaylist({
     required this.cloudId,
     required this.name,
     required this.songs,
+    this.sourcePluginId,
+    this.sourceUrl,
+    this.sourceRaw,
   });
 
-  factory CloudPlaylist.fromJson(Map<String, dynamic> j) => CloudPlaylist(
-        cloudId: (j['cloudId'] ?? '').toString(),
-        name: (j['name'] ?? '未命名歌单').toString(),
-        songs: ((j['songs'] as List?) ?? const [])
-            .whereType<Map>()
-            .map((e) => CloudSong.fromJson(e.cast<String, dynamic>()))
-            .where((s) => s.path.isNotEmpty)
-            .toList(),
+  bool get hasSource =>
+      (sourcePluginId ?? '').isNotEmpty ||
+      (sourceUrl ?? '').isNotEmpty ||
+      (sourceRaw ?? {}).isNotEmpty;
+
+  CloudPlaylist copyWith({String? name, List<CloudSong>? songs}) =>
+      CloudPlaylist(
+        cloudId: cloudId,
+        name: name ?? this.name,
+        songs: songs ?? this.songs,
+        sourcePluginId: sourcePluginId,
+        sourceUrl: sourceUrl,
+        sourceRaw: sourceRaw,
       );
+
+  factory CloudPlaylist.fromJson(Map<String, dynamic> j) {
+    final raw = j['sourceRaw'];
+    return CloudPlaylist(
+      cloudId: (j['cloudId'] ?? '').toString(),
+      name: (j['name'] ?? '未命名歌单').toString(),
+      sourcePluginId: (j['sourcePluginId'] as String?)?.isNotEmpty == true
+          ? j['sourcePluginId'] as String
+          : null,
+      sourceUrl: (j['sourceUrl'] as String?)?.isNotEmpty == true
+          ? j['sourceUrl'] as String
+          : null,
+      sourceRaw: raw is Map ? raw.cast<String, dynamic>() : null,
+      songs: ((j['songs'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((e) => CloudSong.fromJson(e.cast<String, dynamic>()))
+          .where((s) => s.path.isNotEmpty)
+          .toList(),
+    );
+  }
 
   Map<String, dynamic> toJson() => {
         'cloudId': cloudId,
         'name': name,
         'songs': songs.map((e) => e.toJson()).toList(),
+        if (sourcePluginId != null) 'sourcePluginId': sourcePluginId,
+        if (sourceUrl != null) 'sourceUrl': sourceUrl,
+        if (sourceRaw != null) 'sourceRaw': sourceRaw,
       };
 }
 

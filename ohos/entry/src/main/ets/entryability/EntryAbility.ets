@@ -14,7 +14,7 @@ export default class EntryAbility extends FlutterAbility {
   private screenShapeChannel: MethodChannel | null = null;
   private keepScreenChannel: MethodChannel | null = null;
   private keepAliveStarted = false;
-  private mainWindow: window.Window | null = null;
+  private appMainWindow: window.Window | null = null;
   private keepScreenPending: boolean | null = null;
 
   onBackPressed(): boolean {
@@ -26,7 +26,7 @@ export default class EntryAbility extends FlutterAbility {
     super.onWindowStageCreate(windowStage)
     windowStage.getMainWindow()
       .then((w: window.Window) => {
-        this.mainWindow = w
+        this.appMainWindow = w
         if (this.keepScreenPending !== null) {
           w.setWindowKeepScreenOn(this.keepScreenPending).catch(() => {})
           this.keepScreenPending = null
@@ -117,12 +117,12 @@ export default class EntryAbility extends FlutterAbility {
       onMethodCall: (call, result) => {
         if (call.method === 'set') {
           const enable: boolean = (call.args as ESObject)?.enable !== false
-          if (this.mainWindow === null) {
+          if (this.appMainWindow === null) {
             this.keepScreenPending = enable
             result.success(null)
             return
           }
-          this.mainWindow.setWindowKeepScreenOn(enable)
+          this.appMainWindow.setWindowKeepScreenOn(enable)
             .then(() => result.success(null))
             .catch((err: Error) => result.error('keep_screen_failed', String(err), null))
         } else {

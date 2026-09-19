@@ -10,6 +10,7 @@ import '../../auth/auth_provider.dart';
 import '../../player/listen_stats.dart';
 import '../../sync/sync_provider.dart';
 import '../common/full_dialog.dart';
+import '../common/stepped_list.dart';
 
 class AccountView extends ConsumerStatefulWidget {
   const AccountView({super.key});
@@ -42,117 +43,156 @@ class _AccountViewState extends ConsumerState<AccountView> {
 
     return Scaffold(
       body: SafeArea(
-        child: ListView(
-          padding: EdgeInsets.symmetric(horizontal: 22 * s, vertical: 6 * s),
-          children: [
-            Row(
-              children: [
-                const BackButton(),
-                SizedBox(width: 4 * s),
-                Text(
-                  '账号',
-                  style: TextStyle(
-                    fontSize: 15 * s,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white.withValues(alpha: 0.9),
+        child: auth.isLoggedIn
+            ? SteppedListView(
+                itemCount: 5,
+                header: const PageTitleHeader('账号', showBack: true),
+                rowExtent: (i) => const [96.0, 100.0, 178.0, 48.0, 42.0][i],
+                itemBuilder: (context, i) => switch (i) {
+                  0 => _identityCard(auth.user!),
+                  1 => const _ListenStatsCard(),
+                  2 => const _SyncCard(),
+                  3 => _logoutButton(),
+                  _ => _deleteAccountButton(),
+                },
+              )
+            : ListView(
+                padding: EdgeInsets.symmetric(
+                  horizontal: 22 * s,
+                  vertical: 6 * s,
+                ),
+                children: [
+                  Row(
+                    children: [
+                      const BackButton(),
+                      SizedBox(width: 4 * s),
+                      Text(
+                        '账号',
+                        style: TextStyle(
+                          fontSize: 15 * s,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white.withValues(alpha: 0.9),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
-            ),
-            SizedBox(height: 10 * s),
-            if (auth.isLoggedIn)
-              _profile(auth.user!, s)
-            else ...[
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 180),
-                child: _passwordMode
-                    ? const _PasswordLoginForm(key: ValueKey('pwd'))
-                    : _QrLoginPanel(key: const ValueKey('qr'), auth: auth),
+                  SizedBox(height: 10 * s),
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 180),
+                    child: _passwordMode
+                        ? const _PasswordLoginForm(key: ValueKey('pwd'))
+                        : _QrLoginPanel(key: const ValueKey('qr'), auth: auth),
+                  ),
+                  SizedBox(height: 8 * s),
+                  TextButton(
+                    onPressed: () =>
+                        setState(() => _passwordMode = !_passwordMode),
+                    child: Text(
+                      _passwordMode ? '使用扫码登录' : '使用密码登录',
+                      style: TextStyle(
+                        fontSize: 12 * s,
+                        color: Color(0xFFFF8FA3),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              SizedBox(height: 8 * s),
-              TextButton(
-                onPressed: () => setState(() => _passwordMode = !_passwordMode),
-                child: Text(
-                  _passwordMode ? '使用扫码登录' : '使用密码登录',
-                  style: TextStyle(fontSize: 12 * s, color: Color(0xFFFF8FA3)),
-                ),
-              ),
-            ],
-          ],
-        ),
       ),
     );
   }
 
-  Widget _profile(AuthUser user, double s) {
+  Widget _identityCard(AuthUser user) {
     final avatar = _AvatarImage.of(user.avatar);
     return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
         CircleAvatar(
-          radius: 30 * s,
+          radius: 24 * _identityS,
           backgroundColor: const Color(0xFFFF4D6E),
           backgroundImage: avatar,
           child: avatar == null
-              ? Icon(Icons.person_rounded, size: 30 * s, color: Colors.white)
+              ? Icon(
+                  Icons.person_rounded,
+                  size: 24 * _identityS,
+                  color: Colors.white,
+                )
               : null,
         ),
-        SizedBox(height: 10 * s),
+        SizedBox(height: 6 * _identityS),
         Text(
           user.nickname.isNotEmpty ? user.nickname : user.username,
-          style: TextStyle(fontSize: 16 * s, fontWeight: FontWeight.w700),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 14 * _identityS,
+            fontWeight: FontWeight.w700,
+          ),
         ),
-        SizedBox(height: 2 * s),
+        SizedBox(height: 2 * _identityS),
         Text(
           '弦予号 ${user.ciyuanxiId ?? user.username}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: TextStyle(
-            fontSize: 11 * s,
+            fontSize: 10 * _identityS,
             color: Colors.white.withValues(alpha: 0.55),
           ),
         ),
         if (user.email.isNotEmpty)
           Text(
             user.email,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              fontSize: 11 * s,
+              fontSize: 9.5 * _identityS,
               color: Colors.white.withValues(alpha: 0.4),
             ),
           ),
-        SizedBox(height: 16 * s),
-        const _ListenStatsCard(),
-        SizedBox(height: 10 * s),
-        const _SyncCard(),
-        SizedBox(height: 14 * s),
-        OutlinedButton.icon(
-          onPressed: () async {
-            await ref.read(authProvider.notifier).logout();
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('已退出登录'),
-                  duration: Duration(seconds: 1),
-                ),
-              );
-            }
-          },
-          style: OutlinedButton.styleFrom(
-            foregroundColor: const Color(0xFFFF4D6E),
-            side: const BorderSide(color: Color(0xFFFF4D6E)),
-            padding: EdgeInsets.symmetric(horizontal: 22 * s, vertical: 8 * s),
-          ),
-          icon: Icon(Icons.logout_rounded, size: 16 * s),
-          label: Text('退出登录', style: TextStyle(fontSize: 13 * s)),
-        ),
-        TextButton(
-          onPressed: _showDeleteAccountGuide,
-          child: Text(
-            '注销账号',
-            style: TextStyle(
-              fontSize: 11 * s,
-              color: Colors.white.withValues(alpha: 0.45),
-            ),
-          ),
-        ),
       ],
+    );
+  }
+
+  double get _identityS => context.watchScale();
+
+  Widget _logoutButton() {
+    final s = context.watchScale();
+    return Center(
+      child: OutlinedButton.icon(
+        onPressed: () async {
+          await ref.read(authProvider.notifier).logout();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('已退出登录'),
+                duration: Duration(seconds: 1),
+              ),
+            );
+          }
+        },
+        style: OutlinedButton.styleFrom(
+          foregroundColor: const Color(0xFFFF4D6E),
+          side: const BorderSide(color: Color(0xFFFF4D6E)),
+          padding: EdgeInsets.symmetric(horizontal: 22 * s, vertical: 6 * s),
+        ),
+        icon: Icon(Icons.logout_rounded, size: 16 * s),
+        label: Text('退出登录', style: TextStyle(fontSize: 13 * s)),
+      ),
+    );
+  }
+
+  Widget _deleteAccountButton() {
+    final s = context.watchScale();
+    return Center(
+      child: TextButton(
+        onPressed: _showDeleteAccountGuide,
+        child: Text(
+          '注销账号',
+          style: TextStyle(
+            fontSize: 11 * s,
+            color: Colors.white.withValues(alpha: 0.45),
+          ),
+        ),
+      ),
     );
   }
 

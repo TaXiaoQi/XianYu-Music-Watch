@@ -55,6 +55,7 @@ class SteppedListView extends StatefulWidget {
     this.header,
     this.headerExtent = 56,
     this.rotaryGuard,
+    this.rowExtent,
   });
 
   final int itemCount;
@@ -65,6 +66,10 @@ class SteppedListView extends StatefulWidget {
 
   final bool Function()? rotaryGuard;
 
+  /// 可选：按行覆盖内容槽高（逻辑高度 ×s 为像素）。
+  /// null 行回落 60 标准胶囊高；卡片/滑条等高内容行用它避免被钳制。
+  final double? Function(int index)? rowExtent;
+
   @override
   State<SteppedListView> createState() => _SteppedListViewState();
 }
@@ -72,14 +77,15 @@ class SteppedListView extends StatefulWidget {
 class _SteppedListViewState extends State<SteppedListView> {
   static const double _pitchBase = 60;
 
-  static const double _capsuleH = 60;
+  static const double _capsuleH = 56;
 
   static const double _rowSpacing = 1.06;
 
-  static const double _minScale = 0.32;
+  static const double _minScale = 0.18;
 
-  static const double _decayTau = 1.234;
-  static const double _decayPow = 1.324;
+  /// 相邻 0.72、隔行 0.42，三行外 0.29 起快速压平到 0.18 谷底
+  static const double _decayTau = 1.35;
+  static const double _decayPow = 2.3;
 
   double _viewportH = 0;
   double _startPad = 0;
@@ -173,6 +179,8 @@ class _SteppedListViewState extends State<SteppedListView> {
   double get _s => context.watchScale();
   double get _nomPitch => _pitchBase * _s;
 
+  double _capsuleOf(int row) => widget.rowExtent?.call(row) ?? _capsuleH;
+
   double _scaleFromDist(double d) =>
       (_minScale +
               (1 - _minScale) /
@@ -183,8 +191,8 @@ class _SteppedListViewState extends State<SteppedListView> {
   double _scaleFor(int row, double offset) =>
       _round ? _layout(offset).scales[row] : 1.0;
 
-  double _rowH(double scale) =>
-      _round ? _nomPitch * scale * _rowSpacing : _nomPitch;
+  double _rowH(double scale, double capsule) =>
+      _round ? capsule * _s * scale * _rowSpacing : capsule * _s;
 
   ({List<double> tops, List<double> heights, List<double> scales}) _layout(
     double offset,
@@ -202,7 +210,7 @@ class _SteppedListViewState extends State<SteppedListView> {
       var acc = _startPad + (_hasHeader ? _headerBand : 0.0);
       for (var i = 0; i < n; i++) {
         tops[i] = acc;
-        heights[i] = _rowH(scales[i]);
+        heights[i] = _rowH(scales[i], _capsuleOf(i));
         acc += heights[i];
       }
       if (it == 11) break;
@@ -287,7 +295,7 @@ class _SteppedListViewState extends State<SteppedListView> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final viewportH = constraints.maxHeight;
-        final rowPad = (round ? 12.0 : 6.0) * s;
+        final rowPad = (round ? 8.0 : 6.0) * s;
         final rowW = math.max(0.0, constraints.maxWidth - 2 * rowPad);
         final endPad = ((viewportH - nomPitch * _rowSpacing) / 2).clamp(
           0.0,
@@ -342,7 +350,8 @@ class _SteppedListViewState extends State<SteppedListView> {
                     builder: (context, child) {
                       final offset = _scroll.hasClients ? _scroll.offset : 0.0;
                       final scale = _scaleFor(row, offset);
-                      final rowH = _rowH(scale);
+                      final cap = _capsuleOf(row);
+                      final rowH = _rowH(scale, cap);
                       double alpha = 1.0;
                       if (round) {
                         final lay = _layout(offset);
@@ -362,8 +371,8 @@ class _SteppedListViewState extends State<SteppedListView> {
                                 alignment: Alignment.center,
                                 minWidth: rowW,
                                 maxWidth: rowW,
-                                minHeight: _capsuleH * s,
-                                maxHeight: _capsuleH * s,
+                                minHeight: cap * s,
+                                maxHeight: cap * s,
                                 child: alpha >= 1
                                     ? child
                                     : Opacity(opacity: alpha, child: child),
@@ -480,12 +489,13 @@ class _ScrollThumbPainter extends CustomPainter {
       );
       return;
     }
-    const span = 110 * math.pi / 180;
+    // 短总行程 + 长亮弧 + 短步距 = 系统设置右侧紧凑指示条观感
+    const span = 55 * math.pi / 180;
     final content = math.max(
       pos.maxScrollExtent + pos.viewportDimension - extraExtent,
       pos.viewportDimension,
     );
-    final thumbFrac = (pos.viewportDimension / content).clamp(0.025, 1.0);
+    final thumbFrac = (pos.viewportDimension / content).clamp(0.18, 1.0);
     final off = (pos.pixels / math.max(pos.maxScrollExtent, 1.0)).clamp(
       0.0,
       1.0,

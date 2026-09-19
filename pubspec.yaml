@@ -32,6 +32,8 @@ dependencies:
   path: ^1.9.0
   # 插件脚本 SHA-256 指纹（与移动端同栈）
   crypto: ^3.0.3
+  # 插件同步：用户变量 AES-256-CBC 加密（对齐桌面/移动协议）
+  encrypt: ^5.0.3
   # 账号扫码登录二维码渲染（与桌面端同款 generate_tv_login_code 流程）
   qr_flutter: ^4.1.0
   # 本地音乐扫描运行时权限

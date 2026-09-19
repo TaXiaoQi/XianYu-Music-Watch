@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/watch_fit.dart';
 import '../../player/player_provider.dart';
+import '../../sync/playlist_source_update.dart';
 import '../../sync/playlist_store.dart';
 import '../common/stepped_list.dart';
 import '../local/local_music_hub.dart';
@@ -105,13 +106,18 @@ class _CloudPlaylistsPageState extends ConsumerState<CloudPlaylistsPage> {
                       ),
                       title: pl.name,
                       subtitle: '${pl.songs.length} 首',
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                            builder: (_) => _CloudPlaylistDetailPage(
-                                  playlist: pl,
-                                  onPlay: _play,
-                                )),
-                      ),
+                      onTap: () async {
+                        await Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                              builder: (_) => _CloudPlaylistDetailPage(
+                                    playlist: pl,
+                                    onPlay: _play,
+                                  )),
+                        );
+                        if (mounted) {
+                          setState(() => _future = CloudPlaylistStore.loadAll());
+                        }
+                      },
                     );
                   },
                 );
@@ -125,11 +131,36 @@ class _CloudPlaylistsPageState extends ConsumerState<CloudPlaylistsPage> {
   }
 }
 
-class _CloudPlaylistDetailPage extends StatelessWidget {
+class _CloudPlaylistDetailPage extends ConsumerStatefulWidget {
   const _CloudPlaylistDetailPage({required this.playlist, this.onPlay});
 
   final CloudPlaylist playlist;
   final Future<void> Function(CloudPlaylist, int)? onPlay;
+
+  @override
+  ConsumerState<_CloudPlaylistDetailPage> createState() =>
+      _CloudPlaylistDetailPageState();
+}
+
+class _CloudPlaylistDetailPageState
+    extends ConsumerState<_CloudPlaylistDetailPage> {
+  late CloudPlaylist _playlist = widget.playlist;
+  bool _updating = false;
+
+  Future<void> _updateFromSource() async {
+    if (_updating) return;
+    setState(() => _updating = true);
+    CloudPlaylist? updated;
+    try {
+      updated = await updatePlaylistFromSource(context, ref, _playlist);
+    } finally {
+      if (mounted) setState(() => _updating = false);
+    }
+    if (updated != null && mounted) {
+      final next = updated;
+      setState(() => _playlist = next);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -138,30 +169,58 @@ class _CloudPlaylistDetailPage extends StatelessWidget {
       backgroundColor: Colors.black,
       body: SafeArea(
         child: SteppedListView(
-          header: PageTitleHeader(playlist.name, showBack: true),
-          itemCount: playlist.songs.length,
-        itemBuilder: (context, i) {
-          final song = playlist.songs[i];
-          return SteppedTile(
-            leading: SizedBox(
-              width: 24 * s,
-              child: Text(
-                '${i + 1}',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 15 * s,
-                  fontWeight: FontWeight.w700,
-                  color: i < 3
-                      ? const Color(0xFFFF4D6E)
-                      : Colors.white.withValues(alpha: 0.4),
+          header: PageTitleHeader(
+            _playlist.name,
+            showBack: true,
+            trailing: _playlist.hasSource
+                ? (_updating
+                    ? Padding(
+                        padding: EdgeInsets.all(14 * s),
+                        child: SizedBox(
+                          width: 20 * s,
+                          height: 20 * s,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2 * s,
+                            color: const Color(0xFFFF4D6E),
+                          ),
+                        ),
+                      )
+                    : IconButton(
+                        padding: EdgeInsets.zero,
+                        constraints: BoxConstraints(
+                          minWidth: 44 * s,
+                          minHeight: 44 * s,
+                        ),
+                        icon: Icon(Icons.sync_rounded,
+                            size: 20 * s,
+                            color: Colors.white.withValues(alpha: 0.85)),
+                        onPressed: _updateFromSource,
+                      ))
+                : null,
+          ),
+          itemCount: _playlist.songs.length,
+          itemBuilder: (context, i) {
+            final song = _playlist.songs[i];
+            return SteppedTile(
+              leading: SizedBox(
+                width: 24 * s,
+                child: Text(
+                  '${i + 1}',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 15 * s,
+                    fontWeight: FontWeight.w700,
+                    color: i < 3
+                        ? const Color(0xFFFF4D6E)
+                        : Colors.white.withValues(alpha: 0.4),
+                  ),
                 ),
               ),
-            ),
-            title: song.title,
-            subtitle: song.artist.isEmpty ? '未知歌手' : song.artist,
-            onTap: () => onPlay?.call(playlist, i),
-          );
-        },
+              title: song.title,
+              subtitle: song.artist.isEmpty ? '未知歌手' : song.artist,
+              onTap: () => widget.onPlay?.call(_playlist, i),
+            );
+          },
         ),
       ),
     );

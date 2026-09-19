@@ -248,7 +248,7 @@ class _LocalLyricsPage extends ConsumerWidget {
       position: st.position,
       isPlaying: st.isPlaying,
       onSeek: (secs) => ref.read(playerProvider.notifier).seek(secs),
-      rotaryGuard: () => ref.read(localHubPageProvider) == 1,
+      rotaryGuard: () => ref.read(localHubPageProvider) == 2,
     );
   }
 }

@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:wearable_rotary/wearable_rotary.dart';
 
@@ -36,7 +38,8 @@ class LyricsView extends ConsumerStatefulWidget {
   ConsumerState<LyricsView> createState() => _LyricsViewState();
 }
 
-class _LyricsViewState extends ConsumerState<LyricsView> {
+class _LyricsViewState extends ConsumerState<LyricsView>
+    with SingleTickerProviderStateMixin {
   double _rowExtent = 32;
 
   double _vPad = 0;
@@ -58,11 +61,21 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
 
   bool _showTranslation = true;
 
+  late final Ticker _ticker;
+  final ValueNotifier<double> _smoothPos = ValueNotifier(0);
+  double _basePos = 0;
+  double _baseTime = 0;
+
   @override
   void initState() {
     super.initState();
+    _basePos = widget.position;
+    _baseTime = _nowSec();
+    _smoothPos.value = _basePos;
+    _ticker = createTicker((_) => _pushSmooth());
     _syncLines();
     _rotarySub = rotaryEvents.listen(_onRotary);
+    ref.listenManual(ambientModeProvider, (_, _) => _updateTicker());
   }
 
   @override
@@ -72,14 +85,53 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
         oldWidget.lines != widget.lines) {
       _syncLines();
     }
+    if (widget.position != oldWidget.position ||
+        widget.isPlaying != oldWidget.isPlaying) {
+      _basePos = widget.position;
+      _baseTime = _nowSec();
+      if (!_ticker.isActive) _smoothPos.value = _basePos;
+      _updateTicker();
+    }
   }
 
   @override
   void dispose() {
     _rotarySub?.cancel();
     _hapticDebounce?.cancel();
+    _ticker.dispose();
+    _smoothPos.dispose();
     _scroll.dispose();
     super.dispose();
+  }
+
+  static double _nowSec() => DateTime.now().microsecondsSinceEpoch / 1e6;
+
+  double get _estimate =>
+      _ticker.isActive ? _basePos + (_nowSec() - _baseTime) : _basePos;
+
+  void _pushSmooth([bool force = false]) {
+    final pos = _estimate;
+    if (force || (pos - _smoothPos.value).abs() >= 0.012) {
+      _smoothPos.value = pos;
+    }
+  }
+
+  void _updateTicker() {
+    final shouldRun = widget.isPlaying &&
+        !ref.read(ambientModeProvider) &&
+        (widget.rotaryGuard?.call() ?? true);
+    if (shouldRun && !_ticker.isActive) {
+      _basePos = widget.position;
+      _baseTime = _nowSec();
+      _ticker.start();
+      _pushSmooth(true);
+    } else if (!shouldRun && _ticker.isActive) {
+      final frozen = _basePos + (_nowSec() - _baseTime);
+      _ticker.stop();
+      _basePos = frozen;
+      _baseTime = _nowSec();
+      _smoothPos.value = frozen;
+    }
   }
 
   void _onRotary(RotaryEvent event) {
@@ -123,6 +175,7 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
         .findIndex((widget.position * 1000).round() - offsetMs);
     if (idx == _currentIndex) return;
     _currentIndex = idx;
+    setState(() {});
     if (idx < 0) return;
     if (DateTime.now().isBefore(_manualUntil)) return;
     _centerOn(idx);
@@ -156,6 +209,7 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
     _vPad = MediaQuery.of(context).size.height * 0.3;
 
     ref.watch(ambientModeProvider);
+    _updateTicker();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _applyPosition();
     });
@@ -209,6 +263,8 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
           final baseColor = current
               ? kPlayerAccent
               : Colors.white.withValues(alpha: 0.55);
+          final mainFont = (current ? 13.5 : 10.5) * s * fontMul;
+          final karaoke = current && line.words.isNotEmpty;
           return GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: widget.onSeek == null
@@ -217,17 +273,36 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Text(
-                  line.text,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: (current ? 13.5 : 10.5) * s * fontMul,
-                    fontWeight: current ? FontWeight.w600 : FontWeight.w400,
-                    color: baseColor,
+                if (karaoke)
+                  RepaintBoundary(
+                    child: ValueListenableBuilder<double>(
+                      valueListenable: _smoothPos,
+                      builder: (context, pos, _) => FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Wrap(
+                          alignment: WrapAlignment.center,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            for (final w in line.words)
+                              _karaokeWord(
+                                  w, pos - _offsetMs / 1000.0, mainFont),
+                          ],
+                        ),
+                      ),
+                    ),
+                  )
+                else
+                  Text(
+                    line.text,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: mainFont,
+                      fontWeight: current ? FontWeight.w600 : FontWeight.w400,
+                      color: baseColor,
+                    ),
                   ),
-                ),
                 if (_showTranslation &&
                     line.translation != null &&
                     line.translation!.isNotEmpty)
@@ -247,6 +322,49 @@ class _LyricsViewState extends ConsumerState<LyricsView> {
             ),
           );
         },
+        ),
+      ),
+    );
+  }
+
+  Widget _karaokeWord(LyricWord w, double pos, double fontSize) {
+    final dur = math.max(0.001, w.end - w.start);
+    final progress = ((pos - w.start) / dur).clamp(0.0, 1.0);
+    const accent = kPlayerAccent;
+    final dim = Colors.white.withValues(alpha: 0.30);
+    final style = TextStyle(
+      fontSize: fontSize,
+      fontWeight: FontWeight.w600,
+      height: 1.2,
+    );
+
+    if (progress <= 0) {
+      return Text(w.text, style: style.copyWith(color: dim));
+    }
+    if (progress >= 1) {
+      return Text(
+        w.text,
+        style: style.copyWith(
+          color: accent,
+          shadows: [
+            Shadow(color: accent.withValues(alpha: 0.35), blurRadius: 8),
+          ],
+        ),
+      );
+    }
+
+    final featherEnd = (progress + 0.12).clamp(0.0, 1.0);
+    final pop = math.sin(progress * math.pi);
+    return Transform.translate(
+      offset: Offset(0, -1.5 * pop),
+      child: Transform.scale(
+        scale: 1.0 + 0.04 * pop,
+        child: ShaderMask(
+          shaderCallback: (bounds) => LinearGradient(
+            colors: [accent, dim],
+            stops: [progress, featherEnd],
+          ).createShader(bounds),
+          child: Text(w.text, style: style.copyWith(color: accent)),
         ),
       ),
     );

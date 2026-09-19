@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -186,6 +187,23 @@ List<LyricLine> parsePayload(String jsonStr) {
       }
     }
 
+    final words = <LyricWord>[];
+    final rawWords = item['words'] as List?;
+    if (rawWords != null && rawWords.isNotEmpty) {
+      for (final w in rawWords) {
+        if (w is! Map<String, dynamic>) continue;
+        final wText = _cleanLyricText((w['text'] as String?) ?? '');
+        if (wText.isEmpty) continue;
+        final wRomaji = (w['romaji'] as String?)?.trim();
+        words.add(LyricWord(
+          text: wText,
+          start: (w['start'] as num?)?.toDouble() ?? 0.0,
+          end: (w['end'] as num?)?.toDouble() ?? 0.0,
+          romaji: (wRomaji != null && wRomaji.isNotEmpty) ? wRomaji : null,
+        ));
+      }
+    }
+
     if (text.isNotEmpty) {
       lines.add(LyricLine(
         timeMs: (timeSec * 1000).toInt(),
@@ -193,6 +211,7 @@ List<LyricLine> parsePayload(String jsonStr) {
         text: text,
         translation: translation,
         romaji: romaji,
+        words: words,
         secondary: secondary,
         speaker: (item['speaker'] as String?)?.trim().isNotEmpty == true
             ? (item['speaker'] as String).trim()
@@ -227,13 +246,45 @@ List<LyricLine> _normalizeBoundaries(List<LyricLine> lines) {
     }
     endMs = endMs < startMs + 40 ? startMs + 40 : endMs;
 
+    final words = <LyricWord>[];
+    for (var j = 0; j < line.words.length; j++) {
+      final w = line.words[j];
+      final wStartMs = w.start * 1000.0;
+      var wEndMs = w.end * 1000.0;
+      if (j + 1 < line.words.length) {
+        wEndMs = math.min(wEndMs, line.words[j + 1].start * 1000.0);
+      }
+      wEndMs = math.min(wEndMs, endMs);
+      wEndMs = math.max(wEndMs, wStartMs + 20);
+
+      final chars = w.text.runes.toList();
+      if (chars.length > 1) {
+        final durMs = (wEndMs - wStartMs) / chars.length;
+        for (var c = 0; c < chars.length; c++) {
+          words.add(LyricWord(
+            text: String.fromCharCode(chars[c]),
+            start: (wStartMs + durMs * c) / 1000.0,
+            end: (wStartMs + durMs * (c + 1)) / 1000.0,
+            romaji: c == 0 ? w.romaji : null,
+          ));
+        }
+      } else {
+        words.add(LyricWord(
+          text: w.text,
+          start: wStartMs / 1000.0,
+          end: wEndMs / 1000.0,
+          romaji: w.romaji,
+        ));
+      }
+    }
+
     result.add(LyricLine(
       timeMs: line.timeMs,
       endTimeMs: endMs.round(),
       text: line.text,
       translation: line.translation,
       romaji: line.romaji,
-      words: line.words,
+      words: words,
       secondary: line.secondary,
       speaker: line.speaker,
       isBg: line.isBg,

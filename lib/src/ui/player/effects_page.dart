@@ -1,15 +1,12 @@
-import 'dart:async';
-
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:wearable_rotary/wearable_rotary.dart';
 
 import '../../core/haptics.dart';
 import '../../core/watch_fit.dart';
 import '../../effects/sound_effect_provider.dart';
 import '../common/full_dialog.dart';
-import '../common/rotary_input.dart';
+import '../common/stepped_list.dart';
 
 void openSoundEffectsPage(BuildContext context) {
   showFullDialog(
@@ -942,86 +939,51 @@ Widget _hint(BuildContext context, String text) {
   );
 }
 
-class _FxScaffold extends StatefulWidget {
+class _FxScaffold extends StatelessWidget {
   const _FxScaffold({required this.title, this.children = const [], this.actions = const []});
 
   final String title;
   final List<Widget> children;
   final List<Widget> actions;
 
-  @override
-  State<_FxScaffold> createState() => _FxScaffoldState();
-}
-
-class _FxScaffoldState extends State<_FxScaffold> {
-  final _ctrl = ScrollController();
-  StreamSubscription<RotaryEvent>? _rotarySub;
-  final RotaryQuantizer _rotary = RotaryQuantizer();
-
-  @override
-  void initState() {
-    super.initState();
-    _rotarySub = rotaryEvents.listen(_onRotary);
-  }
-
-  @override
-  void dispose() {
-    _rotarySub?.cancel();
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  void _onRotary(RotaryEvent e) {
-    if (!mounted) return;
-    if (ModalRoute.of(context)?.isCurrent != true) return;
-    if (!_ctrl.hasClients) return;
-    final steps = _rotary.add(e);
-    if (steps == 0) return;
-    final s = context.watchScale();
-    final target = (_ctrl.offset + steps * 48 * s)
-        .clamp(0.0, _ctrl.position.maxScrollExtent);
-    _ctrl.jumpTo(target);
+  static double _extentOf(Widget w) {
+    if (w is _FxSlider) return 50;
+    if (w is _FxRow || w is _AdvRow) return 54;
+    if (w is _FxSwitchRow) return 50;
+    return 54;
   }
 
   @override
   Widget build(BuildContext context) {
-    final s = context.watchScale();
+    final rows = <Widget>[];
+    final extents = <double>[];
+    for (final c in children) {
+      // 纯留白 SizedBox 交给阶梯列表的行距节奏，避免出现空槽行
+      if (c is SizedBox && c.child == null) continue;
+      rows.add(c);
+      extents.add(_extentOf(c));
+    }
+    if (actions.isNotEmpty) {
+      rows.add(
+        Row(
+          children: [
+            for (final (i, a) in actions.indexed) ...[
+              if (i > 0) const SizedBox(width: 10),
+              Expanded(child: a),
+            ],
+          ],
+        ),
+      );
+      extents.add(48);
+    }
     return Scaffold(
       backgroundColor: const Color(0xFF101014),
       body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            controller: _ctrl,
-            padding: EdgeInsets.symmetric(horizontal: 22 * s, vertical: 16 * s),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  widget.title,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 16 * s,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                  ),
-                ),
-                SizedBox(height: 14 * s),
-                ...widget.children,
-                if (widget.actions.isNotEmpty) ...[
-                  SizedBox(height: 18 * s),
-                  Row(
-                    children: [
-                      for (final (i, a) in widget.actions.indexed) ...[
-                        if (i > 0) SizedBox(width: 10 * s),
-                        Expanded(child: a),
-                      ],
-                    ],
-                  ),
-                ],
-              ],
-            ),
-          ),
+        child: SteppedListView(
+          itemCount: rows.length,
+          itemBuilder: (context, i) => rows[i],
+          rowExtent: (i) => extents[i],
+          header: PageTitleHeader(title),
         ),
       ),
     );
