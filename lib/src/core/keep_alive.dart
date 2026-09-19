@@ -6,9 +6,9 @@ class LinkKeepAlive {
 
   static Future<void> start() async {
     if (_started) return;
-    _started = true;
     try {
       await _channel.invokeMethod('start');
+      _started = true;
     } catch (_) {}
   }
 }

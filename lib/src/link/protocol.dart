@@ -351,7 +351,7 @@ class FrameDecoder {
     final idx = map['idx'] as int;
     final innerType = map['type'] as int;
     final data = map['data'] as String;
-    if (total <= 0 || total > 4096) return null;
+    if (total <= 0 || total > 512) return null;
     if (idx < 0 || idx >= total) return null;
     if (_chunks.length > 8 && !_chunks.containsKey(cid)) {
       _chunks.remove(_chunks.keys.first);

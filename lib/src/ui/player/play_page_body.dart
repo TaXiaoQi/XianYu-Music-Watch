@@ -652,14 +652,11 @@ class _PlayPageBodyState extends State<PlayPageBody> {
   Widget _cover(CoverRef cover) {
     if (!cover.isEmpty) {
       if (cover.filePath != null && cover.filePath!.isNotEmpty) {
-        final f = File(cover.filePath!);
-        if (f.existsSync()) {
-          return Image.file(
-            f,
-            fit: BoxFit.cover,
-            errorBuilder: (_, _, _) => const _CoverFallback(),
-          );
-        }
+        return Image.file(
+          File(cover.filePath!),
+          fit: BoxFit.cover,
+          errorBuilder: (_, _, _) => const _CoverFallback(),
+        );
       }
       if (cover.url != null && cover.url!.isNotEmpty) {
         return Image.network(
@@ -814,7 +811,10 @@ class _MarqueeTextState extends State<_MarqueeText>
           maxLines: 1,
           textDirection: TextDirection.ltr,
         )..layout();
-        if (boxW <= 0 || tp.width <= boxW || widget.text.isEmpty) {
+        final textW = tp.width;
+        final textH = tp.height;
+        tp.dispose();
+        if (boxW <= 0 || textW <= boxW || widget.text.isEmpty) {
           _c.stop();
           return Text(
             widget.text,
@@ -824,7 +824,7 @@ class _MarqueeTextState extends State<_MarqueeText>
             style: widget.style,
           );
         }
-        final travel = tp.width + _gapBase * s;
+        final travel = textW + _gapBase * s;
         final scrollMs = (travel / (_speed * s) * 1000).round();
         _c.duration = _headPause + Duration(milliseconds: scrollMs);
         if (!_c.isAnimating) _c.repeat();
@@ -833,7 +833,7 @@ class _MarqueeTextState extends State<_MarqueeText>
         return ClipRect(
           child: SizedBox(
             width: boxW,
-            height: tp.height,
+            height: textH,
             child: AnimatedBuilder(
               animation: _c,
               builder: (context, _) {

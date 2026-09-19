@@ -66,6 +66,12 @@ class SyncNotifier extends StateNotifier<SyncState> {
   bool _loginSyncInProgress = false;
   Timer? _autoTimer;
 
+  @override
+  void dispose() {
+    _autoTimer?.cancel();
+    super.dispose();
+  }
+
   Future<void> _init() async {
     final prefs = await SharedPreferences.getInstance();
     state = state.copyWith(autoSync: prefs.getBool(_autoKey) ?? true);
@@ -141,7 +147,9 @@ class SyncNotifier extends StateNotifier<SyncState> {
       }
     }
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_loginSyncedKey, true);
+    if (errors.isEmpty) {
+      await prefs.setBool(_loginSyncedKey, true);
+    }
     state = state.copyWith(
       syncing: false,
       lastSyncAt: DateTime.now(),

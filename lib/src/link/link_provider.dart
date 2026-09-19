@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:crypto/crypto.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/ambient.dart';
@@ -399,7 +400,7 @@ class LinkController extends StateNotifier<LinkState> {
         isPlaying: false,
         position: 0,
       );
-      if (wasConnected || _wasExpectingConnect) {
+      if ((wasConnected && state.autoEnabled) || _wasExpectingConnect) {
         if (_cloudKey.isNotEmpty) {
           _tryCloud();
         } else {
@@ -414,6 +415,7 @@ class LinkController extends StateNotifier<LinkState> {
 
   void _tryCloud() {
     if (_cloudKey.isEmpty) return;
+    if (!state.autoEnabled) return;
     if (_cloudTryActive || state.phase == LinkPhase.connected) return;
     _cloudTryActive = true;
     state = state.copyWith(phase: LinkPhase.connecting);
@@ -555,12 +557,13 @@ class LinkController extends StateNotifier<LinkState> {
       case LinkMsgType.nowPlaying:
         final now = LinkNowPlaying.fromPayload(msg.payload);
         final preCover = _linkCoverPathFor(now.id);
-        state = state.copyWith(
-          now: preCover != null && File(preCover).existsSync()
-              ? now.copyWith(cover: preCover)
-              : now,
-          position: 0,
-        );
+        state = state.copyWith(now: now, position: 0);
+        if (preCover != null) {
+          File(preCover).exists().then((ok) {
+            if (_disposed || !ok || state.now?.id != now.id) return;
+            state = state.copyWith(now: state.now!.copyWith(cover: preCover));
+          });
+        }
         final cachedLyric = _lyricCache[now.id];
         if (cachedLyric != null) {
           state = state.copyWith(
@@ -630,6 +633,7 @@ class LinkController extends StateNotifier<LinkState> {
     if (_cloudUrl.isNotEmpty) {
       await prefs.setString('watch.cloudUrl', _cloudUrl);
     }
+    if (_disposed) return;
     if (state.phase == LinkPhase.disconnected && state.autoEnabled) {
       _reconnect?.cancel();
       _backoff = _minBackoff;
@@ -662,8 +666,8 @@ class LinkController extends StateNotifier<LinkState> {
 
   String? _linkCoverPathFor(String songId) {
     if (songId.isEmpty) return null;
-    return '${Directory.systemTemp.path}'
-        '/xianyu_link_cover_${songId.hashCode.abs() % 0x7FFFFFFF}.jpg';
+    final digest = sha1.convert(utf8.encode(songId)).toString();
+    return '${Directory.systemTemp.path}/xianyu_link_cover_$digest.jpg';
   }
 
   Future<String?> _saveLinkCover(String songId, String base64Data) async {
@@ -674,22 +678,26 @@ class LinkController extends StateNotifier<LinkState> {
       await f.writeAsBytes(bytes, flush: true);
       try {
         final dir = Directory.systemTemp;
-        final olds =
-            dir
-                .listSync()
-                .whereType<File>()
-                .where(
-                  (e) =>
-                      e.path.startsWith('${dir.path}/xianyu_link_cover_') &&
-                      e.path != f.path,
-                )
-                .toList()
-              ..sort(
-                (a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()),
-              );
-        for (var i = 2; i < olds.length; i++) {
+        final prefix = '${dir.path}/xianyu_link_cover_';
+        final olds = <File>[];
+        await for (final e in dir.list()) {
+          if (e is File && e.path.startsWith(prefix) && e.path != f.path) {
+            olds.add(e);
+          }
+        }
+        final sorted = await Future.wait(
+          olds.map((e) async {
+            try {
+              return (e, await e.lastModified());
+            } catch (_) {
+              return (e, DateTime.fromMillisecondsSinceEpoch(0));
+            }
+          }),
+        );
+        sorted.sort((a, b) => b.$2.compareTo(a.$2));
+        for (var i = 2; i < sorted.length; i++) {
           try {
-            olds[i].deleteSync();
+            await sorted[i].$1.delete();
           } catch (_) {}
         }
       } catch (_) {}

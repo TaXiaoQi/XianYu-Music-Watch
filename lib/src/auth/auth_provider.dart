@@ -360,7 +360,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
           .then((r) => r.close())
           .timeout(const Duration(milliseconds: 2500));
       if (res.statusCode == 200) {
-        final body = await res.transform(utf8.decoder).join();
+        final body = await res
+            .transform(utf8.decoder)
+            .join()
+            .timeout(const Duration(milliseconds: 2500));
         final j = jsonDecode(body) as Map<String, dynamic>;
         final parts = [
           j['city'],
@@ -371,7 +374,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       }
     } catch (_) {
     } finally {
-      client.close();
+      client.close(force: true);
     }
     return '手表';
   }

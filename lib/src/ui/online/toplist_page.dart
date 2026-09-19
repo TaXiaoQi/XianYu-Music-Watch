@@ -52,8 +52,7 @@ class _TopListPageState extends ConsumerState<TopListPage> {
               for (final it in lists) {
                 merged.add((s, it));
               }
-            } catch (_) {
-            }
+            } catch (_) {}
           }(),
       ]);
       if (!mounted) return;
@@ -85,61 +84,71 @@ class _TopListPageState extends ConsumerState<TopListPage> {
       ),
     );
     final body = _loading
-        ? Column(children: [
-            headerRow,
-            Expanded(
-              child: Center(
-                child: SizedBox(
-                  width: 26 * s,
-                  height: 26 * s,
-                  child: CircularProgressIndicator(strokeWidth: 2.4 * s),
+        ? Column(
+            children: [
+              headerRow,
+              Expanded(
+                child: Center(
+                  child: SizedBox(
+                    width: 26 * s,
+                    height: 26 * s,
+                    child: CircularProgressIndicator(strokeWidth: 2.4 * s),
+                  ),
                 ),
               ),
-            ),
-          ])
+            ],
+          )
         : _error != null
-            ? Column(children: [
-                headerRow,
-                Expanded(
-                  child: Center(
-                    child: Text(
-                      _error!,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                          fontSize: 12 * s,
-                          height: 1.7,
-                          color: Colors.white.withValues(alpha: 0.5)),
+        ? Column(
+            children: [
+              headerRow,
+              Expanded(
+                child: Center(
+                  child: Text(
+                    _error!,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 12 * s,
+                      height: 1.7,
+                      color: Colors.white.withValues(alpha: 0.5),
                     ),
                   ),
                 ),
-              ])
-            : SteppedListView(
-                header: headerRow,
-                itemCount: _entries.length,
-                itemBuilder: (context, i) {
-                  final (src, it) = _entries[i];
-                  return SteppedTile(
-                    leading: _SheetCover(url: it.coverUrl),
-                    title: it.title,
-                    subtitle: src.name,
-                    trailing: Icon(Icons.chevron_right_rounded,
-                        size: 22 * s,
-                        color: Colors.white.withValues(alpha: 0.35)),
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) =>
-                            TopListDetailPage(source: src, item: it),
-                      ),
-                    ),
-                  );
-                },
+              ),
+            ],
+          )
+        : SteppedListView(
+            header: headerRow,
+            itemCount: _entries.length,
+            itemBuilder: (context, i) {
+              final (src, it) = _entries[i];
+              return SteppedTile(
+                leading: _SheetCover(url: it.coverUrl),
+                title: it.title,
+                subtitle: src.name,
+                trailing: Icon(
+                  Icons.chevron_right_rounded,
+                  size: 22 * s,
+                  color: Colors.white.withValues(alpha: 0.35),
+                ),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => TopListDetailPage(source: src, item: it),
+                  ),
+                ),
               );
+            },
+          );
     return Scaffold(body: SafeArea(child: body));
   }
 }
 
 class TopListDetailPage extends ConsumerStatefulWidget {
-  const TopListDetailPage({super.key, required this.source, required this.item});
+  const TopListDetailPage({
+    super.key,
+    required this.source,
+    required this.item,
+  });
 
   final PluginSource source;
   final MfSheetItem item;
@@ -167,8 +176,10 @@ class _TopListDetailPageState extends ConsumerState<TopListDetailPage> {
     try {
       final engine = await ref.read(pluginEngineProvider.future);
       final catalog = PluginCatalogService(engine, [widget.source]);
-      final songs = await catalog
-          .getTopListDetail(widget.source, widget.item.raw);
+      final songs = await catalog.getTopListDetail(
+        widget.source,
+        widget.item.raw,
+      );
       if (!mounted) return;
       setState(() {
         _songs = songs;
@@ -188,8 +199,9 @@ class _TopListDetailPageState extends ConsumerState<TopListDetailPage> {
   Future<void> _play(int index) async {
     final engine = await ref.read(pluginEngineProvider.future);
     final service = PluginSearchService(engine, [widget.source]);
-    final items =
-        _songs.map((r) => service.toQueueItem(widget.source, r)).toList();
+    final items = _songs
+        .map((r) => service.toQueueItem(widget.source, r))
+        .toList();
     await ref.read(playerProvider.notifier).playQueue(items, startIndex: index);
     if (!mounted) return;
     ref.read(localHubPageProvider.notifier).state = 1;
@@ -217,66 +229,71 @@ class _TopListDetailPageState extends ConsumerState<TopListDetailPage> {
               widget.item.title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                  fontSize: 14 * s, fontWeight: FontWeight.w600),
+              style: TextStyle(fontSize: 14 * s, fontWeight: FontWeight.w600),
             ),
           ),
         ],
       ),
     );
     final body = _loading
-        ? Column(children: [
-            headerRow,
-            Expanded(
-              child: Center(
-                child: SizedBox(
-                  width: 26 * s,
-                  height: 26 * s,
-                  child: CircularProgressIndicator(strokeWidth: 2.4 * s),
+        ? Column(
+            children: [
+              headerRow,
+              Expanded(
+                child: Center(
+                  child: SizedBox(
+                    width: 26 * s,
+                    height: 26 * s,
+                    child: CircularProgressIndicator(strokeWidth: 2.4 * s),
+                  ),
                 ),
               ),
-            ),
-          ])
+            ],
+          )
         : _error != null
-            ? Column(children: [
-                headerRow,
-                Expanded(
-                  child: Center(
-                    child: Text(
-                      _error!,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                          fontSize: 12 * s,
-                          color: Colors.white.withValues(alpha: 0.5)),
+        ? Column(
+            children: [
+              headerRow,
+              Expanded(
+                child: Center(
+                  child: Text(
+                    _error!,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 12 * s,
+                      color: Colors.white.withValues(alpha: 0.5),
                     ),
                   ),
                 ),
-              ])
-            : SteppedListView(
-                header: headerRow,
-                itemCount: _songs.length,
-                itemBuilder: (context, i) {
-                  final r = _songs[i];
-                  return SteppedTile(
-                    leading: SizedBox(
-                      width: 24 * s,
-                      child: Text(
-                        '${i + 1}',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                            fontSize: 15 * s,
-                            fontWeight: FontWeight.w700,
-                            color: i < 3
-                                ? const Color(0xFFFF6B81)
-                                : Colors.white.withValues(alpha: 0.4)),
-                      ),
+              ),
+            ],
+          )
+        : SteppedListView(
+            header: headerRow,
+            itemCount: _songs.length,
+            itemBuilder: (context, i) {
+              final r = _songs[i];
+              return SteppedTile(
+                leading: SizedBox(
+                  width: 24 * s,
+                  child: Text(
+                    '${i + 1}',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 15 * s,
+                      fontWeight: FontWeight.w700,
+                      color: i < 3
+                          ? const Color(0xFFFF6B81)
+                          : Colors.white.withValues(alpha: 0.4),
                     ),
-                    title: r.name,
-                    subtitle: r.singer,
-                    onTap: () => _play(i),
-                  );
-                },
+                  ),
+                ),
+                title: r.name,
+                subtitle: r.singer,
+                onTap: () => _play(i),
               );
+            },
+          );
     return Scaffold(body: SafeArea(child: body));
   }
 }
@@ -292,11 +309,17 @@ class _SheetCover extends StatelessWidget {
     final u = url;
     final w = (u != null && u.isNotEmpty)
         ? (u.startsWith('http')
-            ? Image.network(u,
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => const _SheetIcon())
-            : Image.file(File(u),
-                fit: BoxFit.cover, errorBuilder: (_, _, _) => const _SheetIcon()))
+              ? Image.network(
+                  u,
+                  fit: BoxFit.cover,
+                  cacheWidth: 96,
+                  errorBuilder: (_, _, _) => const _SheetIcon(),
+                )
+              : Image.file(
+                  File(u),
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => const _SheetIcon(),
+                ))
         : const _SheetIcon();
     return SizedBox(width: 44 * s, height: 44 * s, child: w);
   }
@@ -310,8 +333,11 @@ class _SheetIcon extends StatelessWidget {
     final s = context.watchScale();
     return Container(
       color: Colors.white.withValues(alpha: 0.08),
-      child: Icon(Icons.leaderboard_rounded,
-          size: 18 * s, color: Colors.white.withValues(alpha: 0.5)),
+      child: Icon(
+        Icons.leaderboard_rounded,
+        size: 18 * s,
+        color: Colors.white.withValues(alpha: 0.5),
+      ),
     );
   }
 }

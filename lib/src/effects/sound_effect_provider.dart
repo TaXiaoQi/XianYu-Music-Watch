@@ -653,14 +653,13 @@ class SoundEffectManager extends StateNotifier<SoundEffectState> {
 
   Future<void> _persist() async {
     try {
+      final s = state;
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
         _key,
         jsonEncode({
-          'settings': state.settings.toJson(),
-          'customEqPresets': state.customEqPresets
-              .map((p) => p.toJson())
-              .toList(),
+          'settings': s.settings.toJson(),
+          'customEqPresets': s.customEqPresets.map((p) => p.toJson()).toList(),
         }),
       );
     } catch (_) {}

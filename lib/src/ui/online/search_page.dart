@@ -32,6 +32,7 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
   }
 
   Future<void> _search() async {
+    if (_searching) return;
     final kw = _controller.text.trim();
     if (kw.isEmpty) return;
     FocusScope.of(context).unfocus();
@@ -217,6 +218,7 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
                     ? Image.network(
                         r.img!,
                         fit: BoxFit.cover,
+                        cacheWidth: 96,
                         errorBuilder: (_, _, _) => const _ResultIcon(),
                       )
                     : const _ResultIcon(),

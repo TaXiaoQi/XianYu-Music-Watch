@@ -148,7 +148,12 @@ fn convert_blocking(src: &Path, out: &Path, fmt: OutputFormat) -> Result<(), Str
         OutputFormat::Mp3 => encode_mp3_f32(&tmp, sr, ch, &pcm),
     };
     match res {
-        Ok(()) => fs::rename(&tmp, out).map_err(|e| e.to_string()),
+        Ok(()) => {
+            if out.exists() {
+                let _ = fs::remove_file(out);
+            }
+            fs::rename(&tmp, out).map_err(|e| e.to_string())
+        }
         Err(e) => { let _ = fs::remove_file(&tmp); Err(e) }
     }
 }
@@ -245,8 +250,8 @@ fn decode_ape_pcm(src: &Path) -> Result<(u32, u16, Vec<f32>), String> {
             }
         } else if bits == 24 {
             for chunk in pcm.chunks_exact(3) {
-                let mut b = [0u8; 4]; b[..3].copy_from_slice(chunk);
-                let v = i32::from_le_bytes(b) >> 8;
+                let hi = if chunk[2] & 0x80 != 0 { 0xFFu8 } else { 0u8 };
+                let v = i32::from_le_bytes([chunk[0], chunk[1], chunk[2], hi]) >> 8;
                 all.push(v as f32 / 8388608.0);
             }
         } else if bits == 32 {

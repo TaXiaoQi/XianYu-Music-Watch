@@ -115,9 +115,13 @@ impl HttpSeekableReader {
     }
 
     fn ensure_stream(inner: &mut Inner, client: &reqwest::Client, url: &str, total_out: &mut Option<u64>) -> io::Result<()> {
+        const SKIP_REOPEN_THRESHOLD: u64 = 2 * 1024 * 1024;
         let need_reopen = match &inner.resp {
             None => true,
-            Some(_) => inner.pos < inner.resp_start,
+            Some(_) => {
+                inner.pos < inner.resp_start
+                    || inner.pos.saturating_sub(inner.resp_pos) > SKIP_REOPEN_THRESHOLD
+            }
         };
         if !need_reopen {
             return Ok(());

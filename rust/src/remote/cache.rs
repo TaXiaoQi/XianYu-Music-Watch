@@ -4,11 +4,14 @@ use super::webdav;
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 pub(crate) const MAX_REMOTE_CACHE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const REMOTE_DOWNLOAD_ATTEMPTS: usize = 3;
+
+static TEMP_DOWNLOAD_SEQ: AtomicU64 = AtomicU64::new(0);
 
 pub(crate) fn is_remote_uri(path: &str) -> bool {
     path.starts_with("remote://")
@@ -170,7 +173,10 @@ pub(crate) async fn cache_remote_file(
         return Ok(cache_path.to_string_lossy().into_owned());
     }
 
-    let temp_path = cache_path.with_extension("download");
+    let temp_path = cache_path.with_extension(format!(
+        "download{}",
+        TEMP_DOWNLOAD_SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
     let mut last_error = None;
     for attempt in 1..=REMOTE_DOWNLOAD_ATTEMPTS {
         let result = webdav::download_file_to_path(source, remote_path, &temp_path, |_, _| {})
@@ -194,7 +200,13 @@ pub(crate) async fn cache_remote_file(
         return Err("远程文件下载失败：未生成缓存文件".to_string());
     }
 
-    fs::rename(&temp_path, &cache_path).map_err(|error| error.to_string())?;
+    if let Err(error) = fs::rename(&temp_path, &cache_path) {
+        if cache_path.is_file() {
+            let _ = fs::remove_file(&temp_path);
+        } else {
+            return Err(error.to_string());
+        }
+    }
     cleanup_cache(cache_root);
 
     Ok(cache_path.to_string_lossy().into_owned())

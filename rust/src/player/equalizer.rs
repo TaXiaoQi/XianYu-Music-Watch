@@ -41,9 +41,8 @@ impl EqualizerHandle {
     }
 
     pub fn set_settings(&self, new_settings: EqualizerSettings) {
-        if let Ok(mut s) = self.settings.lock() {
-            *s = new_settings;
-        }
+        let mut s = self.settings.lock().unwrap_or_else(|e| e.into_inner());
+        *s = new_settings;
         self.dirty.store(true, Ordering::Relaxed);
     }
 }
@@ -280,9 +279,11 @@ impl Equalizer {
     }
 
     pub fn set_settings(&mut self, settings: EqualizerSettings) {
-        if let Ok(mut s) = self.shared_settings.lock() {
-            *s = settings;
-        }
+        let mut s = self
+            .shared_settings
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        *s = settings;
     }
 
     fn sync_settings_nonblocking(&mut self) {

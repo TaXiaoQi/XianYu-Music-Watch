@@ -12,7 +12,10 @@ export default class EntryAbility extends FlutterAbility {
   private systemNavChannel: MethodChannel | null = null;
   private keepAliveChannel: MethodChannel | null = null;
   private screenShapeChannel: MethodChannel | null = null;
+  private keepScreenChannel: MethodChannel | null = null;
   private keepAliveStarted = false;
+  private mainWindow: window.Window | null = null;
+  private keepScreenPending: boolean | null = null;
 
   onBackPressed(): boolean {
     dispatchBackToFlutter(this.context)
@@ -21,6 +24,15 @@ export default class EntryAbility extends FlutterAbility {
 
   onWindowStageCreate(windowStage: window.WindowStage) {
     super.onWindowStageCreate(windowStage)
+    windowStage.getMainWindow()
+      .then((w: window.Window) => {
+        this.mainWindow = w
+        if (this.keepScreenPending !== null) {
+          w.setWindowKeepScreenOn(this.keepScreenPending).catch(() => {})
+          this.keepScreenPending = null
+        }
+      })
+      .catch((err: Error) => hilog.error(0x0100, 'xianyu', `getMainWindow failed: ${String(err)}`))
   }
 
   configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -96,6 +108,26 @@ export default class EntryAbility extends FlutterAbility {
       },
       onCancel: (args: Any) => {
         attachRotarySink(null)
+      }
+    });
+
+    this.keepScreenChannel = new MethodChannel(
+      flutterEngine.dartExecutor.getBinaryMessenger(), 'xianyu/keep_screen');
+    this.keepScreenChannel.setMethodCallHandler({
+      onMethodCall: (call, result) => {
+        if (call.method === 'set') {
+          const enable: boolean = (call.args as ESObject)?.enable !== false
+          if (this.mainWindow === null) {
+            this.keepScreenPending = enable
+            result.success(null)
+            return
+          }
+          this.mainWindow.setWindowKeepScreenOn(enable)
+            .then(() => result.success(null))
+            .catch((err: Error) => result.error('keep_screen_failed', String(err), null))
+        } else {
+          result.notImplemented()
+        }
       }
     });
   }

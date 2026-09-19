@@ -114,16 +114,17 @@ class DailyRecommendItem {
     this.pluginFormat = 'musicfree',
   });
 
-  String get title => (song['name'] as String?) ?? '';
-  String get artist => (song['singer'] as String?) ?? '';
-  String get album => (song['albumName'] as String?) ?? '';
+  String get title => (song['name'] as Object?)?.toString() ?? '';
+  String get artist => (song['singer'] as Object?)?.toString() ?? '';
+  String get album => (song['albumName'] as Object?)?.toString() ?? '';
   String? get coverUrl {
     final resolved = resolveSongCoverUrl(song);
     if (resolved != null && resolved.isNotEmpty) return resolved;
     return song['img'] as String?;
   }
 
-  int get durationMs => parseIntervalMs((song['interval'] as String?) ?? '');
+  int get durationMs =>
+      parseIntervalMs((song['interval'] as Object?)?.toString() ?? '');
 
   String? get dedupKey {
     final normTitle = _normalizeText(title);
@@ -134,8 +135,8 @@ class DailyRecommendItem {
 
   QueueItem toQueueItem(String quality) {
     final isMf = pluginFormat == 'musicfree';
-    final src = (song['source'] as String?) ?? '';
-    final mid = (song['songmid'] as String?) ?? '';
+    final src = song['source']?.toString() ?? '';
+    final mid = song['songmid']?.toString() ?? '';
     return QueueItem(
       path: isMf ? 'plugin://$pluginId/$mid' : 'lx://$src/$mid',
       title: title,
@@ -521,7 +522,10 @@ Future<Map<String, _WyTrackPatch>> _fetchWyTrackMeta(List<String> ids) async {
     req.write(body);
     final resp = await req.close().timeout(const Duration(seconds: 15));
     if (resp.statusCode < 200 || resp.statusCode >= 400) return result;
-    final text = await resp.transform(utf8.decoder).join();
+    final text = await resp
+        .transform(utf8.decoder)
+        .join()
+        .timeout(const Duration(seconds: 15));
     final data = jsonDecode(text);
     if (data is! Map || data['code'] != 200) return result;
     final songs = data['songs'];
@@ -545,7 +549,7 @@ Future<Map<String, _WyTrackPatch>> _fetchWyTrackMeta(List<String> ids) async {
     }
   } catch (_) {
   } finally {
-    client?.close();
+    client?.close(force: true);
   }
   return result;
 }

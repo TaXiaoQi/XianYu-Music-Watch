@@ -114,6 +114,9 @@ void main() {
     unknown[5] = 0x77;
     unknown[12] = 0;
     unknown[13] = 0;
+    final crc = crc16CcittFalse(unknown.sublist(4));
+    unknown[12] = (crc >> 8) & 0xFF;
+    unknown[13] = crc & 0xFF;
 
     final decoder = FrameDecoder();
     final out = decoder.feed([...unknown, ...frame]);
@@ -123,10 +126,13 @@ void main() {
   test('超大 payload 自动分片并在解码端重组', () {
     final seq = makeSeqGenerator();
     final bigText = '弦予' * 6000;
-    final msg = LinkMessage(
-      LinkMsgType.nowPlaying,
-      {'id': 'big', 'title': bigText, 'artist': '', 'album': '', 'duration': 0},
-    );
+    final msg = LinkMessage(LinkMsgType.nowPlaying, {
+      'id': 'big',
+      'title': bigText,
+      'artist': '',
+      'album': '',
+      'duration': 0,
+    });
 
     final frames = encodeFrames(msg, nextSeq: seq);
     expect(frames.length, greaterThan(1));
@@ -177,7 +183,11 @@ void main() {
     final bigPayload = jsonEncode({
       'displayLines': [
         for (var i = 0; i < 400; i++)
-          {'time': i.toDouble(), 'endTime': (i + 1).toDouble(), 'text': '歌词行$i 🎵'}
+          {
+            'time': i.toDouble(),
+            'endTime': (i + 1).toDouble(),
+            'text': '歌词行$i 🎵',
+          },
       ],
     });
 

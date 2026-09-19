@@ -82,6 +82,7 @@ pub struct BufferedSource<P> {
     current_block: VecDeque<f32>,
     exhausted: bool,
     monitor: Option<Arc<BufferedMonitor>>,
+    stop_flag: Arc<AtomicBool>,
     thread_handle: Option<thread::JoinHandle<()>>,
     _marker: PhantomData<P>,
 }
@@ -136,6 +137,7 @@ where
             current_block: VecDeque::with_capacity(BLOCK_SAMPLES),
             exhausted: false,
             monitor,
+            stop_flag,
             thread_handle,
             _marker: PhantomData,
         };
@@ -211,6 +213,7 @@ where
     }
 
     pub fn try_seek(&mut self, pos: Duration) -> Result<(), String> {
+        while self.ack_rx.try_recv().is_ok() {}
         if self.cmd_tx.send(Command::Seek(pos)).is_err() {
             return Err("BufferedSource 后台线程已退出".to_string());
         }
@@ -334,6 +337,7 @@ fn producer_loop<P: BlockProducer + Send>(
 
 impl<P> Drop for BufferedSource<P> {
     fn drop(&mut self) {
+        self.stop_flag.store(true, Ordering::Relaxed);
         let _ = self.cmd_tx.try_send(Command::Stop);
         if let Some(handle) = self.thread_handle.take() {
             let _ = handle.join();

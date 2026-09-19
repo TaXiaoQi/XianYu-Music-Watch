@@ -562,20 +562,23 @@ pub async fn download_online_song(
 
     if let Some(ref ek) = ekey {
         if !ek.is_empty() {
-            match decrypt_qmc_file_inplace(&dest, ek) {
-                Ok(_) => {}
-                Err(e) => {
-                    return Err(format!("QMC2 解密失败: {e}"));
-                }
-            }
+            let dest_clone = dest.clone();
+            let ek_clone = ek.clone();
+            let decrypted = tokio::task::spawn_blocking(move || {
+                decrypt_qmc_file_inplace(&dest_clone, &ek_clone)
+            })
+            .await
+            .map_err(|e| format!("解密任务执行失败: {e}"))?;
+            decrypted.map_err(|e| format!("QMC2 解密失败: {e}"))?;
         }
     } else if let Some(extracted_ekey) = try_extract_ekey_from_file(&dest) {
-        match decrypt_qmc_file_inplace(&dest, &extracted_ekey) {
-            Ok(_) => {}
-            Err(e) => {
-                return Err(format!("QMC2 解密失败（footer ekey）: {e}"));
-            }
-        }
+        let dest_clone = dest.clone();
+        let decrypted = tokio::task::spawn_blocking(move || {
+            decrypt_qmc_file_inplace(&dest_clone, &extracted_ekey)
+        })
+        .await
+        .map_err(|e| format!("解密任务执行失败: {e}"))?;
+        decrypted.map_err(|e| format!("QMC2 解密失败（footer ekey）: {e}"))?;
     }
 
     let _ = start_time;
@@ -614,7 +617,7 @@ fn decrypt_with_crypto_inplace(path: &Path, crypto: &crate::player::qmc2::QmcCry
 
     let temp_path = path.with_extension("qmc_tmp_dec");
 
-    {
+    let write_result: Result<(), String> = (|| {
         let mut input = fs::File::open(path)
             .map_err(|e| format!("打开加密文件失败: {e}"))?;
         let mut output = fs::File::create(&temp_path)
@@ -636,7 +639,12 @@ fn decrypt_with_crypto_inplace(path: &Path, crypto: &crate::player::qmc2::QmcCry
         }
 
         output.flush()
-            .map_err(|e| format!("刷新解密文件失败: {e}"))?;
+            .map_err(|e| format!("刷新解密文件失败: {e}"))
+    })();
+
+    if let Err(e) = write_result {
+        let _ = fs::remove_file(&temp_path);
+        return Err(e);
     }
 
     fs::rename(&temp_path, path)

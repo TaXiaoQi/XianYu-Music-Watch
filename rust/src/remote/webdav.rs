@@ -399,13 +399,19 @@ pub(crate) async fn collect_audio_files(
     let client = shared_client();
     let mut queue = VecDeque::from(["/".to_string()]);
     let mut files = Vec::new();
+    let mut visited = std::collections::HashSet::from(["/".to_string()]);
 
     while let Some(path) = queue.pop_front() {
         for entry in list_directory(&client, source, &path).await? {
             if entry.is_dir {
-                queue.push_back(entry.remote_path);
+                if visited.insert(entry.remote_path.clone()) {
+                    queue.push_back(entry.remote_path);
+                }
             } else if supported_audio_extension(&entry.remote_path) {
                 files.push(entry);
+                if files.len() >= 100_000 {
+                    return Ok(files);
+                }
             }
         }
     }

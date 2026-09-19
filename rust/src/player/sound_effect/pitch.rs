@@ -332,7 +332,12 @@ impl PitchRateProcessor {
         }
 
         loop {
-            let seg_start = self.ola_pos.floor() as usize;
+            let mut seg_start = self.ola_pos.floor() as usize;
+            if seg_start > 0 && self.input_buf.len() >= seg_start * self.channels {
+                self.input_buf.drain(..seg_start * self.channels);
+                self.ola_pos -= seg_start as f64;
+                seg_start = 0;
+            }
             let need_frames = seg_start + OLA_SEG;
             if (self.input_buf.len() / self.channels) < need_frames {
                 break;

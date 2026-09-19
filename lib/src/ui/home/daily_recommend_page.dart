@@ -27,8 +27,12 @@ class DailyRecommendPage extends ConsumerWidget {
         icon: Icon(Icons.casino_rounded, size: 20 * s),
       ),
     );
-    Widget stateBody(Widget child) =>
-        Column(children: [headerRow, Expanded(child: child)]);
+    Widget stateBody(Widget child) => Column(
+      children: [
+        headerRow,
+        Expanded(child: child),
+      ],
+    );
 
     return Scaffold(
       body: SafeArea(
@@ -47,8 +51,7 @@ class DailyRecommendPage extends ConsumerWidget {
               icon: Icons.cloud_off_rounded,
               text: '$e',
               actionLabel: '重试',
-              onAction: () =>
-                  ref.invalidate(dailyRecommendProvider),
+              onAction: () => ref.invalidate(dailyRecommendProvider),
             ),
           ),
           data: (st) {
@@ -60,7 +63,8 @@ class DailyRecommendPage extends ConsumerWidget {
                   actionLabel: '去登录',
                   onAction: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(
-                        builder: (_) => const AccountView()),
+                      builder: (_) => const AccountView(),
+                    ),
                   ),
                 ),
               );
@@ -73,7 +77,8 @@ class DailyRecommendPage extends ConsumerWidget {
                   actionLabel: '去插件管理',
                   onAction: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(
-                        builder: (_) => const PluginManagePage()),
+                      builder: (_) => const PluginManagePage(),
+                    ),
                   ),
                 ),
               );
@@ -108,18 +113,24 @@ class _RecommendList extends ConsumerWidget {
               height: 44 * s,
               child: (cover != null && cover.isNotEmpty)
                   ? (cover.startsWith('http')
-                      ? Image.network(cover,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, _, _) => const _SongIcon())
-                      : Image.file(File(cover),
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, _, _) => const _SongIcon()))
+                        ? Image.network(
+                            cover,
+                            fit: BoxFit.cover,
+                            cacheWidth: 96,
+                            errorBuilder: (_, _, _) => const _SongIcon(),
+                          )
+                        : Image.file(
+                            File(cover),
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) => const _SongIcon(),
+                          ))
                   : const _SongIcon(),
             ),
           ),
           title: it.title,
-          subtitle:
-              it.reason.isNotEmpty ? '${it.artist} · ${it.reason}' : it.artist,
+          subtitle: it.reason.isNotEmpty
+              ? '${it.artist} · ${it.reason}'
+              : it.artist,
           onTap: () async {
             await ref.read(dailyRecommendProvider.notifier).play(i);
             if (!context.mounted) return;
@@ -140,8 +151,11 @@ class _SongIcon extends StatelessWidget {
     final s = context.watchScale();
     return Container(
       color: Colors.white.withValues(alpha: 0.08),
-      child: Icon(Icons.music_note_rounded,
-          size: 18 * s, color: Colors.white.withValues(alpha: 0.5)),
+      child: Icon(
+        Icons.music_note_rounded,
+        size: 18 * s,
+        color: Colors.white.withValues(alpha: 0.5),
+      ),
     );
   }
 }
@@ -172,9 +186,10 @@ class _EmptyView extends StatelessWidget {
             text,
             textAlign: TextAlign.center,
             style: TextStyle(
-                fontSize: 12 * s,
-                height: 1.7,
-                color: Colors.white.withValues(alpha: 0.55)),
+              fontSize: 12 * s,
+              height: 1.7,
+              color: Colors.white.withValues(alpha: 0.55),
+            ),
           ),
           if (actionLabel != null) ...[
             SizedBox(height: 14 * s),
@@ -183,11 +198,12 @@ class _EmptyView extends StatelessWidget {
               style: FilledButton.styleFrom(
                 backgroundColor: const Color(0xFFFF4D6E),
                 minimumSize: Size(0, 36 * s),
-                padding:
-                    EdgeInsets.symmetric(horizontal: 20 * s, vertical: 6 * s),
+                padding: EdgeInsets.symmetric(
+                  horizontal: 20 * s,
+                  vertical: 6 * s,
+                ),
               ),
-              child: Text(actionLabel!,
-                  style: TextStyle(fontSize: 13 * s)),
+              child: Text(actionLabel!, style: TextStyle(fontSize: 13 * s)),
             ),
           ],
         ],

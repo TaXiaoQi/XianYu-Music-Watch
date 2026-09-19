@@ -47,6 +47,12 @@ class CloudLinkClient {
         const Duration(seconds: 8),
         onTimeout: () => throw TimeoutException('relay connect timeout'),
       );
+      if (_closed) {
+        try {
+          await ws.close();
+        } catch (_) {}
+        return;
+      }
       _ws = ws;
       ws.add(
         jsonEncode({'op': 'hello', 'role': 'watch', 'key': key, 'name': name}),
@@ -54,7 +60,10 @@ class CloudLinkClient {
       _ready = false;
       _readyTimer?.cancel();
       _readyTimer = Timer(const Duration(seconds: 8), () {
-        if (!_closed && !_ready) close();
+        if (!_closed && !_ready) {
+          _eventCtrl.add(const CloudLinkEvent._(CloudLinkEvent.closed));
+          close();
+        }
       });
       _sub = ws.listen(
         (data) {

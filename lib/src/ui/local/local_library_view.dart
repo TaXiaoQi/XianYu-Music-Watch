@@ -30,9 +30,9 @@ class _LocalLibraryViewState extends ConsumerState<LocalLibraryView> {
   Future<void> _scan() async {
     final granted = await _ensurePermission();
     if (!granted && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('需要存储权限才能扫描本地音乐')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('需要存储权限才能扫描本地音乐')));
       return;
     }
     setState(() => _scanning = true);
@@ -41,17 +41,15 @@ class _LocalLibraryViewState extends ConsumerState<LocalLibraryView> {
       if (folders.isEmpty) {
         const musicDir = '/storage/emulated/0/Music';
         if (Directory(musicDir).existsSync()) {
-          await ref
-              .read(scanFoldersProvider.notifier)
-              .addFolder(musicDir);
+          await ref.read(scanFoldersProvider.notifier).addFolder(musicDir);
         }
       }
       await ref.read(libraryProvider.notifier).scanAllFolders();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('扫描失败：$e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('扫描失败：$e')));
       }
     } finally {
       if (mounted) setState(() => _scanning = false);
@@ -67,54 +65,64 @@ class _LocalLibraryViewState extends ConsumerState<LocalLibraryView> {
     if (songs.isEmpty) {
       return Scaffold(
         backgroundColor: Colors.black,
-        body: SafeArea(child: _EmptyView(scanning: _scanning, onScan: _scan)),
+        body: SafeArea(
+          child: _EmptyView(scanning: _scanning, onScan: _scan),
+        ),
       );
     }
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
         child: SteppedListView(
-      header: PageTitleHeader('本地音乐', showBack: false),
-      itemCount: songs.length + 1,
-      itemBuilder: (context, i) {
-        if (i == 0) {
-          return SteppedTile(
-            leading: SteppedLeadCircle(
-              color: const Color(0xFF4A90D9),
-              child: Icon(Icons.travel_explore_rounded,
-                  size: 22 * s, color: Colors.white),
-            ),
-            title: '搜索',
-            subtitle: '插件在线音源',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const OnlineSearchPage()),
-            ),
-          );
-        }
-        final song = songs[i - 1];
-        return SteppedTile(
-          leading: ClipOval(
-            child: SizedBox(
-              width: 44 * s,
-              height: 44 * s,
-              child: song.coverThumbPath != null &&
-                      File(song.coverThumbPath!).existsSync()
-                  ? Image.file(File(song.coverThumbPath!),
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => const _SongIcon())
-                  : const _SongIcon(),
-            ),
-          ),
-          title: song.title,
-          subtitle: song.artist.isEmpty ? '未知歌手' : song.artist,
-          onTap: () async {
-            await ref.read(libraryProvider.notifier).playFrom(i);
-            if (!context.mounted) return;
-            ref.read(localHubPageProvider.notifier).state = 1;
-            Navigator.of(context).pop();
+          header: PageTitleHeader('本地音乐', showBack: false),
+          itemCount: songs.length + 1,
+          itemBuilder: (context, i) {
+            if (i == 0) {
+              return SteppedTile(
+                leading: SteppedLeadCircle(
+                  color: const Color(0xFF4A90D9),
+                  child: Icon(
+                    Icons.travel_explore_rounded,
+                    size: 22 * s,
+                    color: Colors.white,
+                  ),
+                ),
+                title: '搜索',
+                subtitle: '插件在线音源',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const OnlineSearchPage(),
+                  ),
+                ),
+              );
+            }
+            final song = songs[i - 1];
+            return SteppedTile(
+              leading: ClipOval(
+                child: SizedBox(
+                  width: 44 * s,
+                  height: 44 * s,
+                  child:
+                      song.coverThumbPath != null &&
+                          song.coverThumbPath!.isNotEmpty
+                      ? Image.file(
+                          File(song.coverThumbPath!),
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) => const _SongIcon(),
+                        )
+                      : const _SongIcon(),
+                ),
+              ),
+              title: song.title,
+              subtitle: song.artist.isEmpty ? '未知歌手' : song.artist,
+              onTap: () async {
+                await ref.read(libraryProvider.notifier).playFrom(i);
+                if (!context.mounted) return;
+                ref.read(localHubPageProvider.notifier).state = 1;
+                Navigator.of(context).pop();
+              },
+            );
           },
-        );
-      },
         ),
       ),
     );

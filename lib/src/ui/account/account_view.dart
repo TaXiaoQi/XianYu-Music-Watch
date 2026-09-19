@@ -710,6 +710,7 @@ class _QrLoginPanelState extends ConsumerState<_QrLoginPanel> {
   String _status = 'loading';
   String _error = '';
   Timer? _pollTimer;
+  bool _polling = false;
 
   @override
   void initState() {
@@ -754,32 +755,38 @@ class _QrLoginPanelState extends ConsumerState<_QrLoginPanel> {
   void _startPolling() {
     _pollTimer?.cancel();
     _pollTimer = Timer.periodic(const Duration(seconds: 2), (t) async {
-      if (!mounted || _code == null) return;
+      if (!mounted || _code == null || _polling) return;
       if (DateTime.now().millisecondsSinceEpoch > (_expireAtMs ?? 0)) {
         t.cancel();
         if (mounted) setState(() => _status = 'expired');
         return;
       }
-      final user = await ref
-          .read(authProvider.notifier)
-          .pollQrLogin(
-            code: _code!,
-            onStatus: (s) {
-              if (mounted && (s == 'scanned' || s == 'invalid')) {
-                setState(
-                  () => _status = s == 'invalid' ? 'expired' : 'scanned',
-                );
-              }
-            },
+      _polling = true;
+      try {
+        final user = await ref
+            .read(authProvider.notifier)
+            .pollQrLogin(
+              code: _code!,
+              onStatus: (s) {
+                if (mounted && (s == 'scanned' || s == 'invalid')) {
+                  if (s == 'invalid') t.cancel();
+                  setState(
+                    () => _status = s == 'invalid' ? 'expired' : 'scanned',
+                  );
+                }
+              },
+            );
+        if (user != null && mounted) {
+          t.cancel();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('登录成功，欢迎 ${user.nickname}'),
+              duration: const Duration(seconds: 2),
+            ),
           );
-      if (user != null && mounted) {
-        t.cancel();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('登录成功，欢迎 ${user.nickname}'),
-            duration: const Duration(seconds: 2),
-          ),
-        );
+        }
+      } finally {
+        _polling = false;
       }
     });
   }
