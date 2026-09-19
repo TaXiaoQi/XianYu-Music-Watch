@@ -5,7 +5,6 @@
 
 import 'frb_generated.dart';
 import 'music/types.dart';
-
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `derive_cover_cache_dir`, `global_playback_session`, `open_scan_conn`, `open_stats_conn`, `parse_device`, `parse_media`, `parse_remote_source`

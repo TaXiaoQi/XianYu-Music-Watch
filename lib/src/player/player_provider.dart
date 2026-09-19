@@ -10,6 +10,7 @@ import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../auth/auth_provider.dart';
+import '../effects/sound_effect_provider.dart';
 import '../favorites/favorites_provider.dart';
 
 import '../core/db_path.dart';
@@ -169,6 +170,23 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
   Map<String, String>? _currentHeaders;
   bool _usedCacheSource = false;
 
+  // —— Rust DSP 音效管线（sharedMode 共享混音，对齐移动端口径的表端精简版）——
+  /// 会话级可用性：错误含 libaaudio（AAudio 库缺失/API 过低）时置 false，
+  /// 本会话不再尝试，避免每首歌空等超时。
+  bool _dspAvailable = kDspPipelineSupported;
+  /// 管线中断后的首次起播跳过 DSP（防「中断→重播→再中断」环），切歌后恢复尝试。
+  bool _dspSkipNextStart = false;
+  /// 当前曲目是否正由 DSP 管线输出（此期间 just_audio 处于 stop 态不发声）。
+  bool _dspActive = false;
+  Timer? _dspTimer;
+  Timer? _sfxSyncTimer;
+
+  /// 本地真实文件才可进 DSP 管线：content:// 树文档 URI 与在线直链流
+  /// 只能走 just_audio（管线只吃文件路径）。
+  bool _isDspEligible(QueueItem item) =>
+      (item.onlineSongJson == null || item.onlineSongJson!.isEmpty) &&
+      !item.path.startsWith('content://');
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused ||
@@ -207,6 +225,12 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
         _onPlaybackError(e);
       },
     );
+    // 音效设置变化：DSP 管线运行中把 EQ/音效同步进 Rust（50ms 防抖）；
+    // 非 DSP 回退分支把变速变调映射到 just_audio 原生 speed/pitch。
+    _ref.listen(soundEffectProvider.select((s) => s.settings), (_, s) {
+      _applyEffectSpeedPitch(s);
+      _syncDspEffects(s);
+    });
     // 流缓存目录注入（失败不阻塞播放器初始化，之后回退直连）。
     unawaited(() async {
       try {
@@ -255,6 +279,16 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
         await _player.stop();
       } catch (_) {}
       if (epoch != _playEpoch) return false;
+      // 本地真实文件优先走 Rust DSP 管线（EQ/音效/变速变调在 Rust 侧生效）；
+      // 不可用/启动失败回退 just_audio 普通播放。
+      if (_isDspEligible(item) &&
+          await _tryStartDspPipeline(item.path, startAtSecs: startAtSecs)) {
+        if (epoch != _playEpoch) return false;
+        state = state.copyWith(isPlaying: true, error: null);
+        _syncPlaybackState();
+        _persistSession();
+        return true;
+      }
       await _loadItemSource(item);
       if (startAtSecs > 0) {
         try {
@@ -382,6 +416,20 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
 
   Future<void> toggle() async {
     if (state.current == null) return;
+    // DSP 管线输出中：just_audio 已停，播放暂停直接走 Rust 接口，
+    // isPlaying 由本处手动翻转（playerStateStream 不会再来事件）。
+    if (_dspActive) {
+      if (state.isPlaying) {
+        await pauseUsbExclusive();
+        state = state.copyWith(isPlaying: false);
+      } else {
+        await resumeUsbExclusive();
+        state = state.copyWith(isPlaying: true);
+      }
+      _syncPlaybackState();
+      _persistSession();
+      return;
+    }
     if (state.isPlaying) {
       await _player.pause();
     } else {
@@ -403,6 +451,15 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
   }
 
   Future<void> seek(double secs) async {
+    // DSP 管线输出中：seek 走 Rust 接口（管线内解码器同步跳转）。
+    if (_dspActive) {
+      try {
+        await seekUsbExclusive(timeSecs: secs, isPlaying: state.isPlaying);
+      } catch (_) {}
+      state = state.copyWith(position: secs);
+      _syncPlaybackState();
+      return;
+    }
     await _player.seek(Duration(milliseconds: (secs * 1000).round()));
     state = state.copyWith(position: secs);
     _syncPlaybackState();
@@ -449,9 +506,15 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
 
   /// 表冠音量：写设置即联动播放引擎（volumeProvider 链，同移动端）。
   Future<void> setVolume(double v) async {
-    await _ref
-        .read(settingsProvider.notifier)
-        .setVolume(v.clamp(0.0, 1.0));
+    final vol = v.clamp(0.0, 1.0);
+    await _ref.read(settingsProvider.notifier).setVolume(vol);
+    // DSP 管线输出中：音量走 Rust 接口（just_audio 音量已不影响出声）。
+    if (_dspActive) {
+      try {
+        await setUsbExclusiveVolume(volume: vol);
+      } catch (_) {}
+      return;
+    }
     try {
       await _player.setVolume(
           _ref.read(settingsProvider).valueOrNull?.volume ?? 1.0);
@@ -475,6 +538,11 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     try {
       await _player.setSpeed(v);
     } catch (_) {}
+    // DSP 管线输出中：倍速并入 Rust 音效 playbackRate 运行时下发（见
+    // _syncDspEffects 的叠乘口径），just_audio 的 setSpeed 不影响出声。
+    if (_dspActive) {
+      _syncDspEffects(_ref.read(soundEffectProvider).settings);
+    }
     _syncPlaybackState();
     await _ref.read(settingsProvider.notifier).setPlaybackSpeed(v);
   }
@@ -486,6 +554,7 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     queue.removeAt(index);
     if (queue.isEmpty) {
       _playEpoch++;
+      await _stopDsp();
       await _player.stop();
       state = const PlaybackState();
       audioHandler?.clearNowPlaying();
@@ -507,6 +576,7 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
   /// 清空播放队列并停止播放。
   Future<void> clearQueue() async {
     _playEpoch++;
+    await _stopDsp();
     try {
       await _player.stop();
     } catch (_) {}
@@ -556,6 +626,164 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
       await _playAt(next);
     } finally {
       _onTrackEndBusy = false;
+    }
+  }
+
+  // —— Rust DSP 音效管线（sharedMode）：起/停/轮询/回退，对齐移动端 ——
+
+  /// 启动共享 DSP 管线（AAudio shared + 系统混音器，deviceId -1 = 默认输出）。
+  /// 全效果链（EQ/混响/空间音效/高级效果/变速变调）在 Rust 侧生效；
+  /// 失败返回 false，调用方回退 just_audio。
+  Future<bool> _tryStartDspPipeline(
+    String path, {
+    required double startAtSecs,
+  }) async {
+    if (!_dspAvailable) return false;
+    // 管线中断后的首次重播跳过 DSP（防退出环），正常切歌后自动恢复尝试。
+    if (_dspSkipNextStart) {
+      _dspSkipNextStart = false;
+      return false;
+    }
+    try {
+      final sfx = _ref.read(soundEffectProvider).settings;
+      final vol = _ref.read(settingsProvider).valueOrNull?.volume ?? 1.0;
+      await startUsbExclusivePlayback(
+        path: path,
+        deviceId: -1,
+        volume: vol,
+        startTimeSecs: startAtSecs,
+        isPlaying: true,
+        volumeBalanceGain: 1.0,
+        equalizerSettingsJson: jsonEncode(sfx.toEqualizerRustJson()),
+        soundEffectSettingsJson: jsonEncode(sfx.toRustJson()),
+        bitPerfect: false,
+        dsdNativePassthrough: false,
+        sharedMode: true,
+      );
+      _dspActive = true;
+      _startDspPolling();
+      return true;
+    } catch (e) {
+      _dspActive = false;
+      // AAudio 库加载失败属会话级不可用（避免每首歌空等超时）；
+      // 网络超时/流创建失败仅单次回退，不禁用会话。
+      if (e.toString().contains('libaaudio')) {
+        _dspAvailable = false;
+      }
+      return false;
+    }
+  }
+
+  /// 停止 DSP 管线并释放输出。
+  Future<void> _stopDsp() async {
+    _stopDspPolling();
+    try {
+      await stopUsbExclusivePlayback();
+    } catch (_) {}
+    _dspActive = false;
+  }
+
+  /// DSP 播放轮询：同步进度、检测自然播完/中断（250ms）。
+  void _startDspPolling() {
+    _stopDspPolling();
+    _dspTimer = Timer.periodic(
+      const Duration(milliseconds: 250),
+      (_) => _pollDsp(),
+    );
+  }
+
+  void _stopDspPolling() {
+    _dspTimer?.cancel();
+    _dspTimer = null;
+  }
+
+  Future<void> _pollDsp() async {
+    if (!_dspActive) return;
+    try {
+      final pos = await getUsbExclusivePositionSecs();
+      state = state.copyWith(position: pos);
+      _persistPositionDebounced();
+      final infoStr = await getUsbExclusiveDeviceInfo();
+      final info = jsonDecode(infoStr) as Map<String, dynamic>;
+      // 管线解码器的总时长比元数据更准，覆盖起播时的元数据缓存值。
+      final engineDur = (info['durationSecs'] as num?)?.toDouble() ?? 0.0;
+      if (engineDur > 0) {
+        state = state.copyWith(duration: engineDur);
+      }
+      final dur = state.duration;
+      // 管线工作线程退出检测：设备断开/解码失败/自然放完。用进度区分——
+      // 近末尾按自然结束衔接下一曲，进度远离末尾才是中断，回退普通播放续播。
+      if (info['active'] != true) {
+        if (dur > 0 && pos >= dur - 0.3) {
+          await _onDspTrackEnd();
+        } else {
+          await _onDspDisconnect();
+        }
+        return;
+      }
+      if (dur > 0 && pos >= dur - 0.3) {
+        await _onDspTrackEnd();
+      }
+    } catch (_) {}
+  }
+
+  /// DSP 管线中断（设备断开/解码失败）：释放管线，下一轮起播跳过 DSP，
+  /// 在 just_audio 普通播放续播当前曲目。
+  Future<void> _onDspDisconnect() async {
+    await _stopDsp();
+    _dspSkipNextStart = true;
+    state = state.copyWith(isPlaying: false);
+    await _playAt(state.queueIndex);
+  }
+
+  /// DSP 播放自然结束：释放管线后按播放模式衔接。
+  Future<void> _onDspTrackEnd() async {
+    await _stopDsp();
+    if (state.playMode == 1) {
+      await _playAt(state.queueIndex);
+      return;
+    }
+    final next = _pickNextIndex();
+    if (next < 0) {
+      state = state.copyWith(isPlaying: false, position: 0);
+      _syncPlaybackState();
+      return;
+    }
+    await _playAt(next);
+  }
+
+  /// EQ/音效设置变化同步到 DSP 管线（50ms 防抖）。倍速键与音效「变速」
+  /// 叠乘：DSP 管线只认 playbackRate 一个入口。
+  void _syncDspEffects(SoundEffectSettings s) {
+    if (!_dspActive) return;
+    _sfxSyncTimer?.cancel();
+    _sfxSyncTimer = Timer(const Duration(milliseconds: 50), () async {
+      try {
+        await setUsbExclusiveEqualizer(
+            settingsJson: jsonEncode(s.toEqualizerRustJson()));
+        final json = s.toRustJson();
+        final rate = s.playbackRate.clamp(50.0, 200.0) * state.speed;
+        json['playbackRate'] = rate.clamp(50.0, 200.0);
+        await setUsbExclusiveSoundEffect(settingsJson: jsonEncode(json));
+      } catch (_) {}
+    });
+  }
+
+  /// 将音效的变速/变调应用到 just_audio（非 DSP 回退分支）。
+  /// DSP 管线播放时由 Rust 侧处理，跳过。
+  Future<void> _applyEffectSpeedPitch(SoundEffectSettings s) async {
+    if (_dspActive) return;
+    try {
+      final rate = s.playbackRate.clamp(50.0, 200.0) / 100.0;
+      await _player.setSpeed(rate);
+      if (s.preservesPitch) {
+        // 保持音调：仅变速，音调不变。
+        await _player.setPitch(1.0);
+      } else {
+        await _player.setPitch(s.pitchShift.clamp(50.0, 200.0) / 100.0);
+      }
+    } catch (_) {
+      // 平台不支持 setPitch 时静默忽略。
     }
   }
 
@@ -983,6 +1211,9 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     _stateSub?.cancel();
     _procSub?.cancel();
     _errSub?.cancel();
+    _stopDspPolling();
+    _sfxSyncTimer?.cancel();
+    unawaited(_stopDsp());
     _player.dispose();
     super.dispose();
   }

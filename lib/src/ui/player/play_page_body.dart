@@ -9,6 +9,7 @@ import '../../core/haptics.dart';
 import '../../core/watch_fit.dart';
 import '../common/full_dialog.dart';
 import '../common/rotary_input.dart';
+import 'effects_page.dart';
 import 'player_source.dart';
 
 /// 主题色（与 app.dart ColorScheme.primary 一致）。
@@ -236,6 +237,39 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                           ),
                         ),
                     ],
+                  ),
+                ],
+                // 音效入口（独立模式才有；联动模式音效由手机端自控）。
+                if (src.supportsSoundEffects) ...[
+                  SizedBox(height: 13 * s),
+                  _sheetLabel('音效', s),
+                  SizedBox(height: 7 * s),
+                  _sheetChip(
+                    s: s,
+                    active: false,
+                    onTap: () {
+                      Haptics.tick();
+                      Navigator.of(sheetCtx).pop();
+                      openSoundEffectsPage(context);
+                    },
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.graphic_eq_rounded,
+                          size: 14.5 * s,
+                          color: Colors.white.withValues(alpha: 0.7),
+                        ),
+                        SizedBox(width: 4.5 * s),
+                        Text(
+                          '均衡器 · 音效调节',
+                          style: TextStyle(
+                            fontSize: 11.5 * s,
+                            color: Colors.white.withValues(alpha: 0.85),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ],

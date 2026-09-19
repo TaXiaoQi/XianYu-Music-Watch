@@ -48,6 +48,10 @@ abstract class PlayerViewSource {
   /// 当前倍速；null = 来源不支持倍速（播放页隐藏倍速键）。
   double? get speed;
 
+  /// 是否支持音效页（独立模式 true；联动模式手表是外置控制器，
+  /// 音效由手机端自控，照 speed 同款语义隐藏入口）。
+  bool get supportsSoundEffects;
+
   void toggle();
   void next();
   void prev();
@@ -118,6 +122,9 @@ class LinkPlayerSource implements PlayerViewSource {
 
   @override
   double? get speed => null; // 倍速由手机端自控，表上不改
+
+  @override
+  bool get supportsSoundEffects => false; // 音效由手机端自控，表上隐藏入口
 
   @override
   void toggle() => _ctrl.toggle();
@@ -209,6 +216,9 @@ class LocalPlayerSource implements PlayerViewSource {
 
   @override
   double? get speed => _st.speed;
+
+  @override
+  bool get supportsSoundEffects => true;
 
   @override
   void toggle() => _ctrl.toggle();
