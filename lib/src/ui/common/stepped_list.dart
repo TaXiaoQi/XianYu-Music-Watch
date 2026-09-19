@@ -81,11 +81,11 @@ class _SteppedListViewState extends State<SteppedListView> {
 
   static const double _rowSpacing = 1.06;
 
-  static const double _minScale = 0.18;
+  static const double _minScale = 0.26;
 
-  /// 相邻 0.72、隔行 0.42，三行外 0.29 起快速压平到 0.18 谷底
-  static const double _decayTau = 1.35;
-  static const double _decayPow = 2.3;
+  /// 相邻 0.72、隔行 0.47，三行外 0.37、四行外 0.32 渐进压平到 0.26 谷底
+  static const double _decayTau = 1.28;
+  static const double _decayPow = 2.1;
 
   double _viewportH = 0;
   double _startPad = 0;
@@ -93,9 +93,6 @@ class _SteppedListViewState extends State<SteppedListView> {
   double _layoutCacheOffset = double.negativeInfinity;
 
   int _layoutCacheCount = -1;
-
-  ({List<double> tops, List<double> heights, List<double> scales})?
-  _layoutCache;
 
   final ScrollController _scroll = ScrollController();
   StreamSubscription<RotaryEvent>? _rotarySub;
@@ -193,6 +190,9 @@ class _SteppedListViewState extends State<SteppedListView> {
 
   double _rowH(double scale, double capsule) =>
       _round ? capsule * _s * scale * _rowSpacing : capsule * _s;
+
+  ({List<double> tops, List<double> heights, List<double> scales})?
+  _layoutCache;
 
   ({List<double> tops, List<double> heights, List<double> scales}) _layout(
     double offset,
@@ -637,7 +637,10 @@ class SteppedTile extends StatelessWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    leading!,
+                    Padding(
+                      padding: EdgeInsets.only(left: 4 * s),
+                      child: leading!,
+                    ),
                     SizedBox(width: 12 * s),
                   ],
                 ),
