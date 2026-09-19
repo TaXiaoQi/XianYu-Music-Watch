@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 
-/// 连接事件（Kotlin 侧 onConnection 回传）。
 class LinkConnectionEvent {
   const LinkConnectionEvent({required this.connected, required this.name});
 
@@ -10,7 +9,6 @@ class LinkConnectionEvent {
   final String name;
 }
 
-/// 已配对蓝牙设备。
 class BondedDevice {
   const BondedDevice({required this.address, required this.name});
 
@@ -26,7 +24,6 @@ class BondedDevice {
   }
 }
 
-/// 手机端主动发起的配对请求（手表侧待确认）。
 class IncomingPairRequest {
   const IncomingPairRequest({required this.name, required this.address});
 
@@ -42,10 +39,6 @@ class IncomingPairRequest {
   }
 }
 
-/// 手表端联动 MethodChannel 封装（对应 Kotlin `WatchLinkClient.kt`）。
-///
-/// Kotlin 只做 RFCOMM 字节管道：connect/读写/断连感知；帧编解码、心跳
-/// （3s ping）、无帧判死（10s）与重连指数退避在 [link_provider.dart]。
 class LinkClientChannel {
   static const MethodChannel _ch = MethodChannel('xianyu/watch_link');
 
@@ -55,19 +48,14 @@ class LinkClientChannel {
   final _incomingCtrl = StreamController<IncomingPairRequest>.broadcast();
   bool _bound = false;
 
-  /// 收到的原始字节流（帧解码由上层 FrameDecoder 完成）。
   Stream<Uint8List> get onRaw => _rawCtrl.stream;
 
-  /// 连接建立/断开。
   Stream<LinkConnectionEvent> get onConnection => _connCtrl.stream;
 
-  /// 运行时权限请求结果（Android 12+ BLUETOOTH_CONNECT）。
   Stream<bool> get onPermission => _permCtrl.stream;
 
-  /// 手机端主动发起的配对请求（需手表确认允许/拒绝）。
   Stream<IncomingPairRequest> get onIncomingPair => _incomingCtrl.stream;
 
-  /// 注册 Kotlin→Dart 回调 handler（幂等）。
   void bind() {
     if (_bound) return;
     _bound = true;
@@ -91,7 +79,6 @@ class LinkClientChannel {
     });
   }
 
-  /// 已配对设备列表。
   Future<List<BondedDevice>> pairedDevices() async {
     try {
       final list = await _ch.invokeMethod<List<dynamic>>('pairedDevices');
@@ -101,49 +88,42 @@ class LinkClientChannel {
     }
   }
 
-  /// 连接指定地址（异步发起，成败经 [onConnection] 回传）。
   Future<void> connect(String address) async {
     try {
       await _ch.invokeMethod('connect', {'address': address});
     } catch (_) {}
   }
 
-  /// 断开连接（幂等）。
   Future<void> disconnect() async {
     try {
       await _ch.invokeMethod('disconnect');
     } catch (_) {}
   }
 
-  /// 启动反向配对服务端（应用存活期间常开，幂等）。
   Future<void> startServer() async {
     try {
       await _ch.invokeMethod('startServer');
     } catch (_) {}
   }
 
-  /// 采纳挂起的入站配对（手表确认允许）。
   Future<void> acceptPair() async {
     try {
       await _ch.invokeMethod('acceptPair');
     } catch (_) {}
   }
 
-  /// 拒绝挂起的入站配对（手表确认拒绝）。
   Future<void> rejectPair() async {
     try {
       await _ch.invokeMethod('rejectPair');
     } catch (_) {}
   }
 
-  /// 发送原始帧字节。
   Future<void> send(Uint8List bytes) async {
     try {
       await _ch.invokeMethod('send', {'bytes': bytes});
     } catch (_) {}
   }
 
-  /// 蓝牙运行时权限是否已授予。
   Future<bool> hasPermission() async {
     try {
       return await _ch.invokeMethod('hasPermission') == true;
@@ -152,14 +132,12 @@ class LinkClientChannel {
     }
   }
 
-  /// 发起权限请求，结果经 [onPermission] 回传。
   Future<void> requestPermission() async {
     try {
       await _ch.invokeMethod('requestPermission');
     } catch (_) {}
   }
 
-  /// 后台拉起：发 fullScreenIntent 高优先级通知（应用前台时 Kotlin 侧自动跳过）。
   Future<void> notifyNowPlaying(String title, String artist) async {
     try {
       await _ch.invokeMethod('notifyNowPlaying', {

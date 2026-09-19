@@ -1,15 +1,3 @@
-//! 均匀分块 FFT 卷积器（uniform partitioned overlap-add）。
-//!
-//! 算法参考 RawS 的 `raw_fft_convolver.cpp`，用 `rustfft`（已是项目依赖）替代手写 FFT。
-//!
-//! 实时路径（`process`）零分配、零锁：所有缓冲在 `prepare`/`load_ir` 阶段一次性分配。
-//! IR 预处理在 `load_ir`（非音频线程）完成，原子置换进处理器。
-//! 启用/禁用做交叉淡入，湿路径自带安全限幅器。
-//!
-//! 通道路由：
-//! - SharedDiagonal：单声道 IR，所有通道共享同一对角核
-//! - PerChannelDiagonal：多声道 IR，IR[ch] → 输出[ch]
-//! - FullMatrix：完整卷积矩阵（立体声 = LL, LR, RL, RR），输入优先排列
 
 #![allow(dead_code)]
 
@@ -27,7 +15,6 @@ enum RoutingMode {
     FullMatrix,
 }
 
-/// 预处理好的 IR 频谱核（不可变，可在音频线程外构建后共享）。
 pub struct ConvolverKernel {
     sample_rate: u32,
     stream_channels: usize,
@@ -43,8 +30,6 @@ pub struct ConvolverKernel {
 }
 
 impl ConvolverKernel {
-    /// 从交错 float IR 构建核。
-    /// `interleaved_ir` 长度应为 `frames * ir_channels`。
     pub fn new(
         interleaved_ir: &[f32],
         ir_frames: usize,
@@ -80,7 +65,6 @@ impl ConvolverKernel {
         let fft = planner.plan_fft_forward(fft_size);
         let ifft = planner.plan_fft_inverse(fft_size);
 
-        // IR 分块 → FFT → 存入 spectra[path][partition][bin]
         let mut spectra = vec![Complex::new(0.0, 0.0); path_count * partition_count * fft_size];
 
         for path in 0..path_count {
@@ -95,7 +79,6 @@ impl ConvolverKernel {
                         RoutingMode::FullMatrix => {
                             let in_ch = path / stream_channels;
                             let out_ch = path % stream_channels;
-                            // IR 通道映射：对角用对应通道，非对角取均值或首个可用
                             let ir_ch = if in_ch == out_ch && out_ch < ir_channels {
                                 out_ch
                             } else {
@@ -187,7 +170,6 @@ impl ConvolverKernel {
     }
 }
 
-/// 实时卷积处理器。`process` 无分配、无锁。
 pub struct Convolver {
     kernel: Option<Arc<ConvolverKernel>>,
     pending_input: Vec<f32>,
@@ -237,7 +219,6 @@ impl Convolver {
         }
     }
 
-    /// 载入 IR 核。在音频线程外调用。返回是否成功。
     pub fn load_kernel(&mut self, kernel: Arc<ConvolverKernel>) {
         let ch = kernel.stream_channels;
         let block = kernel.partition_size;
@@ -311,22 +292,18 @@ impl Convolver {
         (channel * k.partition_count + partition) * k.fft_size
     }
 
-    /// 处理一块交错 float PCM（原地修改）。
-    /// `interleaved` 长度应为 `num_frames * channels`。
     pub fn process(&mut self, interleaved: &mut [f32], num_frames: usize) {
         let kernel = match &self.kernel {
             Some(k) => k.clone(),
-            None => return, // 无 IR，直通
+            None => return,
         };
         let ch = kernel.stream_channels;
         let block = kernel.partition_size;
 
-        // 启用/禁用交叉淡入
         let target = if self.enabled { 1.0 } else { 0.0 };
-        let activation_step = 1.0 / (kernel.sample_rate as f32 * 0.08).max(1.0); // ~80ms 淡入
+        let activation_step = 1.0 / (kernel.sample_rate as f32 * 0.08).max(1.0);
 
         for frame in 0..num_frames {
-            // 累积输入到 pending
             for c in 0..ch {
                 let idx = frame * ch + c;
                 if idx < interleaved.len() {
@@ -342,25 +319,18 @@ impl Convolver {
                 continue;
             }
 
-            // 满 block，执行一次卷积
             self.process_block(&kernel);
             self.pending_frames = 0;
 
-            // 写回处理后的样本到 pending_input 的开头（下一帧从这里读）
-            // 实际上 RawS 用 outputQueue，这里简化：wet_block 已就绪，下面逐帧混合输出
         }
 
-        // 逐帧输出混合（dry + delayed wet × activation）
-        // 从 wet_block 中按已处理的 block 偏移读取
         let processed_blocks = (num_frames + block - 1) / block;
-        let _ = processed_blocks; // wet_block 在 process_block 中更新
+        let _ = processed_blocks;
 
-        // 逐帧应用 dry + wet 混合
         for frame in 0..num_frames {
             let block_idx = frame / block;
             let in_block = frame % block;
 
-            // 推进 activation_mix
             if self.activation_mix < target {
                 self.activation_mix = (self.activation_mix + activation_step).min(target);
             } else if self.activation_mix > target {
@@ -372,9 +342,8 @@ impl Convolver {
                 if idx >= interleaved.len() {
                     break;
                 }
-                let dry_sample = interleaved[idx]; // 原始输入
+                let dry_sample = interleaved[idx];
 
-                // 从 wet_block 读湿信号（按已处理 block）
                 let wet_idx = block_idx * block * ch + in_block * ch + c;
                 let current_wet = if wet_idx < self.wet_block.len() {
                     self.wet_block[wet_idx]
@@ -382,7 +351,6 @@ impl Convolver {
                     0.0
                 };
 
-                // predelay
                 let delayed_wet = if self.predelay_frames > 0 {
                     let read_frame = if self.wet_delay_write_frame >= self.predelay_frames {
                         self.wet_delay_write_frame - self.predelay_frames
@@ -400,13 +368,11 @@ impl Convolver {
                     current_wet
                 };
 
-                // 写入 wet_delay
                 let write_idx = self.wet_delay_write_frame * ch + c;
                 if write_idx < self.wet_delay.len() {
                     self.wet_delay[write_idx] = current_wet;
                 }
 
-                // 安全限幅器（湿路径）
                 let limited_wet = self.apply_limiter(delayed_wet);
 
                 let mix = self.activation_mix;
@@ -428,7 +394,6 @@ impl Convolver {
         let partitions = kernel.partition_count;
         let slot = self.write_partition;
 
-        // 每个输入通道一次正向 FFT，存入 input_history 的分块环
         for input_channel in 0..ch {
             self.fft_input.fill(Complex::new(0.0, 0.0));
             for frame in 0..block {
@@ -444,7 +409,6 @@ impl Convolver {
             }
         }
 
-        // 每个输出通道一次累积逆 FFT
         for output_channel in 0..ch {
             self.fft_output.fill(Complex::new(0.0, 0.0));
 
@@ -494,7 +458,6 @@ impl Convolver {
                         0.0
                     };
                 }
-                // 保存尾部用于下一块重叠相加
                 let tail = frame + block;
                 if tail < self.fft_output.len() && overlap_off + frame < self.overlap.len() {
                     self.overlap[overlap_off + frame] =
@@ -517,14 +480,12 @@ impl Convolver {
         }
         let abs_s = sample.abs();
         if abs_s > 0.95 {
-            // 限幅器：超过阈值时按比例衰减增益，释放缓慢恢复
             let over = abs_s / 0.95;
             let target_gain = 0.95 / over;
             if target_gain < self.limiter_gain {
                 self.limiter_gain = target_gain;
             }
         }
-        // 释放
         self.limiter_gain = self.limiter_gain
             + (1.0 - self.limiter_gain) * self.limiter_release;
         sample * self.limiter_gain
@@ -543,7 +504,7 @@ mod tests {
 
     #[test]
     fn kernel_from_short_ir() {
-        let ir = vec![1.0_f32, 0.0, 0.0, 0.0]; // 4 帧 impulse
+        let ir = vec![1.0_f32, 0.0, 0.0, 0.0];
         let k = ConvolverKernel::new(&ir, 4, 1, 44100, 2);
         assert!(k.is_some());
         let k = k.unwrap();
@@ -556,7 +517,6 @@ mod tests {
         let mut conv = Convolver::new();
         let mut pcm = vec![0.5_f32, 0.3, 0.5, 0.3];
         conv.process(&mut pcm, 2);
-        // 无 IR，直通
         assert!((pcm[0] - 0.5).abs() < 1e-6);
     }
 
@@ -566,12 +526,10 @@ mod tests {
         let k = ConvolverKernel::new(&ir, 512, 1, 44100, 2).unwrap();
         let mut conv = Convolver::new();
         conv.load_kernel(Arc::new(k));
-        conv.set_enabled(false); // 禁用
+        conv.set_enabled(false);
         conv.set_wet_dry(1.0, 0.0);
         let mut pcm = vec![0.5_f32; 512 * 2];
         conv.process(&mut pcm, 512);
-        // 禁用时 activation_mix → 0，输出为 dry × dry_gain × (1-mix) ≈ 0
-        // 因为 dry_gain=0，所以接近静音
         let max_val = pcm.iter().cloned().fold(0.0_f32, f32::max);
         assert!(max_val < 0.01, "disabled convolver should be near-silent, got {max_val}");
     }

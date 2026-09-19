@@ -3,10 +3,6 @@ use crate::music::types::Song;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 
-/// 扫描进度事件接收器。
-///
-/// 桌面端由 tauri 的 `Emitter` 实现（推送 `library-scan-progress` / `library-scan-batch`
-/// 事件）；移动端可通过 FRB 回调实现，或传 `None` 静默扫描。
 pub(crate) trait ScanProgressSink: Send + Sync {
     fn on_progress(
         &self,

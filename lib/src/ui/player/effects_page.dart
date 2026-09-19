@@ -11,13 +11,6 @@ import '../../effects/sound_effect_provider.dart';
 import '../common/full_dialog.dart';
 import '../common/rotary_input.dart';
 
-/// 音效全屏页（独立模式，播放页「更多 → 音效」进入）。
-///
-/// 五分组全量对齐移动端：均衡器（10 段 + 预设）/ 变速变调 / 混响 /
-/// 空间音效 / 高级音效（19 项）。DSP 效果组依赖 Rust 播放管线（仅 Android
-/// 有实现）：非 Android 时这些组置灰并标注「当前系统不支持」；变速变调组
-/// 经 just_audio 原生 speed/pitch 兜底，任何平台都可调。
-/// 圆屏适配：watchScale 等比 + 表冠滚动 + 提交式滑杆（拖动结束才写盘）。
 void openSoundEffectsPage(BuildContext context) {
   showFullDialog(
     context: context,
@@ -25,7 +18,6 @@ void openSoundEffectsPage(BuildContext context) {
   );
 }
 
-/// 音效主题色（与播放页 kPlayerAccent 一致）。
 const Color _accent = Color(0xFFFF4D6E);
 
 // ———————————————————————————— 主页（五分组菜单） ————————————————————————————
@@ -345,7 +337,6 @@ class _SpatialPage extends ConsumerWidget {
                 ),
             ],
           ),
-          // 虚拟环绕子选项：声道制式 5.1 / 7.1（互斥单选）。
           if (sfx.spatialMode == 'virtual') ...[
             SizedBox(height: 12 * s),
             _FxChip(
@@ -374,7 +365,6 @@ class _SpatialPage extends ConsumerWidget {
 
 // ———————————————————————————— 高级音效（19 项，数据驱动） ————————————————————————————
 
-/// 滑杆参数描述：取值/写回都走 SoundEffectSettings 的 copyWith。
 class _FxParam {
   final String label;
   final double min;
@@ -394,10 +384,9 @@ class _FxParam {
   });
 }
 
-/// 枚举选项描述（如 失真软/硬、延迟单/双声道）。
 class _FxChoice {
   final String label;
-  final List<(String, String)> options; // (值, 文案)
+  final List<(String, String)> options;
   final String Function(SoundEffectSettings) get;
   final SoundEffectSettings Function(SoundEffectSettings, String) set;
   const _FxChoice(
@@ -408,7 +397,6 @@ class _FxChoice {
   });
 }
 
-/// 布尔子开关描述（如 Bass 动态回弹）。
 class _FxFlag {
   final String label;
   final bool Function(SoundEffectSettings) get;
@@ -420,7 +408,6 @@ class _FxFlag {
   });
 }
 
-/// 高级音效条目：开关 + 可选子开关/选项/滑杆参数。
 class _FxSpec {
   final String label;
   final bool Function(SoundEffectSettings) enabled;
@@ -440,7 +427,6 @@ class _FxSpec {
   bool get hasDetail => flags.isNotEmpty || choices.isNotEmpty || params.isNotEmpty;
 }
 
-/// 19 项高级音效（与移动端 effects_page 分组对齐）。
 const List<_FxSpec> _kAdvancedFx = [
   _FxSpec('消人声',
       enabled: _enVocalRemoval, toggle: _tgVocalRemoval),
@@ -570,8 +556,6 @@ const List<_FxSpec> _kAdvancedFx = [
       enabled: _enV4a, toggle: _tgV4a),
 ];
 
-// 取值/写回闭包（const 列表要求全部为 const 可求值表达式，无法用 lambda，
-// 因此用顶级函数逐字段展开）。
 bool _enVocalRemoval(SoundEffectSettings s) => s.vocalRemoval;
 SoundEffectSettings _tgVocalRemoval(SoundEffectSettings s) =>
     s.copyWith(vocalRemoval: !s.vocalRemoval);
@@ -733,7 +717,6 @@ bool _enV4a(SoundEffectSettings s) => s.v4aEnabled;
 SoundEffectSettings _tgV4a(SoundEffectSettings s) =>
     s.copyWith(v4aEnabled: !s.v4aEnabled);
 
-// 数值格式化。
 String _fmtPct(double v) => '${v.round()}%';
 String _fmtHz0(double v) => '${v.round()} Hz';
 String _fmtHz2(double v) => '${v.toStringAsFixed(2)} Hz';
@@ -781,7 +764,6 @@ class _AdvancedPage extends ConsumerWidget {
   }
 }
 
-/// 高级音效行：左标题 + 右开关；有参数的条目点行进入参数配置页。
 class _AdvRow extends StatelessWidget {
   const _AdvRow({
     required this.spec,
@@ -842,7 +824,6 @@ class _AdvRow extends StatelessWidget {
                 ),
               ),
             ),
-            // 只约束宽度不约束高度：Switch 自身高度撑行，任何屏径不溢出。
             SizedBox(
               width: 44 * s,
               child: Switch(
@@ -859,7 +840,6 @@ class _AdvRow extends StatelessWidget {
   }
 }
 
-/// 单个高级音效的参数配置页：总开关 + 子开关 + 选项 + 滑杆。
 class _FxConfigPage extends ConsumerWidget {
   const _FxConfigPage({required this.spec});
 
@@ -938,7 +918,6 @@ class _FxConfigPage extends ConsumerWidget {
 
 // ———————————————————————————— 通用部件 ————————————————————————————
 
-/// DSP 不可用时给整组内容加「不支持」提示 + 置灰禁点。
 List<Widget> _dspLocked(BuildContext context, List<Widget> children) {
   if (kDspPipelineSupported) return children;
   final s = context.watchScale();
@@ -963,8 +942,6 @@ Widget _hint(BuildContext context, String text) {
   );
 }
 
-/// 音效页统一骨架：标题 + 可滚内容（不足一屏垂直居中）+ 可选底部动作。
-/// 自带滚动控制器以接入表冠滚动（FullDialogScaffold 无 controller）。
 class _FxScaffold extends StatefulWidget {
   const _FxScaffold({required this.title, this.children = const [], this.actions = const []});
 
@@ -994,7 +971,6 @@ class _FxScaffoldState extends State<_FxScaffold> {
     super.dispose();
   }
 
-  /// 表冠滚动：一步 48 设计单位（与 RotaryQuantizer 档距一致）。
   void _onRotary(RotaryEvent e) {
     if (!mounted) return;
     if (ModalRoute.of(context)?.isCurrent != true) return;
@@ -1052,7 +1028,6 @@ class _FxScaffoldState extends State<_FxScaffold> {
   }
 }
 
-/// 分组菜单行：图标 + 标题 + 当前值摘要；[enabled] false 时整行置灰不可点。
 class _FxRow extends StatelessWidget {
   const _FxRow({
     required this.icon,
@@ -1128,7 +1103,6 @@ class _FxRow extends StatelessWidget {
   }
 }
 
-/// 选项胶囊：选中主题色描边；宿主被 IgnorePointer 包裹时自然禁点。
 class _FxChip extends StatelessWidget {
   const _FxChip({
     required this.label,
@@ -1174,7 +1148,6 @@ class _FxChip extends StatelessWidget {
   }
 }
 
-/// 开关行。
 class _FxSwitchRow extends StatelessWidget {
   const _FxSwitchRow({
     required this.label,
@@ -1225,8 +1198,6 @@ class _FxSwitchRow extends StatelessWidget {
   }
 }
 
-/// 提交式滑杆行：拖动只更新本地草稿，松手（onChangeEnd）才写 provider，
-/// 避免拖动过程高频写盘/下发 Rust 导致表端卡顿（对齐移动端 _SliderTile）。
 class _FxSlider extends StatefulWidget {
   const _FxSlider({
     required this.label,
@@ -1256,7 +1227,6 @@ class _FxSliderState extends State<_FxSlider> {
   @override
   void didUpdateWidget(covariant _FxSlider oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // 外部改值（预设/EQ 换档）时同步草稿；拖动中不打断。
     if (widget.value != oldWidget.value && widget.value != _draft) {
       _draft = widget.value;
     }

@@ -10,9 +10,6 @@ import '../common/stepped_list.dart';
 import '../controller/watch_controller_page.dart';
 import '../pair/pair_view.dart';
 
-/// 设备联动入口卡（功能页第一位）：副标题实时反映连接状态。
-/// 初次配对只能由手表发起——把入口放到最显眼的位置，避免
-/// 「手机点了播放、手表没反应」的困惑。
 class LinkEntryTile extends ConsumerWidget {
   const LinkEntryTile({super.key});
 
@@ -62,9 +59,6 @@ class LinkEntryTile extends ConsumerWidget {
   }
 }
 
-/// 设备联动二级页：顶部居中表头 + 开关 + 设备连接/已连接分流。
-/// 连接态只保留一行「已连接 xx」，点击进设备页；底下仨操作
-/// （播放控制/断开/更换设备）收纳进设备页，不再悬浮在列表底部。
 class LinkagePage extends ConsumerWidget {
   const LinkagePage({super.key});
 
@@ -74,8 +68,6 @@ class LinkagePage extends ConsumerWidget {
     final settings =
         ref.watch(settingsProvider).valueOrNull ?? const AppSettings();
     final link = ref.watch(linkControllerProvider);
-    // 独立模式下此页多一行「切换到联动模式」（设置里已移除该入口，
-    // 切换统一收进设备联动页）。
     final isStandalone =
         ref.watch(appModeProvider) == appModeStandalone;
     final rows = <Widget>[
@@ -101,7 +93,6 @@ class LinkagePage extends ConsumerWidget {
               itemCount: rows.length,
               itemBuilder: (context, i) => rows[i],
             ),
-            // 返回键浮层：阶梯列表占满全屏，返回键固定悬浮左上角。
             Positioned(
               top: 2 * s,
               left: 2 * s,
@@ -114,9 +105,6 @@ class LinkagePage extends ConsumerWidget {
   }
 }
 
-/// 按连接阶段生成设备行：
-/// 已连接 → 单行「已连接 xx」（点击进设备页，仨操作在此页内）；
-/// 未连接但有设备 → 点行即重连；从未配对 → 点行进选择页。
 List<Widget> _linkRows(
     BuildContext context, WidgetRef ref, LinkState link, double s) {
   final rows = <Widget>[];
@@ -127,7 +115,6 @@ List<Widget> _linkRows(
       rows.add(_connectingRow(context, ref, link, s));
     case LinkPhase.disconnected:
       if (link.pairedAddress != null) {
-        // 没链接但有设备：点击就是连接设备。
         rows.add(SteppedTile(
           leading: SteppedLeadCircle(
             color: const Color(0xFF4A90D9),
@@ -154,7 +141,6 @@ List<Widget> _linkRows(
           ),
         ));
       } else {
-        // 从未配对：点行进设备选择（仅手表可发起配对）。
         rows.add(SteppedTile(
           leading: SteppedLeadCircle(
             color: const Color(0xFFFF4D6E),
@@ -173,8 +159,6 @@ List<Widget> _linkRows(
   return rows;
 }
 
-/// 独立模式 → 切回联动：二次确认 → 写模式字段 → 原生杀掉重启进轻量联动。
-/// 入口收在设备联动页（设置里已移除同功能入口）。
 Widget _toLinkModeRow(BuildContext context, WidgetRef ref, double s) {
   return SteppedTile(
     leading: SteppedLeadCircle(
@@ -202,11 +186,9 @@ Future<void> _switchToLinkMode(
     okLabel: '立即切换',
   );
   if (ok != true || !context.mounted) return;
-  // 热切换：不重启进程，落盘 + 补齐/状态更新，自动回新模式首页。
   await ref.read(appModeProvider.notifier).change(appModeLink);
 }
 
-/// 已连接行：点击进入设备页（仨操作收纳在此页）。
 Widget _connectedRow(BuildContext context, LinkState link, double s) {
   return SteppedTile(
     leading: SteppedLeadCircle(
@@ -227,7 +209,6 @@ Widget _connectedRow(BuildContext context, LinkState link, double s) {
   );
 }
 
-/// 连接中行：菊花 + 取消。
 Widget _connectingRow(
     BuildContext context, WidgetRef ref, LinkState link, double s) {
   final controller = ref.read(linkControllerProvider.notifier);
@@ -262,8 +243,6 @@ Widget _connectingRow(
   );
 }
 
-/// 设备页（点击「已连接」进入）：收纳播放控制/断开/更换设备三个操作，
-/// 避免它们悬浮在联动页底部；顶上居中表头「设备联动」。
 class LinkDevicePage extends ConsumerWidget {
   const LinkDevicePage({super.key});
 
@@ -274,7 +253,6 @@ class LinkDevicePage extends ConsumerWidget {
     final controller = ref.read(linkControllerProvider.notifier);
     final accent = const Color(0xFFFF4D6E);
     final rows = <Widget>[
-      // 连接信息行。
       SteppedTile(
         leading: SteppedLeadCircle(
           color: const Color(0xFF3DB98A),
@@ -283,7 +261,6 @@ class LinkDevicePage extends ConsumerWidget {
         title: '已连接 ${link.pairedName ?? ''}',
         subtitle: link.viaCloud ? '云中继连接' : '蓝牙连接',
       ),
-      // 仨操作。
       SteppedTile(
         leading: SteppedLeadCircle(
           color: const Color(0xFF4A90D9),
@@ -348,7 +325,6 @@ class LinkDevicePage extends ConsumerWidget {
   }
 }
 
-/// 联动开关行（对齐设置页开关行样式）。
 Widget _switchRow({
   required double s,
   required String title,
@@ -394,7 +370,6 @@ Widget _switchRow({
   );
 }
 
-/// 左上角悬浮返回键。
 Widget _backChip(double s) {
   return Material(
     color: Colors.white.withValues(alpha: 0.08),

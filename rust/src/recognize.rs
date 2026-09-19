@@ -1,21 +1,12 @@
-//! 听歌识曲模块（纯逻辑核心，无音频捕获后端）。
-//!
-//! 复现 KuGouMusicApi audio_match 模块：构建酷狗 Android 客户端请求参数并生成
-//! signature 签名，POST 到 gateway.kugou.com 的指纹识别接口。
-//!
-//! 本模块不依赖 WASAPI 系统音频捕获；`recognize_with_pcm` 接收由调用方
-//! （Flutter 从文件/麦克风等来源）解码得到的 8000Hz / 16bit / 单声道 PCM。
 
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// 全局取消标志：置为 true 时识别流程在发送请求前会提前退出。
 static RECOGNIZE_CANCELLED: AtomicBool = AtomicBool::new(false);
 
 // ==================== MD5 实现 ====================
-// 标准 MD5 算法（RFC 1321），内置实现避免外部依赖。
 
 const S_TABLE: [u32; 64] = [
     7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9,
@@ -34,7 +25,6 @@ const K_TABLE: [u32; 64] = [
     0x6fa87e4f, 0xfe2ce6e0, 0xa3014314, 0x4e0811a1, 0xf7537e82, 0xbd3af235, 0x2ad7d2bb, 0xeb86d391,
 ];
 
-/// 计算 `data` 的 MD5 哈希，返回 32 位小写 hex 字符串
 fn md5_hex(data: &[u8]) -> String {
     let digest = md5_compute(data);
     let mut s = String::with_capacity(32);
@@ -44,7 +34,6 @@ fn md5_hex(data: &[u8]) -> String {
     s
 }
 
-/// MD5 核心计算，返回 16 字节摘要
 fn md5_compute(input: &[u8]) -> [u8; 16] {
     let mut msg = input.to_vec();
     let orig_len_bits = (input.len() as u64).wrapping_mul(8);
@@ -108,15 +97,12 @@ fn md5_compute(input: &[u8]) -> [u8; 16] {
 
 // ==================== 酷狗 Android 签名 ====================
 
-/// Android 版签名盐值（标准版）
 const ANDROID_SALT: &str = "OIlwieks28dk2k092lksi2UIkp";
 
-/// 生成设备 mid（运行时固定，由稳定种子计算得来）
 fn device_mid() -> String {
     md5_hex(b"xy-music-desktop-recognize-device-v1")
 }
 
-/// 构建签名参数字符串：按 key 字典序排序，拼接为 `k1=v1k2=v2...`
 fn build_params_string(params: &BTreeMap<String, String>) -> String {
     params
         .iter()
@@ -125,7 +111,6 @@ fn build_params_string(params: &BTreeMap<String, String>) -> String {
         .join("")
 }
 
-/// 生成酷狗 Android 签名 `signature = MD5(salt + paramsString + pcmBytes + salt)`
 fn sign_android(params: &BTreeMap<String, String>, pcm: &[u8]) -> String {
     let params_string = build_params_string(params);
     let salt = ANDROID_SALT.as_bytes();
@@ -143,15 +128,11 @@ pub struct RecognizeResponse {
     pub body: String,
 }
 
-/// 取消正在进行的音频识别。
 pub fn cancel_recognize_system_audio() -> Result<(), String> {
     RECOGNIZE_CANCELLED.store(true, Ordering::SeqCst);
     Ok(())
 }
 
-/// 使用自定义 PCM 数据识别歌曲。
-///
-/// 接收 8000Hz / 16bit / 单声道 PCM 字节流，直接调用酷狗指纹识别接口。
 pub async fn recognize_with_pcm(pcm: Vec<u8>) -> Result<RecognizeResponse, String> {
     if pcm.is_empty() {
         return Err("PCM 数据为空".to_string());
@@ -159,7 +140,6 @@ pub async fn recognize_with_pcm(pcm: Vec<u8>) -> Result<RecognizeResponse, Strin
     recognize_with_pcm_internal(&pcm).await
 }
 
-/// 内部核心逻辑：用 PCM 数据调用酷狗指纹识别接口。
 async fn recognize_with_pcm_internal(pcm: &[u8]) -> Result<RecognizeResponse, String> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -221,7 +201,6 @@ async fn recognize_with_pcm_internal(pcm: &[u8]) -> Result<RecognizeResponse, St
 
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::limited(10))
-        // DNS pinning：连接复用校验时刻已钉住的公网 IP，杜绝 rebinding TOCTOU
         .dns_resolver(crate::security::ssrf::pinned_dns_resolver())
         .timeout(std::time::Duration::from_secs(30))
         .build()

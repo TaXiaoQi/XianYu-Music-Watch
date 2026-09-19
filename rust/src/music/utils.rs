@@ -1,6 +1,5 @@
 use std::fs;
 
-/// 将 i64 钳位到 u32 范围（负值归零，超限取 MAX）
 pub(crate) fn clamp_i64_to_u32(v: i64) -> u32 {
     if v <= 0 {
         0
@@ -11,18 +10,15 @@ pub(crate) fn clamp_i64_to_u32(v: i64) -> u32 {
     }
 }
 
-/// 将 Option<i64> 安全转换为 Option<u64>（负值返回 None）
 pub(crate) fn i64_to_u64_opt(v: Option<i64>) -> Option<u64> {
     v.filter(|value| *value >= 0).map(|value| value as u64)
 }
 
-/// 将 Option<i64> 安全转换为 Option<u8>（超出 0-255 返回 None）
 pub(crate) fn i64_to_u8_opt(v: Option<i64>) -> Option<u8> {
     v.filter(|value| *value >= 0 && *value <= u8::MAX as i64)
         .map(|value| value as u8)
 }
 
-/// 将 Option<i64> 转换为 bool（None 或 0 为 false）
 pub(crate) fn i64_to_bool(v: Option<i64>) -> bool {
     v.unwrap_or(0) != 0
 }
@@ -30,7 +26,6 @@ pub(crate) fn i64_to_bool(v: Option<i64>) -> bool {
 pub const SUPPORTED_LIBRARY_EXTENSIONS: &[&str] = &[
     "aac", "aif", "aiff", "ape", "dff", "dsf", "flac", "m4a", "m4b", "mp3", "mp4", "oga", "ogg",
     "opus", "wav", "wv",
-    // QQ 音乐 QMC 加密格式（与桌面端一致：播放/解析前按需解密）
     "mgg", "mgg0", "mggl", "mflac", "mflac0", "qmc0", "qmc2", "qmc3", "qmcflac", "qmcogg",
 ];
 
@@ -52,7 +47,6 @@ pub fn normalize_path(path_str: &str) -> String {
     }
 }
 
-/// Escape special characters for SQL LIKE pattern with `ESCAPE '^'`.
 pub fn escape_like(input: &str) -> String {
     input
         .replace('^', "^^")
@@ -60,9 +54,6 @@ pub fn escape_like(input: &str) -> String {
         .replace('_', "^_")
 }
 
-/// Build forward/backward descendant LIKE patterns for a folder path.
-/// Caller should use:
-/// `path = ?1 OR path LIKE ?2 ESCAPE '^' OR path LIKE ?3 ESCAPE '^'`
 pub fn descendant_like_patterns(folder_path: &str) -> (String, String) {
     let forward_base = if folder_path.ends_with('/') || folder_path.ends_with('\\') {
         folder_path.to_string()

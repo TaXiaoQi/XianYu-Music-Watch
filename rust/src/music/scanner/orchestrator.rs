@@ -12,7 +12,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use walkdir::WalkDir;
 
-/// 歌手头像保存器（移动端由调用方注入，桌面端为 covers 模块实现）。
 pub(crate) trait AvatarSaver: Send + Sync {
     fn save(&self, bytes: &[u8]) -> Option<String>;
 }
@@ -57,11 +56,9 @@ pub(crate) fn scan_single_directory_internal(
         return Err(error);
     }
 
-    // 按歌曲规范化路径进行稳定排序，保证入库及头像更新时序的唯一性
     scan_diff.to_add.sort_by(|a, b| a.path.cmp(&b.path));
     scan_diff.to_update.sort_by(|a, b| a.path.cmp(&b.path));
 
-    // 缓存写盘并在结束后无条件释放字节内存
     for song in scan_diff
         .to_add
         .iter_mut()
@@ -77,9 +74,6 @@ pub(crate) fn scan_single_directory_internal(
         let _ = song.artist_avatar_bytes.take();
     }
 
-    // 扫描期同步提取缩略图回写 cover_thumb_path（STD 路径收藏统一在此抽取封面并写库），
-    // 使本地页滚动时前端可直接命中缓存，避免逐行懒提取（FFI + 解码 + 写盘）卡顿。
-    // 覆盖新增/更新/复用的所有行（含存量歌曲一次性回填）。CUE 合成曲目无独立文件，跳过。
     if let Some(cache_dir) = cover_cache_dir.as_ref() {
         let to_add_paths: HashSet<&str> = scan_diff
             .to_add
@@ -92,8 +86,6 @@ pub(crate) fn scan_single_directory_internal(
             .map(|song| song.path.as_str())
             .collect();
 
-        // 存量(复用)行的旧封面值：仅这些行需在抽取后单独回写 cover_thumb_path，
-        // 新增/更新行由 apply_scan_changes 按 Song 字段统一入库。
         let mut reused_old_cover: HashMap<String, Option<String>> = HashMap::new();
         for song in &scan_diff.songs {
             if to_add_paths.contains(song.path.as_str())
@@ -156,7 +148,6 @@ pub(crate) fn scan_single_directory_internal(
     Ok(scan_diff.songs)
 }
 
-/// 批量解析一组音频文件的元数据（不写库）。对齐桌面端 `parse_audio_files`。
 pub(crate) fn parse_audio_files(
     paths: Vec<String>,
     minimum_duration_seconds: Option<u32>,
@@ -165,7 +156,6 @@ pub(crate) fn parse_audio_files(
     Ok(parse_audio_files_internal(paths, options))
 }
 
-/// 递归扫描文件夹内全部受支持音频并解析元数据（不写库）。对齐桌面端 `parse_music_folder`。
 pub(crate) fn parse_music_folder(
     folder_path: String,
     minimum_duration_seconds: Option<u32>,

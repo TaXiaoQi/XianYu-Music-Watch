@@ -1,23 +1,3 @@
-//! 音效处理模块（sound_effect）。
-//!
-//! 从桌面端 `XianYu-Music-Desktop` 抽取的可复用音效 DSP 核心。
-//! 不含 rodio / Tauri 依赖，可被 Flutter（flutter_rust_bridge）宿主跨平台复用。
-//!
-//! 处理链顺序（每帧 L/R 同时处理）：
-//! 变调变速 → 声道处理 → 波形整形 → 动态 → 调制 → 混响 → 空间 → audioBoost
-//!
-//! 各子模块：
-//! - `dsp`：共享 DSP 原语（Biquad/DelayLine/LFO/平滑值/包络跟随器）
-//! - `channel`：声道处理（消人声/单声道/交换/拓宽/分离度/Crossfeed/BassBoost/DynamicEQ）
-//! - `shaper`：波形整形（失真/激励器/次低音/比特粉碎/LoFi）
-//! - `dynamics`：动态类（噪声门/扩展器/压缩/多段/去齿音/限制器/AGC）
-//! - `modulation`：调制类（抖音/颤音/音调漂移/镶边/相位/延迟）
-//! - `reverb`：混响（Freeverb 算法，8 梳状 + 4 全通，每样本 O(1)，无 FFT/IR）
-//! - `spatial`：空间音效（3D/8D/36D 环绕 + 虚拟多声道）
-//! - `pitch`：变调变速（线性重采样 / 改 sample_rate）
-//!
-//! 对外入口为 [`SoundEffectBlockProcessor`]：对一块交错 PCM 批量处理，
-//! 状态（混响/延迟/包络）在单次 `process_block` 调用内保持。
 
 pub mod channel;
 pub mod convolver;
@@ -318,7 +298,6 @@ pub struct BassBoostParams {
     pub dynamic: bool,
 }
 
-/// 高音增强参数：8kHz 高频搁架提升（对齐低音增强的 highshelf 做法）。
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct TrebleParams {
@@ -335,7 +314,6 @@ pub struct DynamicEqParams {
     pub enabled: bool,
 }
 
-/// 音调漂移参数（前端 contracts 中为 ModulationParams{rate,depth}，此处 speed 接收 rate 别名）
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct PitchDriftParams {
@@ -348,13 +326,7 @@ pub struct PitchDriftParams {
 }
 
 // =========================================================================
-// SoundEffectSettings（与前端 contracts 一一对应，camelCase）
 // =========================================================================
-//
-// 注意：pitch_shift / playback_rate 以 100 为基准（100 = 原调原速），
-// 不能用 f32 的默认值 0.0（会被 pitch 处理器解读为 0% → 极端变调变速 → 破音/静音）。
-// 因此 SoundEffectSettings 不使用 #[derive(Default)]，而是手动实现 Default，
-// 并为这两个字段提供 serde 级别的默认函数，确保前端漏传字段时也安全。
 
 fn default_pitch_rate() -> f32 {
     100.0
@@ -363,33 +335,28 @@ fn default_pitch_rate() -> f32 {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SoundEffectSettings {
-    // 变调/变速（100 = 原调原速）
     #[serde(default = "default_pitch_rate")]
     pub pitch_shift: f32,
     #[serde(default = "default_pitch_rate")]
     pub playback_rate: f32,
     #[serde(default)]
     pub preserves_pitch: bool,
-    // 混响
     pub reverb_kind: ReverbKind,
     pub reverb_preset: String,
     pub reverb_dry: f32,
     pub reverb_wet: f32,
-    // 空间
     pub spatial_mode: SpatialMode,
     pub spatial_speed: f32,
     pub spatial_radius: f32,
     pub spatial_intensity: f32,
     pub virtual_surround_mode: VirtualSurroundMode,
     pub virtual_surround_spread: f32,
-    // 调制
     pub vibrato: ModulationParams,
     pub pitch_drift: PitchDriftParams,
     pub tremolo: ModulationParams,
     pub flanger: FlangerParams,
     pub phaser: PhaserParams,
     pub delay: DelayParams,
-    // 动态
     pub compressor: CompressorParams,
     pub multiband: MultibandParams,
     pub limiter: LimiterParams,
@@ -397,13 +364,11 @@ pub struct SoundEffectSettings {
     pub expander: ExpanderParams,
     pub agc: AgcParams,
     pub de_esser: DeEsserParams,
-    // 波形整形
     pub distortion: DistortionParams,
     pub exciter: ExciterParams,
     pub sub_bass: SubBassParams,
     pub lo_fi: LoFiParams,
     pub bitcrush: BitcrushParams,
-    // 声道处理
     pub vocal_removal: bool,
     pub stereo_widen: StereoWidenParams,
     pub mono_merge: bool,
@@ -413,14 +378,11 @@ pub struct SoundEffectSettings {
     pub bass_boost: BassBoostParams,
     pub treble: TrebleParams,
     pub dynamic_eq: DynamicEqParams,
-    // 组合
     pub v4a_enabled: bool,
     pub bypass: bool,
     pub audio_boost: f32,
 }
 
-/// 手动实现 Default：pitch_shift / playback_rate 必须为 100.0（原调原速），
-/// 其余字段沿用类型默认（全部 disabled / 0 / None，等价于纯直通）。
 impl Default for SoundEffectSettings {
     fn default() -> Self {
         Self {
@@ -487,8 +449,6 @@ impl SoundEffectSettings {
         (pitch - 100.0).abs() < 0.1 && (rate - 100.0).abs() < 0.1
     }
 
-    /// 是否存在真正会改变音频内容的音效。
-    /// audio_boost 不参与判断，避免没开音效时被额外放大并削波。
     #[inline]
     fn has_audible_processing(&self) -> bool {
         !self.pitch_rate_is_neutral()
@@ -538,16 +498,13 @@ pub struct SoundEffectBlockProcessor {
     sample_rate: u32,
     channels: u16,
     settings: SoundEffectSettings,
-    // 变调变速处理器
     pitch: pitch::PitchRateProcessor,
-    // 各效果机架
     channel_rack: channel::ChannelRack,
     shaper_rack: shaper::ShaperRack,
     dynamics_rack: dynamics::DynamicsRack,
     modulation_rack: modulation::ModulationRack,
     reverb_rack: reverb::ReverbRack,
     spatial_rack: spatial::SpatialRack,
-    // 帧缓冲
     frame: Vec<f32>,
 }
 
@@ -583,7 +540,6 @@ impl SoundEffectBlockProcessor {
         self.spatial_rack.prepare(sr, ch);
     }
 
-    /// 应用新设置。V4A 开启时合并其子效果参数到各机架（语义对齐桌面端）。
     pub fn set_settings(&mut self, s: SoundEffectSettings) {
         let effective = if s.v4a_enabled {
             let mut e = s.clone();
@@ -623,7 +579,6 @@ impl SoundEffectBlockProcessor {
         self.spatial_rack.reset();
     }
 
-    /// 变调变速后的有效采样率；无音效（硬旁路）时返回原始采样率。
     pub fn effective_sample_rate(&self) -> u32 {
         if self.settings.should_hard_bypass() {
             self.sample_rate
@@ -632,8 +587,6 @@ impl SoundEffectBlockProcessor {
         }
     }
 
-    /// 处理一块交错 PCM（样本数应为 channels 的整数倍），返回处理后的交错 PCM。
-    /// 变调变速时输出样本数可能 ≠ 输入。默认（无音效）为无损直通。
     pub fn process_block(&mut self, input: Vec<f32>) -> Vec<f32> {
         let ch = self.channels;
         let s = &self.settings;
@@ -652,7 +605,6 @@ impl SoundEffectBlockProcessor {
             self.modulation_rack.process(&mut self.frame, ch, s);
             self.reverb_rack.process(&mut self.frame, ch, s);
             self.spatial_rack.process(&mut self.frame, ch, s);
-            // audioBoost：0-100 → 0~6dB 增益
             let boost_db = (s.audio_boost / 100.0).clamp(0.0, 1.0) * 6.0;
             if boost_db > 0.01 {
                 let g = dsp::db_to_gain(boost_db);

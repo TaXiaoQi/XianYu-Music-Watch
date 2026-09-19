@@ -12,8 +12,6 @@ import '../../player/player_provider.dart';
 import '../common/stepped_list.dart';
 import '../local/local_music_hub.dart';
 
-/// 音源榜单：已启用插件的 getTopLists 聚合（与桌面端 MF 协议同源）。
-/// 首页 = 榜单列表；点进 = 榜单曲目，点歌整榜入队起播。
 class TopListPage extends ConsumerStatefulWidget {
   const TopListPage({super.key});
 
@@ -44,7 +42,6 @@ class _TopListPageState extends ConsumerState<TopListPage> {
       if (enabled.isEmpty) throw '尚未安装插件，去插件管理添加';
       final catalog = PluginCatalogService(engine, enabled);
 
-      // 并行拉取各插件榜单（分类展平已在 getTopLists 内处理），逐插件隔离失败。
       final merged = <(PluginSource, MfSheetItem)>[];
       await Future.wait([
         for (final s in enabled)
@@ -56,7 +53,6 @@ class _TopListPageState extends ConsumerState<TopListPage> {
                 merged.add((s, it));
               }
             } catch (_) {
-              /* 单插件失败不影响其他 */
             }
           }(),
       ]);
@@ -78,9 +74,7 @@ class _TopListPageState extends ConsumerState<TopListPage> {
 
   @override
   Widget build(BuildContext context) {
-    final s = context.watchScale(); // 屏径等比缩放
-    // 页面头：做进滚动内容最顶部，居中标题 + 左上角返回 + 右侧刷新
-    // （One UI 式，随列表滚走，圆弧适配完整）。
+    final s = context.watchScale();
     final headerRow = PageTitleHeader(
       '音源榜单',
       showBack: true,
@@ -144,7 +138,6 @@ class _TopListPageState extends ConsumerState<TopListPage> {
   }
 }
 
-/// 榜单曲目页：getTopListDetail 拉取，点歌整榜入队起播。
 class TopListDetailPage extends ConsumerStatefulWidget {
   const TopListDetailPage({super.key, required this.source, required this.item});
 
@@ -192,7 +185,6 @@ class _TopListDetailPageState extends ConsumerState<TopListDetailPage> {
     }
   }
 
-  /// 点歌：整榜转播放队列，从点击项起播。
   Future<void> _play(int index) async {
     final engine = await ref.read(pluginEngineProvider.future);
     final service = PluginSearchService(engine, [widget.source]);
@@ -207,8 +199,7 @@ class _TopListDetailPageState extends ConsumerState<TopListDetailPage> {
   @override
   Widget build(BuildContext context) {
     final cover = widget.item.coverUrl;
-    final s = context.watchScale(); // 屏径等比缩放
-    // 页面头：做进滚动内容最顶部（One UI 式，随列表滚走，圆弧适配完整）。
+    final s = context.watchScale();
     final headerRow = Padding(
       padding: EdgeInsets.symmetric(horizontal: 4 * s),
       child: Row(
@@ -297,7 +288,7 @@ class _SheetCover extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final s = context.watchScale(); // 屏径等比缩放
+    final s = context.watchScale();
     final u = url;
     final w = (u != null && u.isNotEmpty)
         ? (u.startsWith('http')
@@ -316,7 +307,7 @@ class _SheetIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final s = context.watchScale(); // 屏径等比缩放
+    final s = context.watchScale();
     return Container(
       color: Colors.white.withValues(alpha: 0.08),
       child: Icon(Icons.leaderboard_rounded,

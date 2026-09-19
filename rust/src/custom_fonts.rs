@@ -1,4 +1,3 @@
-//! 歌词自定义字体导入与读取。
 
 use std::{
     fs,
@@ -57,7 +56,6 @@ fn custom_fonts_dir(data_root: &Path) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-/// 导入歌词字体（复制到 `{data_root}/custom-lyrics-fonts`）。
 pub fn import_lyrics_font(data_root: &Path, source_path: String) -> Result<ImportedLyricsFont, String> {
     let source = PathBuf::from(source_path);
     if !source.is_file() {
@@ -81,7 +79,6 @@ pub fn import_lyrics_font(data_root: &Path, source_path: String) -> Result<Impor
     })
 }
 
-/// 读取已导入歌词字体为 data URL（限制在自定义字体目录内）。
 pub fn read_lyrics_font_data_url(data_root: &Path, font_path: String) -> Result<String, String> {
     let source = PathBuf::from(font_path);
     if !source.is_file() {

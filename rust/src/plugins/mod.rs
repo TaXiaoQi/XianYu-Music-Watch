@@ -1,8 +1,3 @@
-//! 插件宿主配套能力：文件读取、图片代理、视频缓存下载。
-//!
-//! 音源脚本的执行（QuickJS）与脚本 HTTP 桥在 [`crate::plugin_host`]；插件列表/索引由
-//! Dart 侧 PluginStore（SharedPreferences，与桌面端同 key 同 schema）管理，
-//! LX 直链解析由 Dart 编排层直接驱动插件引擎（对齐桌面端架构）。
 
 use crate::security::path_validator;
 use image::{GenericImageView, ImageEncoder};
@@ -14,7 +9,6 @@ use std::time::Duration;
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 const MAX_BACKGROUND_VIDEO_BYTES: u64 = 512 * 1024 * 1024;
 
-/// 等比缩小到指定最长边（不足或非图片尺寸则原样返回）。
 fn shrink_to_fit(img: image::DynamicImage, max_edge: u32) -> image::DynamicImage {
     let (w, h) = img.dimensions();
     let largest = w.max(h);
@@ -28,7 +22,6 @@ fn shrink_to_fit(img: image::DynamicImage, max_edge: u32) -> image::DynamicImage
     }
 }
 
-/// 读取本地插件/备份文件内容（.js / .json / .txt / .m3u / .m3u8）。
 pub fn read_plugin_file(path: String) -> Result<String, String> {
     let validated = path_validator::validate_path(&path, None)
         .map_err(|e| format!("路径校验失败: {} (路径: {})", e, path))?;
@@ -67,16 +60,13 @@ pub fn read_plugin_file(path: String) -> Result<String, String> {
     fs::read_to_string(path_obj).map_err(|error| format!("读取文件内容失败: {}", error))
 }
 
-/// 代理图片请求 —— 自动添加 Referer 头，解决 CDN 403 问题，返回 data URL。
 pub async fn proxy_image(url: String, referer: Option<String>) -> Result<String, String> {
-    // SSRF 防护：图片代理仅允许公网 http/https 目标
     crate::security::ssrf::validate_outbound_url(&url)
         .await
         .map_err(|e| format!("图片链接校验失败: {e}"))?;
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(15))
-        // 每个跳转目标都需通过 SSRF 校验
         .redirect(crate::security::ssrf::ssrf_redirect_policy())
         .dns_resolver(crate::security::ssrf::pinned_dns_resolver())
         .user_agent(USER_AGENT)
@@ -119,14 +109,11 @@ pub async fn proxy_image(url: String, referer: Option<String>) -> Result<String,
 
     let bytes = response.bytes().await.map_err(|e| e.to_string())?;
 
-    // 网络读取上限（远超封面预期，防止恶意超大响应拖垮内存）
     const MAX_NETWORK_BYTES: usize = 20 * 1024 * 1024;
     if bytes.len() > MAX_NETWORK_BYTES {
         return Err("Image too large".to_string());
     }
 
-    // 返回前保留上限：过大图片直接透传会生成数十 MB 的 data: URL，拖垮渲染。
-    // 超过上限时用 image 解码缩小再编码成小体积 JPEG/PNG，保证内存与封容量可控。
     use base64::{engine::general_purpose, Engine as _};
 
     const MAX_DATA_BYTES: usize = 5 * 1024 * 1024;
@@ -134,11 +121,9 @@ pub async fn proxy_image(url: String, referer: Option<String>) -> Result<String,
         let Ok(img) = image::load_from_memory(&bytes) else {
             return Err("Image too large".to_string());
         };
-        // 限制最长边，保证封面缩略图体积足够小（原图过大时才缩放）
         const MAX_EDGE: u32 = 800;
         let img = shrink_to_fit(img, MAX_EDGE);
         let rgba = img.to_rgba8();
-        // 尽量保留 alpha（透明 PNG 封面），否则回退 JPEG 保证稳定返回
         let mut png = Vec::new();
         if image::codecs::png::PngEncoder::new(&mut png)
             .write_image(
@@ -172,13 +157,10 @@ pub async fn proxy_image(url: String, referer: Option<String>) -> Result<String,
         return Err("Image too large".to_string());
     }
 
-    // 转为 data URL
     let b64 = general_purpose::STANDARD.encode(&bytes);
     Ok(format!("data:{};base64,{}", content_type, b64))
 }
 
-/// 读取本地图片文件为 base64（分享本地歌曲封面上传用）。
-/// 返回 JSON `{"mime":..., "base64":...}`，mime 由图片字节内容判定，不依赖扩展名。
 pub fn read_image_base64(path: String) -> Result<String, String> {
     use base64::{engine::general_purpose, Engine as _};
 
@@ -216,9 +198,6 @@ pub fn read_image_base64(path: String) -> Result<String, String> {
     .to_string())
 }
 
-/// 将插件解析得到的视频流式写入应用缓存，供播放器读取。
-/// `cache_dir` 为视频缓存根目录（内部自动建 `video-background` 子目录）。
-/// 流式写入且带 512MB 上限，边下边落盘不占内存。返回缓存文件完整路径。
 pub async fn download_video_to_cache(
     cache_dir: String,
     url: String,
@@ -230,14 +209,12 @@ pub async fn download_video_to_cache(
         return Err("Unsupported video URL".to_string());
     }
 
-    // SSRF 防护：视频源仅允许公网 http/https 目标
     crate::security::ssrf::validate_outbound_url(&url)
         .await
         .map_err(|error| error.to_string())?;
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(180))
-        // 每个跳转目标都需通过 SSRF 校验
         .redirect(crate::security::ssrf::ssrf_redirect_policy())
         .dns_resolver(crate::security::ssrf::pinned_dns_resolver())
         .gzip(true)
@@ -306,8 +283,6 @@ pub async fn download_video_to_cache(
     Ok(cache_path.to_string_lossy().to_string())
 }
 
-/// 仅允许清理本功能在应用缓存中创建的视频文件。
-/// `cache_dir` 必须与本功能写入视频时传入的缓存根目录一致。
 pub async fn remove_cached_background_video(
     cache_dir: String,
     path: String,

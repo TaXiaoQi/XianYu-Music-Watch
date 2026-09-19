@@ -1,4 +1,3 @@
-//! player 模块的纯逻辑类型（无音频引擎依赖）。
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -7,10 +6,6 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 pub const VISUALIZER_BAND_COUNT: usize = 48;
 pub const VISUALIZER_WINDOW_SIZE: usize = 2048;
 
-/// 可视化环形缓冲（频谱数据）。
-///
-/// 播放线程写入 PCM 采样，渲染线程通过 `snapshot` 读取。纯 CPU 环形缓冲，
-/// 不依赖任何 Tauri / 音频后端。
 pub struct SharedVisualizer {
     samples: Vec<AtomicU32>,
     pub cursor: AtomicU64,
@@ -66,35 +61,23 @@ impl Default for SharedVisualizer {
     }
 }
 
-/// 全局共享可视化器（Flutter 播放线程可写入，渲染线程读取）。
 pub fn global_visualizer() -> &'static SharedVisualizer {
     static VIZ: std::sync::OnceLock<SharedVisualizer> = std::sync::OnceLock::new();
     VIZ.get_or_init(SharedVisualizer::new)
 }
 
-/// 播放会话数据（可序列化，用于 IPC 传输和 SQLite 持久化）。
 #[derive(Clone, Serialize, Deserialize, Default, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct PlaybackSessionData {
-    /// 当前播放歌曲路径
     pub current_song_path: Option<String>,
-    /// 播放队列路径数组
     pub play_queue_paths: Vec<String>,
-    /// 源歌单路径数组（当前播放上下文的完整歌曲列表）
     pub source_song_paths: Vec<String>,
-    /// 播放模式 (0=顺序, 1=循环, 2=随机, 3=单曲循环)
     pub play_mode: u32,
-    /// 音量 (0-100)
     pub volume: f32,
-    /// 当前播放位置（秒）
     pub current_position_secs: f64,
-    /// 是否正在播放
     pub is_playing: bool,
-    /// 会话级音质覆盖
     pub session_quality_override: Option<String>,
-    /// 队列中在线歌曲的元数据（path → JSON Song 对象）
     pub queue_song_meta: HashMap<String, serde_json::Value>,
-    /// 最后更新时间戳（毫秒）
     pub updated_at: i64,
 }
 

@@ -1,12 +1,3 @@
-//! AAudio 独占模式实现（仅 Android）。
-//!
-//! 移植自 RawS `native_audio_engine.cpp` 的 AAudio DIRECT 路径：
-//! - `AAUDIO_SHARING_MODE_EXCLUSIVE` 绕过 Android 混音器
-//! - `setDeviceId` 路由到 USB DAC
-//! - 浮点 32bit / Int16 双格式协商
-//! - 失败时返回明确错误，供调用方降级到 `just_audio`
-//!
-//! 动态加载 `libaaudio.so`（API 26+），低版本自动降级。
 
 #![allow(dead_code)]
 
@@ -49,7 +40,6 @@ const AAUDIO_DIRECTION_OUTPUT: i32 = 0;
 type AAudioStream = std::os::raw::c_void;
 type AAudioStreamBuilder = std::os::raw::c_void;
 
-// 函数指针类型
 type FnCreateStreamBuilder = unsafe extern "C" fn(*mut *mut AAudioStreamBuilder) -> i32;
 type FnBuilderDelete = unsafe extern "C" fn(*mut AAudioStreamBuilder) -> i32;
 type FnBuilderSetDeviceId = unsafe extern "C" fn(*mut AAudioStreamBuilder, i32);
@@ -80,7 +70,6 @@ type FnStreamGetTimestamp = unsafe extern "C" fn(
 ) -> i32;
 type FnConvertResultToText = unsafe extern "C" fn(i32) -> *const std::os::raw::c_char;
 
-/// 动态加载的 AAudio 函数表。
 struct AAudioLib {
     _handle: *mut std::os::raw::c_void,
     create_stream_builder: FnCreateStreamBuilder,
@@ -112,7 +101,6 @@ struct AAudioLib {
 unsafe impl Send for AAudioLib {}
 
 impl AAudioLib {
-    /// 动态加载 libaaudio.so。失败返回 None（API < 26 或库损坏）。
     fn load() -> Option<Self> {
         unsafe {
             let name = b"libaaudio.so\0".as_ptr();
@@ -205,7 +193,6 @@ impl DeviceFormat {
     }
 }
 
-/// f32 → 设备格式字节（小端 LE）。
 fn push_sample_bytes(buf: &mut Vec<u8>, sample: f32, fmt: DeviceFormat) {
     let clamped = sample.clamp(-1.0, 1.0);
     match fmt {
@@ -217,7 +204,6 @@ fn push_sample_bytes(buf: &mut Vec<u8>, sample: f32, fmt: DeviceFormat) {
             buf.extend_from_slice(&val.to_le_bytes());
         }
         DeviceFormat::I24Packed => {
-            // 24 位定点（DoP / 24-bit PCM 直出）：f32 → i32 定点，取低 3 字节 LE。
             let val = (clamped * 8388607.0) as i32;
             let bytes = val.to_le_bytes();
             buf.extend_from_slice(&bytes[..3]);
@@ -250,8 +236,6 @@ impl SymphoniaDecoder {
         use symphonia::core::meta::MetadataOptions;
         use symphonia::core::probe::Hint;
 
-        // HTTP 流式源（本地回环代理转发的在线歌曲）：跳过本地文件相关检查，
-        // 扩展名从 URL 路径提取（去掉 query）供格式探测。
         let is_http = path.starts_with("http://") || path.starts_with("https://");
 
         let mut hint = Hint::new();
@@ -264,16 +248,13 @@ impl SymphoniaDecoder {
         } else {
             let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
 
-            // 检查 QMC2 加密
             let mut header = [0u8; 8];
             let header_len = file.read(&mut header).unwrap_or(0);
             file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
 
             let is_qmc = header_len >= 4 && looks_like_qmc_encrypted(&header[..header_len]);
 
-            // 动态分发：普通文件 vs QMC 解密包装
             if is_qmc {
-                // 读取文件末尾 1024 字节提取 ekey
                 let file_size = file.seek(SeekFrom::End(0)).map_err(|e| e.to_string())?;
                 let tail_size = (file_size.min(1024)) as usize;
                 file.seek(SeekFrom::End(-(tail_size as i64))).map_err(|e| e.to_string())?;
@@ -349,7 +330,6 @@ impl BlockProducer for SymphoniaDecoder {
             return None;
         }
 
-        // 先消费上次剩余的样本
         if !self.leftover.is_empty() {
             let take = self.leftover.len().min(max_samples);
             let out = self.leftover.drain(..take).collect::<Vec<_>>();
@@ -433,7 +413,6 @@ struct ExclusiveProgress {
     samples_played: AtomicU64,
     sample_rate: AtomicU32,
     channels: AtomicU32,
-    /// 源总时长（毫秒），供 Flutter 侧在 DSP 管线播放时更新进度条。
     duration_ms: AtomicU64,
 }
 
@@ -464,7 +443,6 @@ enum ExclusiveCommand {
     SetVolumeBalanceGain(f32),
     SetEqualizer(EqualizerSettings),
     SetSoundEffect(SoundEffectSettings),
-    /// Bit-perfect 直出运行时切换：开启即绕过响度/EQ/音效/音量。
     SetBitPerfect(bool),
 }
 
@@ -477,10 +455,7 @@ struct AndroidExclusivePlayback {
     join_handle: Option<thread::JoinHandle<()>>,
     progress: Arc<ExclusiveProgress>,
     device_name: String,
-    /// Bit-perfect 直出当前状态（供外部查询，工作线程持有同一 Arc）。
     bit_perfect: Arc<AtomicBool>,
-    /// 工作线程是否仍在运行（true=设备连接中且在播放循环内；
-    /// false=USB DAC 断开或播放结束已退出，供 Flutter 侧检测热插拔并自动回退）。
     running: Arc<AtomicBool>,
 }
 
@@ -510,17 +485,13 @@ fn instance() -> &'static Mutex<Option<AndroidExclusivePlayback>> {
 pub fn start_exclusive_playback(
     mut request: ExclusivePlayRequest,
 ) -> Result<String, String> {
-    // 共享模式（日常 DSP 管线）不涉及 Bit-perfect 直出。
     if request.shared_mode {
         request.bit_perfect = false;
     }
-    // SSRF 纵深：HTTP 直链为 IP 字面量且命中内网/回环/保留地址时拒绝
-    //（对齐桌面端 play_audio 入口校验）。
     if request.path.starts_with("http://") || request.path.starts_with("https://") {
         crate::security::ssrf::validate_url_ip_literal(&request.path)
             .map_err(|e| format!("播放链接校验失败: {e}"))?;
     }
-    // 先停止已有实例
     stop_exclusive_playback();
 
     let progress = Arc::new(ExclusiveProgress::new());
@@ -532,7 +503,6 @@ pub fn start_exclusive_playback(
     let running = Arc::new(AtomicBool::new(true));
     let running_clone = running.clone();
 
-    // 共享模式标记先取出：request 即将整体 move 进播放线程。
     let shared_mode = request.shared_mode;
 
     let handle = thread::Builder::new()
@@ -542,8 +512,6 @@ pub fn start_exclusive_playback(
         })
         .map_err(|e| e.to_string())?;
 
-    // 等待初始化结果。共享模式（在线流）需经代理向上游 CDN 拉取探测头，
-    // 网络耗时高于本地文件，放宽到 6s；超时由调用方回退 ExoPlayer。
     let init_wait = if shared_mode {
         Duration::from_secs(6)
     } else {
@@ -584,8 +552,6 @@ pub fn stop_exclusive_playback() {
     if let Ok(mut guard) = instance().lock() {
         if let Some(mut playback) = guard.take() {
             let _ = playback.tx.send(ExclusiveCommand::Stop);
-            // join_handle 是 Option<JoinHandle>，用 take() 取出避免从
-            // 实现了 Drop 的 AndroidExclusivePlayback 中部分 move 字段。
             if let Some(handle) = playback.join_handle.take() {
                 let _ = handle.join();
             }
@@ -612,7 +578,6 @@ pub fn set_exclusive_volume(volume: f32) {
     }
 }
 
-/// 运行时更新独占管线的音量平衡（ReplayGain）目标增益，平滑渐变不中断播放。
 pub fn set_exclusive_volume_balance_gain(gain: f32) {
     if let Ok(guard) = instance().lock() {
         if let Some(playback) = guard.as_ref() {
@@ -649,7 +614,6 @@ pub fn set_exclusive_sound_effect(settings_json: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// 暂停独占播放（保持进度，等待 resume 恢复）。
 pub fn pause_exclusive() {
     if let Ok(guard) = instance().lock() {
         if let Some(playback) = guard.as_ref() {
@@ -658,7 +622,6 @@ pub fn pause_exclusive() {
     }
 }
 
-/// 从暂停恢复独占播放。
 pub fn resume_exclusive() {
     if let Ok(guard) = instance().lock() {
         if let Some(playback) = guard.as_ref() {
@@ -667,8 +630,6 @@ pub fn resume_exclusive() {
     }
 }
 
-/// 运行时切换 Bit-perfect 直出。开启时 DSP 全部旁通、音量置 1.0；
-/// 关闭时恢复当前响度/EQ/音效/音量。
 pub fn set_exclusive_bit_perfect(enabled: bool) {
     if let Ok(guard) = instance().lock() {
         if let Some(playback) = guard.as_ref() {
@@ -727,10 +688,6 @@ pub fn get_exclusive_channels() -> u16 {
     0
 }
 
-/// 查询当前独占播放输出设备/格式信息（用于前端展示已选输出）。
-/// `active` 反映工作线程真实运行态：USB DAC 拔出或播放结束后为 false，
-/// 供前端检测热插拔断开并自动回退到普通播放。
-/// 返回 `{"active":bool,"deviceName":String,"sampleRate":u32,"channels":u16,"bitPerfect":bool}` JSON。
 pub fn get_exclusive_device_info() -> String {
     let (active, device_name, sample_rate, channels, bit_perfect, duration_ms) =
         if let Ok(guard) = instance().lock() {
@@ -772,7 +729,6 @@ fn run_exclusive_playback(
     bit_perfect: Arc<AtomicBool>,
     running: Arc<AtomicBool>,
 ) {
-    // 1. 加载 AAudio 库
     let lib = match AAudioLib::load() {
         Some(l) => l,
         None => {
@@ -781,16 +737,11 @@ fn run_exclusive_playback(
         }
     };
 
-    // 1.5 DSD（dsf/dff）原生 DoP 直出：仅当打开「DSD 原生直通」且当前处于
-    // Bit-perfect 直出状态才走 DoP 打包（绕过解码器与 DSP，逐帧打包 24-bit）。
-    // 关闭直通时 DSD 容器降级为 PCM 解码，走常规 DSP 管线。
-    // 共享模式不走 DoP（系统混音器无法透传 DSD）。
     if request.dsd_native_passthrough && !request.shared_mode && is_dsd_path(&request.path) {
         run_dsd_passthrough(request, lib, cmd_rx, init_tx, progress, bit_perfect, running);
         return;
     }
 
-    // 2. 打开 symphonia 解码器
     let decoder = match SymphoniaDecoder::open(&request.path) {
         Ok(d) => d,
         Err(e) => {
@@ -803,7 +754,6 @@ fn run_exclusive_playback(
     let source_channels = decoder.channels;
     let total_duration = decoder.total_duration;
 
-    // 3. 创建 BufferedSource（后台预读取）
     let mut buffered = BufferedSource::new(
         decoder,
         source_sample_rate,
@@ -811,7 +761,6 @@ fn run_exclusive_playback(
         total_duration,
     );
 
-    // 4. 跳到起始位置
     if request.start_time_secs > 0.0 {
         if let Err(e) = buffered.try_seek(Duration::from_secs_f64(request.start_time_secs)) {
             let _ = init_tx.send(Err(format!("跳转失败: {e}")));
@@ -819,9 +768,6 @@ fn run_exclusive_playback(
         }
     }
 
-    // 5. 装配 DSP 链。
-    // Bit-perfect 直出：绕过响度归一化/EQ/音效，音量恒为 1.0，仅保留安全限幅；
-    // 仍构造链对象以便运行时关闭直出后无缝恢复。
     let initial_bit_perfect = request.bit_perfect;
     let (mut normalizer, normalizer_handle) = VolumeNormalizer::new(
         if initial_bit_perfect {
@@ -853,18 +799,12 @@ fn run_exclusive_playback(
         }
     }
 
-    // 用户主音量（50ms 渐变消除 zipper noise）+ 最终安全限幅（对齐桌面端链路）。
     let mut user_volume_source = UserVolumeSource::new(request.volume, source_sample_rate);
     let mut clip_guard = ClipGuardSource::new();
 
     let user_volume = Arc::new(AtomicU32::new(request.volume.to_bits()));
     let is_paused = Arc::new(AtomicBool::new(!request.is_playing));
 
-    // 6. 创建 AAudio 流。
-    // 共享模式：SHARED 共享流走系统混音器（全效果链生效），输出到所选设备
-    //（-1 = 系统默认设备，对齐桌面端共享模式可选输出设备）。
-    // 独占 Bit-perfect 时优先按源位深协商整数格式（≤16bit→Int16，>16bit→Int24，
-    // 深层浮点回退），实现「按源位深整数直出」；常规独占仍 Float32→Int16。
     let (stream, device_format, stream_sample_rate, stream_channels) = if request.shared_mode {
         match create_aaudio_stream(&lib, request.device_id, source_sample_rate, source_channels, true) {
             Ok(result) => result,
@@ -914,7 +854,6 @@ fn run_exclusive_playback(
     let visualizer = global_visualizer();
     visualizer.reset();
 
-    // 7. 启动流
     let start_result = unsafe { (lib.stream_request_start)(stream) };
     if start_result != AAUDIO_OK {
         let msg = unsafe { lib.result_text(start_result) };
@@ -923,7 +862,6 @@ fn run_exclusive_playback(
         return;
     }
 
-    // 8. 通知初始化成功
     let device_name = if request.shared_mode {
         format!("系统混音器 ({}Hz, {}ch shared)", stream_sample_rate, stream_channels)
     } else {
@@ -940,12 +878,10 @@ fn run_exclusive_playback(
     };
     let _ = init_tx.send(Ok((device_name, stream_sample_rate, stream_channels)));
 
-    // 9. 轮询循环
-    let timeout_ns: i64 = 20_000_000; // 20ms
+    let timeout_ns: i64 = 20_000_000;
     let bytes_per_sample = device_format.bytes_per_sample();
 
     loop {
-        // 检查命令
         match cmd_rx.try_recv() {
             Ok(ExclusiveCommand::Stop) => break,
             Ok(ExclusiveCommand::Seek { time_secs, is_playing }) => {
@@ -975,11 +911,9 @@ fn run_exclusive_playback(
                 let _ = unsafe { (lib.stream_request_start)(stream) };
             }
             Ok(ExclusiveCommand::SetVolume(vol)) => {
-                // Bit-perfect 直出时音量被旁通，仅记录供关闭直出后恢复。
                 user_volume.store(vol.to_bits(), Ordering::Relaxed);
             }
             Ok(ExclusiveCommand::SetVolumeBalanceGain(gain)) => {
-                // ReplayGain 目标增益：Normalizer 内部 100ms 渐变防爆音。
                 normalizer_handle.set_target_gain(gain);
             }
             Ok(ExclusiveCommand::SetEqualizer(settings)) => {
@@ -991,7 +925,6 @@ fn run_exclusive_playback(
             Ok(ExclusiveCommand::SetBitPerfect(enabled)) => {
                 bit_perfect.store(enabled, Ordering::Relaxed);
                 if enabled {
-                    // 进入直出：清空 DSP 内部状态，避免关闭直出时的历史中间值。
                     normalizer.reset();
                     equalizer.reset();
                     sound_effect.reset();
@@ -1000,7 +933,6 @@ fn run_exclusive_playback(
                     }
                     is_paused.store(false, Ordering::Relaxed);
                 }
-                // 关闭直出：仅恢复绕过的 DSP 链，不改变暂停状态。
             }
             Err(mpsc::TryRecvError::Empty) => {}
             Err(mpsc::TryRecvError::Disconnected) => break,
@@ -1011,23 +943,19 @@ fn run_exclusive_playback(
             continue;
         }
 
-        // 检查可写空间
         let available = unsafe { (lib.stream_get_available_frames)(stream) };
         if available <= 0 {
             thread::sleep(Duration::from_millis(5));
             continue;
         }
 
-        // 读取一块样本
         let block = match buffered.next_block() {
             Some(block) => block,
             None => {
-                // EOF
                 break;
             }
         };
 
-        // DSP 链处理。Bit-perfect 直出：绕过响度/EQ/音效/主音量，仅保留安全限幅（对齐桌面端）。
         let do_bypass = bit_perfect.load(Ordering::Relaxed);
         let mut effected = if do_bypass {
             block
@@ -1037,13 +965,11 @@ fn run_exclusive_playback(
             sound_effect.process_block(eq_applied)
         };
 
-        // 用户音量渐变（直出时旁通，对齐桌面端 bit-perfect 分支）+ 最终安全限幅。
         if !do_bypass {
             user_volume_source.process_block(&mut effected, source_channels, &user_volume);
         }
         clip_guard.process_block(&mut effected);
 
-        // 格式转换（音量/限幅已在缓冲级应用）
         let mut byte_buf: Vec<u8> = Vec::with_capacity(effected.len() * bytes_per_sample);
 
         let mut chan_sum = 0.0f32;
@@ -1065,7 +991,6 @@ fn run_exclusive_playback(
             .samples_played
             .fetch_add(effected.len() as u64, Ordering::Relaxed);
 
-        // 写入 AAudio
         let frames_written = unsafe {
             (lib.stream_write)(
                 stream,
@@ -1076,18 +1001,14 @@ fn run_exclusive_playback(
         };
 
         if frames_written < 0 {
-            // 写入错误，可能是设备断开
             break;
         }
 
-        // 如果写入的帧数少于请求的帧数，等待一下
         if frames_written < (effected.len() / stream_channels as usize) as i64 {
             thread::sleep(Duration::from_millis(5));
         }
     }
 
-    // 10. 清理。设置 running=false 供 Flutter 检测设备断开/自然结束，
-    // 仅在工作线程真正退出时置位（Stop 命令 / USB DAC 拔出 / EOF）。
     running.store(false, Ordering::Relaxed);
     unsafe {
         (lib.stream_request_stop)(stream);
@@ -1095,14 +1016,11 @@ fn run_exclusive_playback(
     }
 }
 
-/// 是否为 DSD 容器文件（dsf/dff）。
 fn is_dsd_path(path: &str) -> bool {
     let lower = path.to_ascii_lowercase();
     lower.ends_with(".dsf") || lower.ends_with(".dff") || lower.ends_with(".dsd")
 }
 
-/// 从 URL 提取小写扩展名（去掉 query/fragment），供流式源格式探测。
-/// 无扩展名返回 None（此时 symphonia 依赖嗅探）。
 fn url_path_extension(url: &str) -> Option<String> {
     let path = url.split(['?', '#']).next()?;
     let file = path.rsplit('/').next()?;
@@ -1111,15 +1029,12 @@ fn url_path_extension(url: &str) -> Option<String> {
         return None;
     }
     let lower = ext.to_ascii_lowercase();
-    // 仅接受合理扩展名形态（字母数字），排除版本号类路径段。
     if !lower.chars().all(|c| c.is_ascii_alphanumeric()) {
         return None;
     }
     Some(lower)
 }
 
-/// DSD 原生 DoP 直出：读 1-bit DSD 流按 DoP 1.0 打包成 24-bit 帧，
-/// 直接写入支持 DoP 的 DSD-DAC（AAudio 独占 I24），绕过音量/EQ/音效 DSP。
 fn run_dsd_passthrough(
     request: super::ExclusivePlayRequest,
     lib: AAudioLib,
@@ -1149,7 +1064,6 @@ fn run_dsd_passthrough(
     };
     let channels = dsd.channels.max(1);
 
-    // 打开 DoP DAC：仅尝试 24-bit packed 独占流。
     let (stream, stream_rate, stream_channels) = match unsafe {
         try_open_stream(&lib, request.device_id, dop_rate, channels, DeviceFormat::I24Packed, false)
     } {
@@ -1199,7 +1113,7 @@ fn run_dsd_passthrough(
     );
     let _ = init_tx.send(Ok((device_name, stream_rate, stream_channels)));
 
-    let timeout_ns: i64 = 20_000_000; // 20ms
+    let timeout_ns: i64 = 20_000_000;
     let mut is_paused = !request.is_playing;
 
     loop {
@@ -1229,10 +1143,8 @@ fn run_dsd_passthrough(
                 let _ = unsafe { (lib.stream_request_start)(stream) };
             }
             Ok(ExclusiveCommand::SetBitPerfect(_)) => {
-                // DSD 原生直出天然 bit-perfect，保持状态开启。
                 bit_perfect.store(true, Ordering::Relaxed);
             }
-            // DSD 直出下音量、增益、EQ 与音效均被绕过，命令直接忽略。
             Ok(ExclusiveCommand::SetVolume(_))
             | Ok(ExclusiveCommand::SetVolumeBalanceGain(_))
             | Ok(ExclusiveCommand::SetEqualizer(_))
@@ -1259,7 +1171,6 @@ fn run_dsd_passthrough(
             Err(_) => break,
         };
         if produced == 0 {
-            // EOF
             break;
         }
         progress
@@ -1289,8 +1200,6 @@ fn run_dsd_passthrough(
     }
 }
 
-/// 协商创建 AAudio 流。独占：先试 Float32 失败再试 Int16；
-/// 共享：走系统混音器（默认设备），按实际协商出的格式回读。
 fn create_aaudio_stream(
     lib: &AAudioLib,
     device_id: i32,
@@ -1307,7 +1216,6 @@ fn create_aaudio_stream(
             Ok(s) => {
                 let actual_rate = unsafe { (lib.stream_get_sample_rate)(s) } as u32;
                 let actual_channels = unsafe { (lib.stream_get_channel_count)(s) } as u16;
-                // 共享模式下系统可能重协商格式，按实际格式回读供字节转换使用。
                 let actual_fmt = if shared {
                     device_format_of(unsafe { (lib.stream_get_format)(s) })
                 } else {
@@ -1333,8 +1241,6 @@ fn create_aaudio_stream(
     })
 }
 
-/// Bit-perfect 流协商：按源位深优先尝试整数格式（≤16bit→Int16，>16bit→Int24，
-/// 未知位深→Int16），失败回退 Int16 → Float32。实现「按源位深整数直出」。
 fn create_aaudio_stream_bitperfect(
     lib: &AAudioLib,
     device_id: i32,
@@ -1371,8 +1277,6 @@ fn create_aaudio_stream_bitperfect(
     Err("无法创建 AAudio 独占流（设备不支持独占/整数格式）".to_string())
 }
 
-/// 探测源文件的每样本位深（bit），供 bit-perfect 整数格式协商。
-/// 支持 FLAC / WAVE / AIFF / MP4(M4A)-hdlr 位深。无法识别返回 None（回退 Int16）。
 fn probe_source_bit_depth(path: &str) -> Option<u8> {
     use std::io::Read;
     let mut file = std::fs::File::open(path).ok()?;
@@ -1383,7 +1287,6 @@ fn probe_source_bit_depth(path: &str) -> Option<u8> {
         return None;
     }
 
-    // FLAC: "fLaC"，STREAMINFO bits-per-sample 位于 12..18 的第 23..27 位
     if head.starts_with(b"fLaC") {
         if head.len() < 18 {
             return None;
@@ -1396,7 +1299,6 @@ fn probe_source_bit_depth(path: &str) -> Option<u8> {
         return Some(bits);
     }
 
-    // WAVE: RIFF....WAVE，扫 fmt 子块取每样本位数
     if head.starts_with(b"RIFF") && &head[8..12] == b"WAVE" {
         let mut off = 12usize;
         while off + 8 <= head.len() {
@@ -1419,7 +1321,6 @@ fn probe_source_bit_depth(path: &str) -> Option<u8> {
         return None;
     }
 
-    // AIFF: FORM....AIFF，COMM 块 sampleSize（每样本位数）
     if head.starts_with(b"FORM") && &head[8..12] == b"AIFF" {
         let mut off = 12usize;
         while off + 8 <= head.len() {
@@ -1442,8 +1343,6 @@ fn probe_source_bit_depth(path: &str) -> Option<u8> {
         return None;
     }
 
-    // MP4/M4A: 通过 esds 的 decoderSpecificInfo 或 atom 无法简单读位深；
-    // 常见 AAC 为 16 位，MP3 为 16 位，返回 None 让上层回退 Int16。
     None
 }
 
@@ -1469,7 +1368,6 @@ unsafe fn try_open_stream(
     (lib.builder_set_channel_count)(builder, channels as i32);
     (lib.builder_set_format)(builder, fmt.aaudio_format());
     if shared {
-        // 共享模式走系统混音器：不设性能档（默认 NONE，省电）。
         (lib.builder_set_sharing_mode)(builder, AAUDIO_SHARING_MODE_SHARED);
     } else {
         (lib.builder_set_sharing_mode)(builder, AAUDIO_SHARING_MODE_EXCLUSIVE);
@@ -1485,7 +1383,6 @@ unsafe fn try_open_stream(
         return Err(lib.result_text(result));
     }
 
-    // 验证实际格式（共享模式允许系统重协商，由调用方按实际格式回读）
     let actual_format = (lib.stream_get_format)(stream);
     if !shared && actual_format != fmt.aaudio_format() {
         (lib.stream_close)(stream);
@@ -1495,7 +1392,6 @@ unsafe fn try_open_stream(
     Ok(stream)
 }
 
-/// AAudio 格式常量 → 管线字节转换格式；未知格式返回 None。
 fn device_format_of(format: i32) -> Option<DeviceFormat> {
     match format {
         AAUDIO_FORMAT_PCM_FLOAT => Some(DeviceFormat::Float32),

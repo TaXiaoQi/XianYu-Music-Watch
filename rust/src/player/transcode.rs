@@ -1,18 +1,8 @@
-//! APE/WV 转码 + QMC 解密缓存：把 ExoPlayer 不认识的格式在本地缓存成
-//! 可直接播放的文件，交给 ExoPlayer 播放。
-//!
-//! - APE/WV：纯 Rust 解码 crate（`ape-decoder` / `wavicle`，与桌面端 vendor
-//!   rodio 同源）解码为标准 WAV
-//! - AIFF：symphonia（已启用 aiff 特性）解码为 float32 WAV
-//! - QMC 加密（mflac/mgg/qmc* 等）：整文件解密为内部音频格式，流式写缓存
-//!
-//! 转码一次后缓存命中即可直接本地播放，缓存文件受远程缓存 LRU 统一管理。
 
 use std::fs;
 use std::io::{Seek, Write};
 use std::path::Path;
 
-/// 转码结果：`path` = 可播放文件路径；`decoded_now` = 本次是否实际执行解码。
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TranscodeOutcome {
@@ -22,13 +12,9 @@ pub struct TranscodeOutcome {
 
 const TRANSCODED_DIR: &str = "transcoded";
 
-/// ExoPlayer 不支持、需要转码/解密后才能播放的格式处理类别。
 enum TranscodeJob {
-    /// APE / WV → 解码为 WAV
     DecodeApeWv(&'static str),
-    /// AIFF → symphonia 解码为 float32 WAV
     DecodeAiff,
-    /// QMC 加密 → 整文件解密为内部格式（`&'static str` = 解密后扩展名）
     DecryptQmc(&'static str),
 }
 
@@ -43,14 +29,11 @@ fn classify(ext: &str) -> Option<TranscodeJob> {
     }
 }
 
-/// 把 `src_path`（本地路径或 `remote://` URI）转成 ExoPlayer 可播放的缓存文件并返回路径。
-/// 不需要处理的输入原样返回（`decoded_now = false`），不改动播放行为。
 pub async fn transcode_to_wav(
     db_path: &str,
     cache_root: &Path,
     src_path: &str,
 ) -> Result<TranscodeOutcome, String> {
-    // 1) 解析出本地源文件：remote:// 先下载进远程缓存
     let local_path: String = if crate::remote::cache::is_remote_uri(src_path) {
         let conn = std::sync::Arc::new(std::sync::Mutex::new(
             crate::api::open_scan_conn(db_path)?,
@@ -75,7 +58,6 @@ pub async fn transcode_to_wav(
         }
     };
 
-    // 2) 缓存命中：目标文件已存在且不旧于源文件 → 直接复用
     let out_dir = cache_root.join(TRANSCODED_DIR);
     let src_meta = fs::metadata(&local_path).map_err(|e| e.to_string())?;
     let hash = cache_key(&local_path, src_meta.len());
@@ -92,7 +74,6 @@ pub async fn transcode_to_wav(
         }
     }
 
-    // 3) 转码/解密（阻塞型 CPU/IO 任务放 blocking 线程，避免卡 FRB worker）
     let src = local_path.clone();
     let out = out_path.clone();
     tokio::task::spawn_blocking(move || match job {
@@ -109,11 +90,9 @@ pub async fn transcode_to_wav(
     })
 }
 
-/// 单文件解码：按扩展名分派 APE / WV 解码器，边解边写 WAV。
 fn decode_to_wav_file(src: &Path, wav: &Path, kind: &str) -> Result<(), String> {
     fs::create_dir_all(wav.parent().ok_or("目标目录缺失")?)
         .map_err(|e| e.to_string())?;
-    // 先写临时文件再改名，避免中断留下半个 WAV 被误命中缓存
     let tmp = wav.with_extension("wav.part");
 
     let result = match kind {
@@ -133,7 +112,6 @@ fn decode_to_wav_file(src: &Path, wav: &Path, kind: &str) -> Result<(), String> 
     }
 }
 
-/// QMC 加密文件解密为内部音频格式（流式字节解密，不重编码）。
 fn decrypt_qmc_to_file(src: &Path, out: &Path) -> Result<(), String> {
     let crypto =
         crate::player::qmc2::detect_qmc_crypto(src).ok_or("未识别 QMC 加密密钥（缺少 ekey）")?;
@@ -159,7 +137,6 @@ fn decrypt_qmc_to_file(src: &Path, out: &Path) -> Result<(), String> {
     }
 }
 
-/// AIFF → float32 WAV：symphonia 解码（移动端 ExoPlayer 无 AIFF 解码器）。
 fn decode_aiff_to_wav(src: &Path, out: &Path) -> Result<(), String> {
     use symphonia::core::audio::SampleBuffer;
     use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
@@ -209,7 +186,6 @@ fn decode_aiff_to_wav(src: &Path, out: &Path) -> Result<(), String> {
         let mut format = probed.format;
 
         let mut out_file = fs::File::create(&tmp).map_err(|e| e.to_string())?;
-        // 先写占位头，流式写完数据后回写真实长度
         write_wav_header(&mut out_file, channels, sample_rate, 32, true, 0)
             .map_err(|e| e.to_string())?;
 
@@ -282,7 +258,6 @@ fn decode_aiff_to_wav(src: &Path, out: &Path) -> Result<(), String> {
     }
 }
 
-/// APE（Monkey's Audio）：逐帧解码为交错 LE PCM 字节，直接写入 WAV。
 fn decode_ape(src: &Path, out: &Path) -> Result<(), String> {
     let mut file = fs::File::open(src).map_err(|e| e.to_string())?;
     let start = file
@@ -324,7 +299,6 @@ fn decode_ape(src: &Path, out: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// WV（WavPack）：wavicle 整流解码（float 输出已归一，int 输出按位深截写）。
 fn decode_wv(src: &Path, out: &Path) -> Result<(), String> {
     let bytes = fs::read(src).map_err(|e| e.to_string())?;
     let decoded = wavicle::decode_stream(&bytes).map_err(|e| format!("WV 解码失败：{e}"))?;
@@ -351,8 +325,6 @@ fn decode_wv(src: &Path, out: &Path) -> Result<(), String> {
     )
     .map_err(|e| e.to_string())?;
 
-    // wavicle 样本统一放 i32：整型流为按位深的原始值（可能带符号扩展），
-    // 浮点流为 f32 的位模式。
     let mut buf = Vec::with_capacity(decoded.samples.len() * bytes_per_sample);
     for v in &decoded.samples {
         let le = v.to_le_bytes();
@@ -368,7 +340,6 @@ fn decode_wv(src: &Path, out: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// 写 44 字节标准 WAV 头（PCM=1 / IEEE float=3）。
 fn write_wav_header<W: Write>(
     w: &mut W,
     channels: u16,
@@ -399,7 +370,6 @@ fn write_wav_header<W: Write>(
     Ok(())
 }
 
-/// 缓存键：FNV-1a 64 位（路径 + 文件长度），十六进制。
 fn cache_key(path: &str, len: u64) -> String {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for byte in path.as_bytes() {
@@ -424,12 +394,12 @@ mod tests {
         assert_eq!(&buf[0..4], b"RIFF");
         assert_eq!(&buf[8..12], b"WAVE");
         assert_eq!(&buf[12..16], b"fmt ");
-        assert_eq!(&buf[20..22], &1u16.to_le_bytes()); // PCM
-        assert_eq!(&buf[22..24], &2u16.to_le_bytes()); // channels
+        assert_eq!(&buf[20..22], &1u16.to_le_bytes());
+        assert_eq!(&buf[22..24], &2u16.to_le_bytes());
         assert_eq!(u32::from_le_bytes(buf[24..28].try_into().unwrap()), 44100);
         assert_eq!(u32::from_le_bytes(buf[28..32].try_into().unwrap()), 44100 * 4);
-        assert_eq!(&buf[32..34], &4u16.to_le_bytes()); // block align
-        assert_eq!(&buf[34..36], &16u16.to_le_bytes()); // bits
+        assert_eq!(&buf[32..34], &4u16.to_le_bytes());
+        assert_eq!(&buf[34..36], &16u16.to_le_bytes());
         assert_eq!(&buf[36..40], b"data");
         assert_eq!(u32::from_le_bytes(buf[40..44].try_into().unwrap()), 1000);
     }
@@ -438,7 +408,7 @@ mod tests {
     fn wav_header_float_format() {
         let mut buf = Vec::new();
         write_wav_header(&mut buf, 2, 44100, 32, true, 1000).unwrap();
-        assert_eq!(&buf[20..22], &3u16.to_le_bytes()); // IEEE float
+        assert_eq!(&buf[20..22], &3u16.to_le_bytes());
     }
 
     #[test]
@@ -453,7 +423,6 @@ mod tests {
 
     #[test]
     fn fnv_reference_vector() {
-        // FNV-1a 64 标准测试向量
         let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
         for byte in b"a" {
             hash ^= u64::from(*byte);

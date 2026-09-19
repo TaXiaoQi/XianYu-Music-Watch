@@ -8,8 +8,6 @@ import '../../core/watch_fit.dart';
 import '../../link/link_provider.dart';
 import '../../link/rfcomm_client.dart';
 
-/// 设备选择页：列出系统已配对蓝牙设备，点选即连接并持久化。
-/// 首次进入若无权限，先引导授予「附近设备」权限。表冠滚动设备列表。
 class PairView extends ConsumerStatefulWidget {
   const PairView({super.key});
 
@@ -33,13 +31,12 @@ class _PairViewState extends ConsumerState<PairView> {
     _rotarySub = rotaryEvents.listen(_onRotary);
   }
 
-  /// 表冠滚动设备列表：连续位移跟手（内容页无档位网格，不吸附不振动）。
   void _onRotary(RotaryEvent event) {
     if (!mounted || !_scroll.hasClients) return;
     if (ModalRoute.of(context)?.isCurrent != true) return;
     final dir = event.direction == RotaryDirection.clockwise ? 1.0 : -1.0;
     final m = (event.magnitude ?? 48).clamp(0.0, 64.0).toDouble();
-    if (dir * _rotaryAcc < 0) _rotaryAcc = 0; // 换向清账
+    if (dir * _rotaryAcc < 0) _rotaryAcc = 0;
     _rotaryAcc += dir * m;
     final delta = _rotaryAcc * 0.6;
     _rotaryAcc = 0;
@@ -78,7 +75,6 @@ class _PairViewState extends ConsumerState<PairView> {
 
   Future<void> _requestPermission() async {
     await ref.read(linkControllerProvider.notifier).requestBluetoothPermission();
-    // 授予后重载；拒绝则维持提示。
     await Future<void>.delayed(const Duration(milliseconds: 400));
     await _reload();
   }
@@ -89,7 +85,6 @@ class _PairViewState extends ConsumerState<PairView> {
     return Scaffold(
       body: SafeArea(
         child: Padding(
-          // 屏径等比缩放适配。
           padding: EdgeInsets.symmetric(horizontal: 20 * s, vertical: 8 * s),
           child: Column(
             children: [

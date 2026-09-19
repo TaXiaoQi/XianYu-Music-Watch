@@ -4,17 +4,12 @@ use rusqlite::{params, OptionalExtension};
 use std::sync::OnceLock;
 use uuid::Uuid;
 
-/// 密码安全存储抽象（桌面端为系统 Keychain，移动端为 [`NoopSecretStore`]）。
-///
-/// 移动端默认使用 [`NoopSecretStore`]：密码保留在数据库 `password` 字段，
-/// 不迁移到系统钥匙串，避免引入平台敏感依赖。
 pub(crate) trait SecretStore: Send + Sync {
     fn read(&self, source_id: &str) -> Option<String>;
     fn write(&self, source_id: &str, password: &str) -> Result<(), String>;
     fn delete(&self, source_id: &str);
 }
 
-/// 无操作存储：读写均不落盘，密码由数据库字段承载。
 pub(crate) struct NoopSecretStore;
 
 impl SecretStore for NoopSecretStore {

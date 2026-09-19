@@ -1,9 +1,3 @@
-// url_resolver.rs - LX 音源封面获取与 URL 缓存
-//
-// 播放直链解析由 Dart 编排层直接驱动插件引擎（对齐桌面端 lxUrlResolver 架构），
-// 本模块不再承担 URL 解析（原公共 API 代理已失效，2026-09-04 移除）。
-//
-// 支持的音源：kw / kg / tx / wy / mg
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -20,7 +14,6 @@ pub struct LxUrlSongInfo {
     pub source: String,
     pub hash: Option<String>,
     pub name: Option<String>,
-    // 保留字段：仅随源插件 payload 解析，暂未消费
     #[allow(dead_code)]
     pub singer: Option<String>,
     #[allow(dead_code)]
@@ -32,7 +25,6 @@ pub struct LxUrlSongInfo {
     pub str_media_mid: Option<String>,
     #[allow(dead_code)]
     pub song_id: Option<serde_json::Value>,
-    /// 音质 → { size, hash } 映射（KG 使用 hash 而非 songmid 解析 URL）
     #[serde(rename = "_types", default)]
     pub types: Option<HashMap<String, LxTypeEntry>>,
 }
@@ -46,32 +38,27 @@ pub struct LxTypeEntry {
 
 // ==================== URL Cache ====================
 
-/// URL 缓存条目：存储解析后的 URL 和过期时间
 struct CacheEntry {
     url: String,
     expires_at: Instant,
     last_access: Instant,
 }
 
-/// 全局 URL 缓存，TTL 10 分钟
 static URL_CACHE: OnceLock<Arc<RwLock<HashMap<String, CacheEntry>>>> = OnceLock::new();
 
 fn url_cache() -> &'static Arc<RwLock<HashMap<String, CacheEntry>>> {
     URL_CACHE.get_or_init(|| Arc::new(RwLock::new(HashMap::new())))
 }
 
-const URL_CACHE_TTL_SECS: u64 = 600; // 10 分钟
-/// 缓存硬上限：过期清理后仍超容量时，按 LRU（最久未访问）淘汰
+const URL_CACHE_TTL_SECS: u64 = 600;
 const URL_CACHE_MAX_ENTRIES: usize = 500;
 
-/// 淘汰过期与超容量条目：先 `retain` 未过期项，再按 `last_access` 升序移除最旧条目直至不超上限
 fn evict_url_cache(cache: &mut HashMap<String, CacheEntry>, now: Instant) {
     cache.retain(|_, e| e.expires_at > now);
     let excess = cache.len().saturating_sub(URL_CACHE_MAX_ENTRIES);
     if excess == 0 {
         return;
     }
-    // 收集并按访问时间排序，淘汰最久未访问的 excess 项
     let mut keys: Vec<(String, Instant)> =
         cache.iter().map(|(k, e)| (k.clone(), e.last_access)).collect();
     keys.sort_unstable_by_key(|(_, t)| *t);
@@ -87,9 +74,7 @@ static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 fn http_client() -> &'static reqwest::Client {
     HTTP_CLIENT.get_or_init(|| {
         reqwest::Client::builder()
-            // SSRF 防护：每个跳转目标都需通过公网校验
             .redirect(crate::security::ssrf::ssrf_redirect_policy())
-            // DNS pinning：连接复用校验时刻已钉住的公网 IP，杜绝 rebinding TOCTOU
             .dns_resolver(crate::security::ssrf::pinned_dns_resolver())
             .build()
             .expect("failed to build url_resolver reqwest client")
@@ -98,7 +83,6 @@ fn http_client() -> &'static reqwest::Client {
 
 // ==================== Cover URL Resolution ====================
 
-/// 通过 HTTP 请求获取文本响应（用于 KW 封面 URL）
 async fn http_get_text(url: &str, headers: &[(&str, &str)]) -> Result<(u16, String), String> {
     let client = http_client();
 
@@ -139,26 +123,20 @@ async fn http_post_json(
     serde_json::from_str(&body_text).map_err(|e| format!("Invalid JSON: {}", e))
 }
 
-/// 将 kuwo 封面 URL 归一化为 https + img3.kuwo.cn 域名
 fn normalize_kuwo_cover_url(url: &str) -> Option<String> {
     let url = url.trim();
     if url.is_empty() || !url.starts_with("http") {
         return None;
     }
     let url = url.replace("http://", "https://");
-    // img1.kwcdn 部分网络不可达/证书异常，统一改写到 img3.kuwo.cn
-    // 注意替换整段域名，否则 img1.kwcdn.kuwo.cn 会被替换成 img3.kuwo.kuwo.cn（无效域名）
     let url = url
         .replace("https://img1.kwcdn.kuwo.cn", "https://img3.kuwo.cn")
         .replace("https://img.kuwo.cn", "https://img3.kuwo.cn");
     Some(url)
 }
 
-/// 网易云专辑封面缓存 key 前缀（复用 URL_CACHE，与播放 URL 隔离避免碰撞）
 const WY_ALBUM_COVER_PREFIX: &str = "wy_album_cover";
-/// 网易云专辑接口对并发请求风控严格（code:-462），两次专辑请求至少间隔的时长
 const WY_ALBUM_FETCH_INTERVAL: Duration = Duration::from_millis(250);
-/// 全局串行锁：并发补封面时逐个请求专辑接口，避免集群突发触发 -462 风控
 static WY_ALBUM_FETCH_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 
 async fn get_cached_wy_album_cover(album_id: &str) -> Option<String> {
@@ -189,13 +167,6 @@ async fn set_cached_wy_album_cover(album_id: &str, cover: String) {
     evict_url_cache(&mut cache, now);
 }
 
-/// 获取落雪 LX 音源的封面图片 URL
-///
-/// - kw: 通过 artistpicserver 获取
-/// - kg: 通过 media.store.kugou.com 获取
-/// - tx: 直接构造 URL
-/// - wy: 通过 music.163.com API 获取
-/// - mg: 不支持（返回 None）
 pub async fn get_lx_cover_url(song_info: &LxUrlSongInfo) -> Option<String> {
     let source = song_info.source.as_str();
 
@@ -312,9 +283,6 @@ pub async fn get_lx_cover_url(song_info: &LxUrlSongInfo) -> Option<String> {
         }
 
         "wy" => {
-            // 网易云搜索接口已不再返回 album.picUrl（只给超大整数 picId，JSON 解析后丢精度），
-            // song/detail 接口现被限流返回 405。专辑接口 /api/album/{id}?ext=true 稳定返回 picUrl，
-            // 且搜索结果中的 album.id 是可靠的安全整数，故优先走专辑接口。
             let album_id: String = song_info
                 .album_id
                 .as_ref()
@@ -332,9 +300,6 @@ pub async fn get_lx_cover_url(song_info: &LxUrlSongInfo) -> Option<String> {
                 ("Cookie", "MUSIC_A=1"),
             ];
 
-            // 优先专辑接口（稳定）。先查同专辑缓存，避免同一张专辑被重复请求；
-            // 缓存未命中时通过全局串行锁逐个请求，并保证两次请求留有间隔，
-            // 规避网易云对并发请求的风控（code:-462）。
             if !album_id.is_empty() {
                 if let Some(cached) = get_cached_wy_album_cover(&album_id).await {
                     if !cached.is_empty() {
@@ -345,7 +310,6 @@ pub async fn get_lx_cover_url(song_info: &LxUrlSongInfo) -> Option<String> {
                     .get_or_init(|| tokio::sync::Mutex::new(()))
                     .lock()
                     .await;
-                // 拿到锁后再查一次缓存（前一个持锁者可能已填充）
                 if let Some(cached) = get_cached_wy_album_cover(&album_id).await {
                     if !cached.is_empty() {
                         return Some(cached);
@@ -370,7 +334,6 @@ pub async fn get_lx_cover_url(song_info: &LxUrlSongInfo) -> Option<String> {
                 }
             }
 
-            // 专辑接口失败时回退 song/detail（可能被限流）
             let url = format!(
                 "https://music.163.com/api/song/detail/?id={}&ids=%5B{}%5D",
                 song_info.songmid, song_info.songmid
@@ -399,13 +362,11 @@ pub async fn get_lx_cover_url(song_info: &LxUrlSongInfo) -> Option<String> {
 
 // ==================== FRB 包装层调用的辅助命令 ====================
 
-/// 获取 LX 音源封面 URL（由 api 层包装后暴露给 Dart）
 #[allow(dead_code)]
 pub async fn get_lx_cover(song_info: LxUrlSongInfo) -> Result<Option<String>, String> {
     Ok(get_lx_cover_url(&song_info).await)
 }
 
-/// 清除 URL 缓存（由 api 层包装后暴露给 Dart）
 #[allow(dead_code)]
 pub async fn clear_lx_url_cache() -> Result<(), String> {
     let mut cache = url_cache().write().await;
@@ -415,7 +376,6 @@ pub async fn clear_lx_url_cache() -> Result<(), String> {
 
 // ==================== Source Fallback（对齐桌面端换源命令） ====================
 
-/// 换源结果：匹配到的歌曲信息（URL 由 Dart 插件编排层解析）
 #[derive(Serialize, Clone, Debug)]
 pub struct AlternativeSourceResult {
     pub source: String,
@@ -434,13 +394,10 @@ pub struct AlternativeSourceResult {
     pub lx_types: Option<HashMap<String, LxTypeEntry>>,
 }
 
-/// 平台尝试优先级（kw 优先，与落雪默认顺序一致）
 const SOURCE_PRIORITY: &[&str] = &["kw", "tx", "wy", "kg", "mg"];
 
-/// 时长匹配容差（秒）
 const DURATION_TOLERANCE_SEC: f64 = 5.0;
 
-/// 归一化歌名：trim + toLowerCase + 移除全部空白/标点
 fn normalize_name(name: &str) -> String {
     name.trim()
         .to_lowercase()
@@ -453,7 +410,6 @@ fn normalize_name(name: &str) -> String {
         .collect()
 }
 
-/// 拆分歌手名：支持 、,/& 等分隔符，返回小写数组
 fn split_artists(singer: &str) -> Vec<String> {
     singer
         .split(|c| matches!(c, '、' | ',' | '/' | '&'))
@@ -463,7 +419,6 @@ fn split_artists(singer: &str) -> Vec<String> {
         .collect()
 }
 
-/// 判断两个歌手集合是否有交集
 fn artists_intersect(a: &[String], b: &[String]) -> bool {
     if a.is_empty() || b.is_empty() {
         return false;
@@ -472,16 +427,13 @@ fn artists_intersect(a: &[String], b: &[String]) -> bool {
     a.iter().any(|x| set_b.contains(x))
 }
 
-/// 将 interval 字符串（"mm:ss" 或纯秒数）解析为秒数
 fn parse_interval_to_seconds(interval: &str) -> f64 {
     if interval.is_empty() {
         return 0.0;
     }
-    // 尝试纯数字
     if let Ok(secs) = interval.parse::<f64>() {
         return secs;
     }
-    // mm:ss 或 hh:mm:ss
     let parts: Vec<f64> = interval
         .split(':')
         .filter_map(|p| p.trim().parse::<f64>().ok())
@@ -492,11 +444,6 @@ fn parse_interval_to_seconds(interval: &str) -> f64 {
     parts.iter().fold(0.0, |acc, n| acc * 60.0 + n)
 }
 
-/// 判断搜索结果是否匹配原歌曲
-///
-/// 标题：归一化相等，或双方长度 ≥3 时互相包含（feat./混音版等带后缀场景）；
-/// 歌手：有交集（避免同名异唱误命中）；
-/// 时长：±5s 辅助校验（未知则跳过）。
 fn is_match(
     item: &crate::music::lx_search::LxSearchItem,
     target_name: &str,
@@ -511,14 +458,12 @@ fn is_match(
     if !title_matched {
         return false;
     }
-    // 原曲歌手已知时要求交集；未知时仅靠歌名+时长
     if !target_artists.is_empty() {
         let item_artists = split_artists(&item.singer);
         if !artists_intersect(target_artists, &item_artists) {
             return false;
         }
     }
-    // 时长辅助校验
     if target_duration > 0.0 {
         let item_duration = parse_interval_to_seconds(&item.interval);
         if item_duration > 0.0 && (item_duration - target_duration).abs() > DURATION_TOLERANCE_SEC {
@@ -528,12 +473,10 @@ fn is_match(
     true
 }
 
-/// 从歌手字段提取首个有效歌手名
 fn extract_primary_artist(artist: &str) -> String {
     if artist.is_empty() || artist == "未知歌手" {
         return String::new();
     }
-    // 取第一个歌手
     let first = artist
         .split(|c| matches!(c, '、' | ',' | '/' | '&'))
         .next()
@@ -545,15 +488,6 @@ fn extract_primary_artist(artist: &str) -> String {
     trimmed.to_string()
 }
 
-/// [项4 源回退集中 · 双端通用] 查找替代落雪音源
-///
-/// 当 lx:// 歌曲在某个音源起播失败时，在其余落雪平台搜索同名同歌手的歌曲。
-/// 匹配规则：标题归一化相等/互相包含 + 歌手有交集 + 时长接近（±5s 辅助）。
-/// 搜索策略：串行（按平台优先级 kw > tx > wy > kg > mg），每平台取前 10 条
-/// 逐一匹配，找到即返回。
-///
-/// 直链解析不在本函数内完成：URL 由 Dart 插件编排层（plugin_engine.dart）
-/// 按其缓存与回退策略解析。
 pub async fn find_alternative_lx_source(
     song_name: String,
     song_artist: String,
@@ -565,7 +499,6 @@ pub async fn find_alternative_lx_source(
         return Ok(None);
     }
 
-    // 构造搜索关键词
     let primary_artist = extract_primary_artist(&song_artist);
     let keyword = if primary_artist.is_empty() {
         song_name.clone()
@@ -577,7 +510,6 @@ pub async fn find_alternative_lx_source(
     let failed_set: std::collections::HashSet<&str> =
         failed_sources.iter().map(|s| s.as_str()).collect();
 
-    // 按优先级串行搜索剩余平台
     for &source in SOURCE_PRIORITY {
         if failed_set.contains(source) {
             continue;
@@ -586,11 +518,10 @@ pub async fn find_alternative_lx_source(
         let items = match crate::music::lx_search::lx_search(source, &keyword, 10).await {
             Ok(items) => items,
             Err(_) => {
-                continue; // 单个平台失败不中断整体流程
+                continue;
             }
         };
 
-        // 在搜索结果中查找首个匹配项
         for item in &items {
             if item.source != source {
                 continue;

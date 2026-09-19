@@ -11,7 +11,6 @@ import '../common/stepped_list.dart';
 import '../online/search_page.dart';
 import 'local_music_hub.dart';
 
-/// 独立模式本地库页：权限引导 → 扫描 → 圆屏歌曲列表 → 点歌进播放页。
 class LocalLibraryView extends ConsumerStatefulWidget {
   const LocalLibraryView({super.key});
 
@@ -22,7 +21,6 @@ class LocalLibraryView extends ConsumerStatefulWidget {
 class _LocalLibraryViewState extends ConsumerState<LocalLibraryView> {
   bool _scanning = false;
 
-  /// 请求本地音乐读取权限（Android 13+ READ_MEDIA_AUDIO，12 及以下存储读）。
   Future<bool> _ensurePermission() async {
     if (await Permission.audio.request().isGranted) return true;
     if (await Permission.storage.request().isGranted) return true;
@@ -39,7 +37,6 @@ class _LocalLibraryViewState extends ConsumerState<LocalLibraryView> {
     }
     setState(() => _scanning = true);
     try {
-      // 尚无扫描目录时自动加入默认音乐目录，之后全量扫描。
       final folders = await ref.read(scanFoldersProvider.future);
       if (folders.isEmpty) {
         const musicDir = '/storage/emulated/0/Music';
@@ -65,17 +62,14 @@ class _LocalLibraryViewState extends ConsumerState<LocalLibraryView> {
   Widget build(BuildContext context) {
     final lib = ref.watch(libraryProvider);
     final songs = lib.songs;
-    final s = context.watchScale(); // 屏径等比缩放
+    final s = context.watchScale();
 
     if (songs.isEmpty) {
-      // Scaffold 提供 Material 祖先：裸路由里没有它，Text 会渲染成
-      // Flutter 标志性的「双黄线」默认样式。
       return Scaffold(
         backgroundColor: Colors.black,
         body: SafeArea(child: _EmptyView(scanning: _scanning, onScan: _scan)),
       );
     }
-    // 功能页同款圆屏阶梯列表：一屏约三行，焦点行最大铺满中部。
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
@@ -97,7 +91,6 @@ class _LocalLibraryViewState extends ConsumerState<LocalLibraryView> {
             ),
           );
         }
-        // 局部变量改名为 song，避免遮蔽缩放系数 s。
         final song = songs[i - 1];
         return SteppedTile(
           leading: ClipOval(
@@ -117,7 +110,6 @@ class _LocalLibraryViewState extends ConsumerState<LocalLibraryView> {
           onTap: () async {
             await ref.read(libraryProvider.notifier).playFrom(i);
             if (!context.mounted) return;
-            // 网易云式：点歌后返回 hub 并自动切到播放页。
             ref.read(localHubPageProvider.notifier).state = 1;
             Navigator.of(context).pop();
           },
@@ -137,7 +129,7 @@ class _EmptyView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final s = context.watchScale(); // 屏径等比缩放
+    final s = context.watchScale();
     return Center(
       child: Padding(
         padding: EdgeInsets.all(24 * s),
@@ -187,7 +179,7 @@ class _SongIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final s = context.watchScale(); // 屏径等比缩放
+    final s = context.watchScale();
     return Container(
       color: const Color(0xFF1A1A1E),
       child: Icon(

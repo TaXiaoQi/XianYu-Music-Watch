@@ -1,10 +1,3 @@
-//! SSDP（简单服务发现协议，UPnP 设备发现层；双端同步一份代码，勿在本端私自改动）。
-//!
-//! - 发送端（DMC）：M-SEARCH 搜索局域网 MediaRenderer。
-//! - 接收端（DMR）：NOTIFY alive/byebye 广播 + 监听 1900 端口单播应答 M-SEARCH。
-//!
-//! 全程使用 socket2 设置 SO_REUSEADDR，与 Windows SSDP Discovery 服务、
-//! 其它投屏 App 常驻的 1900 端口共存。
 
 use socket2::{Domain, Protocol, Socket, Type};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
@@ -17,7 +10,6 @@ pub const SSDP_MULTICAST_V4: Ipv4Addr = Ipv4Addr::new(239, 255, 255, 250);
 pub const SSDP_PORT: u16 = 1900;
 pub const ALIVE_MAX_AGE: &str = "1800";
 
-/// 组播 socket 绑定（两端复用；SO_REUSEADDR 允许多进程共用 1900）。
 fn bind_multicast_socket() -> std::io::Result<Socket> {
     let sock = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
     sock.set_reuse_address(true)?;
@@ -25,9 +17,6 @@ fn bind_multicast_socket() -> std::io::Result<Socket> {
     let _ = sock.set_reuse_port(true);
     let bind_addr = SocketAddr::from((Ipv4Addr::UNSPECIFIED, SSDP_PORT));
     sock.bind(&bind_addr.into())?;
-    // 加入 SSDP 组播组：不加入则内核不会把控制点的 M-SEARCH 组播报文投递给本 socket
-    // （Windows 上尤其如此），DMR 将无法被主动搜索发现。加入失败不致命：仍可发 alive
-    // 广播、应答单播 M-SEARCH，仅主动搜索路径不可用。
     let _ = sock.join_multicast_v4(&SSDP_MULTICAST_V4, &Ipv4Addr::UNSPECIFIED);
     Ok(sock)
 }
@@ -38,7 +27,6 @@ fn tokio_udp_from_socket(sock: Socket) -> std::io::Result<UdpSocket> {
     UdpSocket::from_std(std_sock)
 }
 
-/// 从 SSDP 报文提取头部值（大小写不敏感）。
 fn header_value(msg: &str, name: &str) -> Option<String> {
     msg.lines()
         .skip(1)
@@ -52,7 +40,6 @@ fn header_value(msg: &str, name: &str) -> Option<String> {
         })
 }
 
-/// M-SEARCH 搜索局域网 DLNA 渲染器，返回去重后的 LOCATION 列表。
 pub async fn search_renderers(timeout_ms: u64) -> Vec<String> {
     let Ok(sock) = UdpSocket::bind("0.0.0.0:0").await else {
         return Vec::new();
@@ -68,7 +55,6 @@ pub async fn search_renderers(timeout_ms: u64) -> Vec<String> {
         "ST: ssdp:all\r\n",
     );
 
-    // 发两轮提高命中率；防火墙丢组播时至少一轮单播回包可达。
     for p in [&packet, &ssdp_all] {
         let _ = sock.send_to(p.as_bytes(), target).await;
     }
@@ -93,28 +79,22 @@ pub async fn search_renderers(timeout_ms: u64) -> Vec<String> {
                     }
                 }
             }
-            _ => break, // 超时或错误
+            _ => break,
         }
     }
     found
 }
 
-/// DMR 广播会话句柄：stop() 即下线（byebye 由任务内部发出）。
 pub struct SsdpAdvertiser {
     shutdown_tx: watch::Sender<bool>,
 }
 
 pub struct AdvertiseConfig {
     pub udn: String,
-    /// desc.xml 完整 URL。
     pub location: String,
 }
 
 impl SsdpAdvertiser {
-    /// 启动 alive 广播 + M-SEARCH 单播应答。
-    ///
-    /// socket 与常驻任务均在专用 runtime 上创建/运行（IO 资源与创建它的
-    /// runtime 绑定，不能跨 runtime 迁移），结果经 oneshot 回传调用方。
     pub async fn start(cfg: AdvertiseConfig) -> Result<Self, String> {
         let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -128,7 +108,6 @@ impl SsdpAdvertiser {
         Ok(Self { shutdown_tx })
     }
 
-    /// 发送 byebye 并结束广播（幂等）。
     pub fn stop(&self) {
         let _ = self.shutdown_tx.send(true);
     }
@@ -150,7 +129,6 @@ async fn run_advertiser(cfg: AdvertiseConfig, mut shutdown_rx: watch::Receiver<b
     let alive = alive_messages(&udn, &location);
     let byebye = byebye_messages(&udn);
 
-    // 启动连发 2 次 alive，加快被控制点发现。
     for _ in 0..2 {
         for msg in &alive {
             let _ = sock.send_to(msg.as_bytes(), target).await;
@@ -176,7 +154,6 @@ async fn run_advertiser(cfg: AdvertiseConfig, mut shutdown_rx: watch::Receiver<b
                     continue;
                 }
                 let Some(st) = header_value(&msg, "ST") else { continue };
-                // 只应答我们提供的服务类型。
                 let matched = st == "ssdp:all"
                     || st == "upnp:rootdevice"
                     || st == "urn:schemas-upnp-org:device:MediaRenderer:1"
@@ -191,7 +168,6 @@ async fn run_advertiser(cfg: AdvertiseConfig, mut shutdown_rx: watch::Receiver<b
                 } else {
                     format!("uuid:{udn}::{st}")
                 };
-                // MX 抖动：随机延迟 0~500ms 应答，避免风暴。
                 rand_delay().await;
                 let reply = format!(
                     "HTTP/1.1 200 OK\r\n\
@@ -207,7 +183,6 @@ async fn run_advertiser(cfg: AdvertiseConfig, mut shutdown_rx: watch::Receiver<b
         }
     }
 
-    // 下线广播。
     for msg in &byebye {
         let _ = sock.send_to(msg.as_bytes(), target).await;
     }
@@ -271,7 +246,6 @@ fn byebye_messages(udn: &str) -> Vec<String> {
 }
 
 async fn rand_delay() {
-    // 无 rand crate 依赖，用时间熵做 0~500ms 抖动。
     let ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.subsec_millis() % 500)
@@ -302,8 +276,6 @@ mod tests {
         assert!(msgs.iter().all(|m| m.contains("udn-1")));
     }
 
-    /// 回归：DMR 必须加入 SSDP 组播组，否则收不到控制点的 M-SEARCH，无法被主动发现。
-    /// 环境不支持（1900 被独占 / 无组播）时跳过，避免 CI 误报。
     #[tokio::test]
     async fn advertiser_answers_msearch_after_join() {
         let probe = match std::net::UdpSocket::bind("0.0.0.0:0") {
@@ -339,7 +311,7 @@ mod tests {
                         break;
                     }
                 }
-                Err(_) => continue, // 超时继续等（应答带 0~500ms 抖动）
+                Err(_) => continue,
             }
         }
         adv.stop();

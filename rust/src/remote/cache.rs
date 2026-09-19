@@ -7,7 +7,6 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
-// 移动端降档：手机存储有限，远程整文件缓存 2GB 足够（LRU 自动淘汰）
 pub(crate) const MAX_REMOTE_CACHE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const REMOTE_DOWNLOAD_ATTEMPTS: usize = 3;
 
@@ -22,11 +21,8 @@ pub(crate) struct RemoteStreamSource {
     pub url: String,
     pub username: Option<String>,
     pub password: Option<String>,
-    /// 自定义 User-Agent（在线直链防盗链常需要浏览器 UA）
     pub user_agent: Option<String>,
-    /// 自定义 Referer（部分音源防盗链校验来源）
     pub referer: Option<String>,
-    /// 插件返回的自定义请求头（如 Cookie、Referer 等防盗链 headers）
     pub headers: Option<std::collections::HashMap<String, String>>,
 }
 
@@ -204,7 +200,6 @@ pub(crate) async fn cache_remote_file(
     Ok(cache_path.to_string_lossy().into_owned())
 }
 
-/// 确保远程文件已缓存，返回缓存路径并回写 `songs.cache_path`。
 pub(crate) async fn ensure_cached_path(
     cache_root: &Path,
     db_conn: Arc<Mutex<rusqlite::Connection>>,

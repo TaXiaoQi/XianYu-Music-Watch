@@ -13,8 +13,6 @@ import '../common/stepped_list.dart';
 import '../online/plugin_manage_page.dart';
 import '../../plugin/plugin_provider.dart';
 
-/// 设置主页（导航页，参照移动端分类式设置）：分类入口点进二级页改
-/// 具体设置；主页与二级页都用居中阶梯列表适配圆屏 + 表冠逐档滚动。
 class SettingsView extends ConsumerWidget {
   const SettingsView({super.key});
 
@@ -78,7 +76,6 @@ class SettingsView extends ConsumerWidget {
     return _SteppedPage(title: '设置', rows: rows);
   }
 
-  /// 插件分类副标题：已启用数/总数（对齐移动端插件入口）。
   String _pluginSubtitle(WidgetRef ref) {
     final plugins = ref.watch(pluginManagerProvider).sources;
     if (plugins.isEmpty) return '未安装';
@@ -87,11 +84,9 @@ class SettingsView extends ConsumerWidget {
   }
 }
 
-/// 播放二级页：屏幕常亮 / 默认音量 / 播放模式 / 播放倍速。
 class _PlaybackPage extends ConsumerWidget {
   const _PlaybackPage();
 
-  /// 播放模式文案（0 顺序 / 1 单曲循环 / 2 随机，同播放页）。
   static const _playModeLabels = ['顺序循环', '单曲循环', '随机播放'];
 
   @override
@@ -191,12 +186,10 @@ class _PlaybackPage extends ConsumerWidget {
     ]);
   }
 
-  /// 倍速文案：1 → 1.0，1.25 → 1.25。
   static String _speedLabel(double v) =>
       v == v.truncateToDouble() ? v.toStringAsFixed(1) : v.toString();
 }
 
-/// 默认音量：滑杆点选（5% 步进），写设置即全链路生效。
 Future<void> _pickVolume(BuildContext context, AppSettings s) async {
   final container = ProviderScope.containerOf(context, listen: false);
   var value = s.volume.clamp(0.0, 1.0);
@@ -214,7 +207,6 @@ Future<void> _pickVolume(BuildContext context, AppSettings s) async {
   }
 }
 
-/// 播放模式：三选一（0 顺序 / 1 单曲循环 / 2 随机）。
 Future<void> _pickPlayMode(BuildContext context, AppSettings s) async {
   final container = ProviderScope.containerOf(context, listen: false);
   const labels = ['顺序循环', '单曲循环', '随机播放'];
@@ -229,7 +221,6 @@ Future<void> _pickPlayMode(BuildContext context, AppSettings s) async {
   }
 }
 
-/// 播放倍速：五档点选（与播放页「更多」面板一致）。
 Future<void> _pickSpeed(BuildContext context, AppSettings s) async {
   final container = ProviderScope.containerOf(context, listen: false);
   const steps = [0.75, 1.0, 1.25, 1.5, 2.0];
@@ -246,11 +237,9 @@ Future<void> _pickSpeed(BuildContext context, AppSettings s) async {
   }
 }
 
-/// 歌词二级页：翻译开关 / 字号档位 / 同步偏移。
 class _LyricsPage extends ConsumerWidget {
   const _LyricsPage();
 
-  /// 字号档位文案（0-3，同移动端 [24,28,32,36] 的档位语义）。
   static const _fontSizeLabels = ['小', '标准', '大', '特大'];
 
   @override
@@ -293,14 +282,11 @@ class _LyricsPage extends ConsumerWidget {
     ]);
   }
 
-  /// 偏移文案：+50ms / 0ms / -30ms。
   static String _offsetLabel(int v) =>
       v > 0 ? '+$v ms' : v < 0 ? '$v ms' : '0 ms';
 }
 
-/// 歌词字号：四档点选（小/标准/大/特大）。
 Future<void> _pickLyricFontSize(BuildContext context, AppSettings s) async {
-  // 跨 async 不能再用 context，先取容器。
   final container = ProviderScope.containerOf(context, listen: false);
   const labels = ['小', '标准', '大', '特大'];
   final v = await showFullPicker<int>(
@@ -314,9 +300,7 @@ Future<void> _pickLyricFontSize(BuildContext context, AppSettings s) async {
   }
 }
 
-/// 歌词同步偏移：滑杆 -100~+100ms（5ms 步进），正=歌词更晚（同移动端）。
 Future<void> _pickLyricOffset(BuildContext context, AppSettings s) async {
-  // 跨 async 不能再用 context，先取容器。
   final container = ProviderScope.containerOf(context, listen: false);
   var value = s.lyricOffsetMs.toDouble();
   final ok = await showFullSlider(
@@ -325,7 +309,7 @@ Future<void> _pickLyricOffset(BuildContext context, AppSettings s) async {
     initial: value,
     min: -100,
     max: 100,
-    divisions: 40, // 200/40 = 5ms 步进，同移动端
+    divisions: 40,
     label: (v) => v.round() > 0
         ? '+${v.round()} ms'
         : v.round() < 0
@@ -340,9 +324,7 @@ Future<void> _pickLyricOffset(BuildContext context, AppSettings s) async {
   }
 }
 
-/// 起播失败行为：自动换源 / 停止（同移动端 onlineFailureBehavior）。
 Future<void> _pickFailureBehavior(BuildContext context, AppSettings s) async {
-  // 跨 async 不能再用 context，先取容器。
   final container = ProviderScope.containerOf(context, listen: false);
   const options = [('autoswitch', '自动换源'), ('stop', '停止播放')];
   final v = await showFullPicker<String>(
@@ -358,9 +340,7 @@ Future<void> _pickFailureBehavior(BuildContext context, AppSettings s) async {
   }
 }
 
-/// 流缓存预算：关闭 / 100 / 200 / 500 MB（表端默认 200）。
 Future<void> _pickStreamCache(BuildContext context, AppSettings s) async {
-  // 跨 async 不能再用 context，先取容器。
   final container = ProviderScope.containerOf(context, listen: false);
   const options = [(0, '关闭'), (100, '100 MB'), (200, '200 MB'), (500, '500 MB')];
   final v = await showFullPicker<int>(
@@ -374,7 +354,6 @@ Future<void> _pickStreamCache(BuildContext context, AppSettings s) async {
   }
 }
 
-/// 清除流缓存：删除已落盘的在线音频缓存文件。
 Future<void> _clearStreamCache(BuildContext context) async {
   final sizeMB = (await StreamCache.instance.sizeBytes() / 1048576).round();
   await StreamCache.instance.clearAll();
@@ -387,7 +366,6 @@ Future<void> _clearStreamCache(BuildContext context) async {
   );
 }
 
-/// 本地库二级页：立即扫描 / 扫描格式 / 最短时长。
 class _LibraryPage extends ConsumerStatefulWidget {
   const _LibraryPage();
 
@@ -463,7 +441,6 @@ class _LibraryPageState extends ConsumerState<_LibraryPage> {
   }
 }
 
-/// 关于二级页。
 class _AboutPage extends ConsumerWidget {
   const _AboutPage();
 
@@ -481,13 +458,9 @@ class _AboutPage extends ConsumerWidget {
   }
 }
 
-/// 居中阶梯列表页骨架：滚动/表冠/阶梯效果由共享 SteppedListView 提供
-/// （与功能页同款：一屏约三行，焦点行最大铺满中部、上下行缩小变淡），
-/// 本骨架只叠加返回键浮层，rows 由宿主页传入，宿主重建即刷新。
 class _SteppedPage extends StatelessWidget {
   const _SteppedPage({this.title = '', required this.rows});
 
-  /// 表头标题（居中，One UI 系统设置同款）；传空则无表头。
   final String title;
 
   final List<Widget> rows;
@@ -506,7 +479,6 @@ class _SteppedPage extends StatelessWidget {
                   ? null
                   : PageTitleHeader(title, showBack: false),
             ),
-            // 返回键浮层：阶梯列表占满全屏，返回键固定悬浮左上角。
             Positioned(
               top: 2 * s,
               left: 2 * s,
@@ -519,7 +491,6 @@ class _SteppedPage extends StatelessWidget {
   }
 }
 
-/// 左上角悬浮返回键。
 Widget _backChip(double s) {
   return Material(
     color: Colors.white.withValues(alpha: 0.08),
@@ -538,10 +509,6 @@ Widget _backChip(double s) {
   );
 }
 
-/// 分类入口行：彩色圆图标 + 标题/副标题 + 箭头（移动端分类页风格，
-/// 分量对齐功能页大号行：44*s 圆标 + 16*s 标题）。
-/// 文字对齐整胶囊几何中线（与 SteppedTile 同款三层结构，用户校准：
-/// 图标贴左后文字不能跟着在剩余空间里偏移，否则整行重心偏移）。
 Widget _categoryRow({
   required double s,
   required Color color,
@@ -556,7 +523,6 @@ Widget _categoryRow({
       padding: EdgeInsets.symmetric(horizontal: 3 * s),
       child: Stack(
         children: [
-          // 文字层：对称预留 56s（盖住 44s 圆标 + 12s 缝）→ 中心严格居中。
           Positioned.fill(
             child: Center(
               child: Padding(
@@ -584,7 +550,6 @@ Widget _categoryRow({
               ),
             ),
           ),
-          // 图标层：贴胶囊左缘。
           Align(
             alignment: Alignment.centerLeft,
             child: Row(
@@ -600,7 +565,6 @@ Widget _categoryRow({
               ],
             ),
           ),
-          // 尾部层：贴胶囊右缘。
           Align(
             alignment: Alignment.centerRight,
             child: Icon(
@@ -615,9 +579,6 @@ Widget _categoryRow({
   );
 }
 
-/// 开关行：整行可点切换，Switch 靠右。
-/// 文字对齐整行几何中线（对称预留 56s 盖住 48s Switch 位——Expanded
-/// 剩余空间居中会把文字挤偏左，用户校准）。
 Widget _switchRow({
   required double s,
   required String title,
@@ -631,7 +592,6 @@ Widget _switchRow({
       padding: EdgeInsets.symmetric(horizontal: 3 * s),
       child: Stack(
         children: [
-          // 文字层：铺满整行后几何居中，不随右侧 Switch 偏移。
           Positioned.fill(
             child: Center(
               child: Padding(
@@ -659,7 +619,6 @@ Widget _switchRow({
               ),
             ),
           ),
-          // 尾部层：Switch 贴右缘（Stack 内可正常点击）。
           Align(
             alignment: Alignment.centerRight,
             child: SizedBox(
@@ -676,8 +635,6 @@ Widget _switchRow({
   );
 }
 
-/// 普通设置行：图标 + 标题/副标题 + 可选右侧值，整行可点。
-/// 文字对齐整胶囊几何中线（与 SteppedTile 同款三层结构，用户校准）。
 Widget _actionRow({
   required double s,
   required Widget icon,
@@ -692,7 +649,6 @@ Widget _actionRow({
       padding: EdgeInsets.symmetric(horizontal: 3 * s),
       child: Stack(
         children: [
-          // 文字层：对称预留 56s（盖住图标区 + 12s 缝）→ 中心严格居中。
           Positioned.fill(
             child: Center(
               child: Padding(
@@ -725,7 +681,6 @@ Widget _actionRow({
               ),
             ),
           ),
-          // 图标层：贴胶囊左缘。
           Align(
             alignment: Alignment.centerLeft,
             child: Row(
@@ -733,7 +688,6 @@ Widget _actionRow({
               children: [icon, SizedBox(width: 12 * s)],
             ),
           ),
-          // 尾部层：贴胶囊右缘。
           if (trailing != null)
             Align(alignment: Alignment.centerRight, child: trailing),
         ],
@@ -744,7 +698,6 @@ Widget _actionRow({
 
 Future<void> _pickScanFormats(BuildContext context, AppSettings s) async {
   final sc = context.watchScale();
-  // 跨 async 不能再用 context，先取容器。
   final container = ProviderScope.containerOf(context, listen: false);
   final selected = {...s.scanFormats};
   final ok = await showFullDialog<bool>(
@@ -782,7 +735,6 @@ Future<void> _pickScanFormats(BuildContext context, AppSettings s) async {
     ),
   );
   if (ok == true) {
-    // 至少保留一种格式，避免全关后扫描为空难以发现原因。
     final next = selected.isEmpty
         ? List<String>.from(kSupportedScanFormats)
         : selected.toList();
@@ -793,7 +745,6 @@ Future<void> _pickScanFormats(BuildContext context, AppSettings s) async {
 }
 
 Future<void> _pickMinDuration(BuildContext context, AppSettings s) async {
-  // 跨 async 不能再用 context，先取容器。
   final container = ProviderScope.containerOf(context, listen: false);
   const options = [(0, '不过滤'), (30, '30 秒以上'), (60, '1 分钟以上'), (120, '2 分钟以上')];
   final v = await showFullPicker<int>(
@@ -810,7 +761,6 @@ Future<void> _pickMinDuration(BuildContext context, AppSettings s) async {
 }
 
 Future<void> _pickQuality(BuildContext context, AppSettings s) async {
-  // 跨 async 不能再用 context，先取容器。
   final container = ProviderScope.containerOf(context, listen: false);
   const options = [('320k', '标准 320kbps'), ('flac', '无损 FLAC')];
   final v = await showFullPicker<String>(

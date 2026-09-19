@@ -388,7 +388,6 @@ static SPEAKER_PREFIX_RE: OnceLock<Regex> = OnceLock::new();
 static PARENTHETICAL_VOCAL_RE: OnceLock<Regex> = OnceLock::new();
 static LQE_LIKE_MARKER_RE: OnceLock<Regex> = OnceLock::new();
 
-/// 制作信息行（作词/作曲/编曲/演唱/混音等），不是可演唱歌词，应排除出主歌词。
 fn is_credit_line(text: &str) -> bool {
     let re = CREDIT_LINE_RE.get_or_init(|| {
         Regex::new(r"^(?:(?:作)?词|(?:作)?詞|曲|作曲|编曲|編曲|词曲|詞曲|原唱|演唱|歌手|制作(?:人)?|製作(?:人)?|出品|发行|發行|策划|策劃|统筹|統籌|监制|監製|导演|導演|混音|母带|母帶|录音|錄音|和声|和聲|翻唱|原曲|歌名|歌曲|专辑|專輯|标题|標題|调教|調教|调声|調聲|曲绘|曲繪|曲絵|绘图|繪圖|画师|畫師|视频|視頻|映像|动画|動畫|written\s+by|vocal|lyrics?|lyricist|composer|music|arrange(?:r|ment)?|producer|produced\s+by|mix|master(?:ing)?|recording|staff|pv|mv|movie|video|animation|illustration|illustrator)\s*[:：]").unwrap()
@@ -396,8 +395,6 @@ fn is_credit_line(text: &str) -> bool {
     re.is_match(text.trim())
 }
 
-/// 检测演唱者标签前缀（`A:`、`男:`、`v1:` 等），返回 (演唱者名, 去除前缀后的文本)。
-/// 排除制作信息行与 `http:` 等非演唱者标签。
 fn detect_speaker_prefix(text: &str) -> (Option<String>, String) {
     let trimmed = text.trim();
     if trimmed.is_empty() || is_credit_line(trimmed) {
@@ -426,7 +423,6 @@ fn detect_speaker_prefix(text: &str) -> (Option<String>, String) {
     (Some(name.to_string()), rest)
 }
 
-/// 整行被 `()` 或 `[]` 整体包裹 → 背景和声行，返回去除包裹后的文本。
 fn strip_whole_wrapped(text: &str) -> Option<String> {
     let trimmed = text.trim();
     let inner = if trimmed.starts_with('(') && trimmed.ends_with(')') {
@@ -451,7 +447,6 @@ fn contains_hangul(text: &str) -> bool {
     text.chars().any(is_hangul_char)
 }
 
-/// 判断括号内容是否为和声段（含明确和声标记，或为短内容且非已知标签）。
 fn is_vocal_parenthetical(content: &str) -> bool {
     let trimmed = content.trim();
     if trimmed.is_empty() {
@@ -478,8 +473,6 @@ fn is_vocal_parenthetical(content: &str) -> bool {
     false
 }
 
-/// 拆分主行内嵌的括号和声：`主唱 啦啦啦 (和声 哦哦哦)` → (主唱 啦啦啦, 和声 哦哦哦)。
-/// 假名/谚文括号通常是注音，跳过。
 fn split_parenthetical_vocal(text: &str) -> Option<(String, String)> {
     let re = PARENTHETICAL_VOCAL_RE
         .get_or_init(|| Regex::new(r"[（(]([^()（）\r\n]+)[)）]").unwrap());
@@ -523,8 +516,6 @@ fn split_parenthetical_vocal(text: &str) -> Option<(String, String)> {
     Some((main_text, duet_text))
 }
 
-/// 判断歌词是否呈现对唱/和声证据：存在演唱者标签前缀，或出现多个不同的括号和声段。
-/// 近似 BakaMusic 的"双歌手"门控——无对唱证据时不拆分括号，避免误伤普通括号歌词。
 fn has_duet_vocal_evidence(lines: &[ParsedLine]) -> bool {
     let mut speaker_count = 0;
     let mut vocal_contents = HashSet::new();
@@ -547,7 +538,6 @@ fn has_duet_vocal_evidence(lines: &[ParsedLine]) -> bool {
     speaker_count >= 2 || vocal_contents.len() >= 2
 }
 
-/// 对解析出的行做演唱者/和声标注：整行背景和声、演唱者前缀、括号和声拆分。
 fn annotate_line_vocals(lines: &mut Vec<ParsedLine>) {
     let mut expanded = Vec::with_capacity(lines.len());
     for mut line in lines.drain(..) {
@@ -567,7 +557,6 @@ fn annotate_line_vocals(lines: &mut Vec<ParsedLine>) {
     }
     *lines = expanded;
 
-    // 括号和声拆分仅在歌词存在对唱证据时进行（近似 BakaMusic 的双歌手门控）。
     if !has_duet_vocal_evidence(lines) {
         return;
     }
@@ -592,8 +581,6 @@ fn annotate_line_vocals(lines: &mut Vec<ParsedLine>) {
     *lines = split;
 }
 
-/// 解析 LRC 头部元数据标签：`[offset:±ms]`、`[ti:标题]`、`[ar:歌手]`、`[al:专辑]`、
-/// `[by:编辑者]`、`[re:制作]`、`[ve:版本]`。`offset` 为正表示歌词整体延后，负表示提前。
 fn extract_lyrics_meta(raw: &str) -> LyricsMeta {
     let mut meta = LyricsMeta::default();
     for line in raw.lines() {
@@ -640,7 +627,6 @@ fn extract_lyrics_meta(raw: &str) -> LyricsMeta {
     meta
 }
 
-/// 对解析出的行应用 `[offset:]` 时间偏移（含逐字词时间）。
 fn apply_lyrics_offset(lines: &mut [ParsedLine], offset_ms: i64) {
     if offset_ms == 0 {
         return;
@@ -657,9 +643,6 @@ fn apply_lyrics_offset(lines: &mut [ParsedLine], offset_ms: i64) {
     }
 }
 
-/// LRC 里的空时间行可能是上一句的收尾标记，也可能只是音源用来和翻译、罗马音
-/// 逐行对齐的占位。只有后面确实接着一段静默（≥4s）时才当作收尾采信，否则上一句
-/// 会在还在演唱时就被截断淡出。空行本身不进入渲染。
 fn finalize_lrc_blank_lines(lines: Vec<ParsedLine>) -> Vec<ParsedLine> {
     const BLANK_LINE_INTERLUDE_MS: u32 = 4000;
     let mut meaningful: Vec<ParsedLine> = Vec::with_capacity(lines.len());
@@ -671,7 +654,6 @@ fn finalize_lrc_blank_lines(lines: Vec<ParsedLine>) -> Vec<ParsedLine> {
         let Some(previous) = meaningful.last_mut() else {
             continue;
         };
-        // 上一句已有显式结束时间（非 LRC 默认 start+5000）则跳过
         if previous.end_ms != previous.start_ms.saturating_add(5000) {
             continue;
         }
@@ -691,7 +673,6 @@ fn finalize_lrc_blank_lines(lines: Vec<ParsedLine>) -> Vec<ParsedLine> {
     meaningful
 }
 
-/// 解析前的文本预处理：统一换行、解码 HTML 实体、还原转义换行、过滤注释行。
 fn preprocess_lyrics_text(raw: &str) -> String {
     let mut normalized = raw
         .replace('\u{FEFF}', "")
@@ -700,11 +681,8 @@ fn preprocess_lyrics_text(raw: &str) -> String {
 
     normalized = super::lyric_fetcher::decode_html_entities(&normalized);
 
-    // 部分来源（如 JSON 内嵌歌词）会把多行用字面量 \n 拼在单行里，还原为真实换行。
     normalized = normalized.replace("\\n", "\n");
 
-    // 过滤注释行：以 //、#、; 开头且不含时间戳的行属于注释/说明，直接丢弃。
-    // # 开头的十六进制颜色（如 #ffffff）不视为注释。
     let mut filtered = String::with_capacity(normalized.len());
     for line in normalized.split('\n') {
         let trimmed = line.trim_start();
@@ -725,7 +703,6 @@ fn preprocess_lyrics_text(raw: &str) -> String {
     filtered
 }
 
-/// 纯文本兜底：无任何时间戳时，按非空文本行合成均匀时间戳（每行 3 秒）。
 fn synthesize_plain_text_lines(raw: &str) -> Vec<ParsedLine> {
     let mut lines = Vec::new();
     let mut start_ms = 0u32;
@@ -758,8 +735,6 @@ fn synthesize_plain_text_lines(raw: &str) -> Vec<ParsedLine> {
     lines
 }
 
-/// 网易云逐字歌词 JSON 格式：`[{"t":1234,"c":[{"tx":"你"},{"tx":"好"}]}, ...]`。
-/// 每行含 `t`（起始毫秒）、`c`（逐字数组，`tx` 为文本），部分行带 `x`（结束毫秒）。
 fn parse_netease_json_word_lrc(raw: &str) -> Vec<ParsedLine> {
     let value: serde_json::Value = match serde_json::from_str(raw.trim()) {
         Ok(value) => value,
@@ -827,8 +802,6 @@ fn parse_netease_json_word_lrc(raw: &str) -> Vec<ParsedLine> {
     result
 }
 
-/// Lyricify Quick Export（LQE）与 LyricifyLines（LYL）共用行格式：`[start,end,type]text`。
-/// start/end 为毫秒，type 为演唱者类型（0 主唱、1 背景等）。头部行（如 `[Lyricify Quick Export]`）不含数字参数，自动跳过。
 fn parse_lqe_like(raw: &str) -> Vec<ParsedLine> {
     let marker_re = LQE_LIKE_MARKER_RE
         .get_or_init(|| Regex::new(r"^\[(\d+),(\d+)(?:,(\d+))?\]").unwrap());
@@ -1699,9 +1672,6 @@ fn collect_candidate(
         .iter()
         .any(|line| line.source_format == ParsedLineSourceFormat::EnhancedLrc)
     {
-        // parse_manual_lrc_like 可以同时解析普通 LRC 与 LX 构建出的 Enhanced LRC。
-        // 只要其中包含逐字 Enhanced LRC 行，候选排序就应按 EnhancedLrc 优先级参与竞争，
-        // 否则可能被 amll 的 eslrc/lrc 候选抢走，导致前端拿不到稳定的 words。
         ParsedLineSourceFormat::EnhancedLrc
     } else {
         source
@@ -1813,7 +1783,6 @@ fn parse_raw_lyrics(raw: &str) -> Vec<ParsedLine> {
         .map(|candidate| candidate.lines)
         .unwrap_or_default();
 
-    // 若没有任何带时间戳的候选，兜底按纯文本逐行合成均匀时间戳，保证歌词仍可展示。
     if lines.is_empty() {
         lines = synthesize_plain_text_lines(&normalized);
     }
@@ -3582,8 +3551,6 @@ fn build_hard_role_semantic_line_from_cluster(
                     (*first_line, *second_line)
                 };
 
-            // [修复] 落雪歌词中 lyric 与 tlyric 可能内容完全相同（如源未提供翻译，
-            // tlyric 复用了 lyric），此时不应把同一句再当翻译显示，避免主副词重复。
             if sanitize_line_text(&main_line.text) == sanitize_line_text(&translation_line.text) {
                 Some(build_hard_role_semantic_line(main_line, None, None))
             } else {
@@ -3595,7 +3562,6 @@ fn build_hard_role_semantic_line_from_cluster(
             }
         }
         [roman_line, main_line, translation_line] => {
-            // [修复] 同理：若主词与翻译文本完全相同，则丢弃重复翻译，仅保留主词+罗马音
             let translation = if sanitize_line_text(&main_line.text)
                 == sanitize_line_text(&translation_line.text)
             {
@@ -4127,12 +4093,6 @@ pub fn semantic_line_to_lyric_line(line: &SemanticLine) -> LyricLinePayload {
 }
 
 // ==================== LX 相对逐字格式 → Enhanced LRC 转换 ====================
-// 移植自桌面端 lxLyricsBuilder.ts 的 convertLxLyricToEnhancedLrc。
-//
-// LX 生态音源返回的 lxlyric 逐字标记是 <offset,duration>（相对行首的毫秒偏移 +
-// 时长），与 Enhanced LRC 的绝对时间戳 <mm:ss.mmm> 不同；酷我变体还带负值编码
-// （需按 [kuwo:xxx] 八进制标签解码系数）。parse_raw_lyrics 只认绝对时间戳，
-// 不转换的话逐字标记会被当普通文本，整行退化为行级 LRC，逐字静默丢失。
 
 static LX_WORD_TAG_RE: OnceLock<Regex> = OnceLock::new();
 static ABS_WORD_TAG_RE: OnceLock<Regex> = OnceLock::new();
@@ -4166,7 +4126,6 @@ fn ms_to_timestamp(ms: i64) -> String {
     )
 }
 
-/// 向下取整除法（与 JS Math.floor 语义一致，用于酷我解码）。
 fn floor_div(a: i64, b: i64) -> i64 {
     let q = a / b;
     if a % b != 0 && ((a < 0) != (b < 0)) {
@@ -4178,14 +4137,12 @@ fn floor_div(a: i64, b: i64) -> i64 {
 
 #[derive(Clone, Debug)]
 struct LxWordEntry {
-    /// 标记在正文中的字节区间（词文本位于标记前或标记后，取决于来源格式）。
     index: usize,
     end_index: usize,
     start_ms: i64,
     end_ms: i64,
 }
 
-/// 构建候选时间表并打分：score 越小越优（无效标记/时间倒退/负起点/偏离行首均罚分）。
 fn lx_build_candidate(
     word_times: &[(i64, i64, usize, usize)],
     line_start_ms: Option<i64>,
@@ -4207,8 +4164,6 @@ fn lx_build_candidate(
 
     for &(a, b, index, end_index) in word_times {
         let (word_start_ms, word_end_ms) = if kuwo_mode {
-            // 酷我 <a,b> 解码结果是"相对行首"的时间（首字 a+b=0 → 相对 0），
-            // 必须叠加行首，否则后续行的逐字时间戳远小于实际播放时间。
             let start = floor_div(a + b, kuwo_offset * 2).abs() + line_start_ms.unwrap_or(0);
             let end = floor_div(a - b, kuwo_offset2 * 2).abs() + start;
             (start, end)
@@ -4237,7 +4192,6 @@ fn lx_build_candidate(
         return None;
     }
 
-    // 规范化：首词起点钳到 ≥0，词序单调不减，结束不早于开始。
     let mut previous_start = 0i64;
     for (i, entry) in entries.iter_mut().enumerate() {
         let start = if i == 0 {
@@ -4265,7 +4219,6 @@ fn lx_build_candidate(
     Some((entries, score))
 }
 
-/// relative / kuwo 双候选打分选优；酷我特征强制 kuwo 解码。
 fn lx_select_entries(
     word_times: &[(i64, i64, usize, usize)],
     line_start_ms: Option<i64>,
@@ -4293,10 +4246,6 @@ fn lx_select_entries(
         .unwrap_or_default()
 }
 
-/// 用绝对时间戳重建正文。LX/KG 常见 <offset,duration>字（时间戳在字前）；
-/// 酷我原始格式 字<offset,duration>（时间戳在字后）。两种都归一为 <abs>字 序列，
-/// 行尾附结束标记——Enhanced LRC 要求正文以 <绝对时间> 开头，否则解析器
-/// 按普通 LRC 处理导致逐字丢失。
 fn lx_build_enhanced_body(body: &str, entries: &[LxWordEntry]) -> String {
     if entries.is_empty() {
         return String::new();
@@ -4306,8 +4255,6 @@ fn lx_build_enhanced_body(body: &str, entries: &[LxWordEntry]) -> String {
     let has_text_before_first_marker = body[..entries[0].index].trim().len() > 0;
 
     if has_text_before_first_marker {
-        // 酷我：字<时间>字<时间>。文本取自上一标记结束到当前标记开始，
-        // 时间用当前标记的起点。
         let mut last_end = 0usize;
         for entry in entries {
             let text = &body[last_end..entry.index];
@@ -4319,7 +4266,6 @@ fn lx_build_enhanced_body(body: &str, entries: &[LxWordEntry]) -> String {
         let tail = &body[last_end..];
         converted.push_str(tail);
     } else {
-        // 标准 LX：<时间>字<时间>字。文本取自当前标记结束到下一标记开始。
         for (i, entry) in entries.iter().enumerate() {
             let text_end = entries.get(i + 1).map_or(body.len(), |next| next.index);
             let text = &body[entry.end_index..text_end];
@@ -4329,7 +4275,6 @@ fn lx_build_enhanced_body(body: &str, entries: &[LxWordEntry]) -> String {
         }
     }
 
-    // 行结束标记：最后一个词的结束时间。
     converted.push_str(&format!(
         "<{}>",
         ms_to_timestamp(entries[entries.len() - 1].end_ms)
@@ -4337,13 +4282,9 @@ fn lx_build_enhanced_body(body: &str, entries: &[LxWordEntry]) -> String {
     converted
 }
 
-/// 把 LX 相对逐字格式（<offset,duration>字，酷我可带负值编码）转换为
-/// 绝对时间戳 Enhanced LRC。返回 None 表示没有可转换的行（调用方保留原文）。
 pub(crate) fn convert_lx_relative_to_enhanced(raw: &str) -> Option<String> {
     let lines: Vec<&str> = raw.split('\n').map(str::trim).collect();
 
-    // 酷我是文件级格式（不是逐行格式）：[kuwo:xxx] 八进制标签解码出两组系数；
-    // 或全文存在绝对值较大的负 <a,b>（标准 LX 的同步偏移只有 -几 ms）。
     let mut kuwo_offset = 1i64;
     let mut kuwo_offset2 = 1i64;
     let mut has_kuwo_tag = false;
@@ -4375,7 +4316,6 @@ pub(crate) fn convert_lx_relative_to_enhanced(raw: &str) -> Option<String> {
             continue;
         }
 
-        // 已是绝对时间戳的 Enhanced LRC 行：直接保留。
         if abs_word_tag_re().is_match(line) && !lx_word_tag_re().is_match(line) {
             result.push((*line).to_string());
             converted_count += 1;
@@ -4442,7 +4382,6 @@ pub(crate) fn convert_lx_relative_to_enhanced(raw: &str) -> Option<String> {
 }
 
 pub fn build_structured_lyrics_payload(raw_lyrics: String) -> StructuredLyricsPayload {
-    // LX 相对逐字格式先归一为绝对时间戳 Enhanced LRC，否则逐字静默丢失。
     let raw_lyrics = convert_lx_relative_to_enhanced(&raw_lyrics).unwrap_or(raw_lyrics);
     let parsed_lines = parse_raw_lyrics(&raw_lyrics);
     let meta = extract_lyrics_meta(&raw_lyrics);
@@ -4620,7 +4559,6 @@ mod tests {
 
     #[test]
     fn converts_lx_relative_word_tags_to_absolute_enhanced_lrc() {
-        // LX 音源真实产出：行时间戳 + 相对行首的 <offset,duration> 字标记。
         let converted = super::convert_lx_relative_to_enhanced(
             "[00:10.000]<0,300>其<300,300>实\n[00:12.000]<0,400>天<400,400>外",
         )
@@ -4638,11 +4576,9 @@ mod tests {
 
     #[test]
     fn converts_kuwo_style_word_tags_with_negative_encoding() {
-        // 酷我格式：时间戳在字后且 <a,b> 含负值编码，无行首时间戳。
         let converted = super::convert_lx_relative_to_enhanced("你<-9343,6229>好<-3105,6229>")
             .expect("should convert");
 
-        // 转换后必须是绝对时间戳 Enhanced LRC（正文以 <mm:ss.mmm> 开头）。
         assert!(converted.starts_with("[00:"));
         assert!(super::abs_word_tag_re().is_match(&converted));
         assert!(converted.contains("你"));
@@ -4651,7 +4587,6 @@ mod tests {
 
     #[test]
     fn structured_payload_keeps_words_for_lx_relative_format() {
-        // 端到端：LX 相对格式直达解析入口，逐字数据不得丢失。
         let payload = build_structured_lyrics_payload(
             [
                 "[00:10.000]<0,300>其<300,300>实",
@@ -4676,7 +4611,6 @@ mod tests {
 
     #[test]
     fn plain_lrc_passes_through_lx_converter_untouched() {
-        // 无 <a,b> 相对标记的普通 LRC 不应被改写。
         assert_eq!(
             super::convert_lx_relative_to_enhanced("[00:01.000]普通歌词行"),
             None
@@ -4779,7 +4713,6 @@ mod tests {
 
     #[test]
     fn hard_role_rules_deduplicate_identical_main_and_translation() {
-        // 模拟落雪歌词 lyric 与 tlyric 内容完全相同（源未提供真实翻译）
         let payload = build_structured_lyrics_payload(
             ["[00:01.000]相同歌词", "[00:01.000]相同歌词"].join("\n"),
         );
@@ -4792,7 +4725,6 @@ mod tests {
 
     #[test]
     fn hard_role_rules_keep_different_main_and_translation() {
-        // 真实翻译场景：lyric 与 tlyric 不同，应保留翻译
         let payload =
             build_structured_lyrics_payload(["[00:01.000]Hello", "[00:01.000]你好"].join("\n"));
 

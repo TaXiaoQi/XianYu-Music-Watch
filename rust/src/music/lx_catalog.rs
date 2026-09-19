@@ -1,12 +1,3 @@
-// lx_catalog.rs - LX 音源目录搜索（歌单）+ 歌单曲目（Rust 实现）
-//
-// 移植自桌面端 lxMusicSdkCatalog.ts（searchLxPlaylists / normalizeLxPlaylistResults）
-// 与 lxMusicSdkTracks.ts（lxGetPlaylistTracks / txSheetTracksWebFallback /
-// txSheetSearchDesktopFallback），支持 kw / kg / tx / wy / mg 五个音源。
-//
-// 歌单搜索返回归一化条目（id/title/cover/artist/计数 + 原始 raw），
-// 歌单曲目复用 lx_search.rs 的 LxSearchItem（types 留空，播放时统一由
-// url_resolver 按音源解析），与桌面端行为一致。
 
 use crate::music::lx_search::{
     decode_name, format_play_time, format_singer_name, http_get_json, http_post_json,
@@ -17,23 +8,18 @@ use serde::Serialize;
 use serde_json::Value;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// 归一化歌单条目（对应桌面 LxPlaylistSearchResult）。
 #[derive(Serialize, Clone, Debug)]
 pub struct LxPlaylistItem {
-    /// `{source}:playlist:{id}` 复合 ID
     pub id: String,
-    /// 平台原生歌单 ID（拉取曲目用）
     pub playlist_id: String,
     pub title: String,
     pub cover_url: Option<String>,
     pub artist: String,
     pub track_count: Option<u64>,
     pub play_count: Option<u64>,
-    /// 原始 API 响应条目
     pub raw: Value,
 }
 
-/// 歌单曲目拉取结果（对应桌面 { list, isEnd }）。
 #[derive(Serialize, Clone, Debug)]
 pub struct LxPlaylistTracksResult {
     pub list: Vec<LxSearchItem>,
@@ -62,7 +48,6 @@ const PLAYLIST_PLAY_COUNT_KEYS: &[&str] = &[
     "playCount", "playcount", "play_count", "playcnt", "listennum", "LISTENNUM",
 ];
 
-/// 顺序取多个候选键里的首个非 null/非空串值（对齐桌面 firstValue）。
 fn first_value<'a>(item: &'a Value, keys: &[&str]) -> Option<&'a Value> {
     for key in keys {
         if let Some(v) = item.get(*key) {
@@ -82,7 +67,6 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// 归一化封面 URL：协议相对补 https、http 升级 https。
 fn normalize_cover(v: &Value) -> Option<String> {
     let s = v.as_str()?;
     if s.is_empty() {
@@ -96,7 +80,6 @@ fn normalize_cover(v: &Value) -> Option<String> {
     Some(url)
 }
 
-/// 扁平化两层嵌套数组（对齐桌面 rawItems.flat(2)），过滤非对象项。
 fn flatten_items(raw: &Value) -> Vec<Value> {
     let mut out = Vec::new();
     let mut push_value = |v: &Value| {
@@ -123,7 +106,6 @@ fn flatten_items(raw: &Value) -> Vec<Value> {
     out
 }
 
-/// 归一化歌单搜索结果（对齐桌面 normalizeLxPlaylistResults）。
 fn normalize_playlists(source: &str, raw_items: &Value) -> Vec<LxPlaylistItem> {
     let mut results = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -195,9 +177,6 @@ fn strip_html_tags(s: &str) -> String {
     out
 }
 
-/// 酷我旧搜索接口（search.kuwo.cn/r.s）返回 Python 风格单引号 JSON，
-/// 标准解析必然失败。状态机转换（对齐桌面 parseLooseJson）：
-/// 字符串定界符 ' → "，字符串内的 " 转义，保留原有反斜杠转义。
 fn parse_loose_json(text: &str) -> Result<Value, String> {
     let mut out = String::with_capacity(text.len());
     let mut in_str = false;
@@ -232,18 +211,13 @@ fn parse_loose_json(text: &str) -> Result<Value, String> {
     serde_json::from_str(&out).map_err(|e| format!("loose JSON: {}", e))
 }
 
-/// 宽松 GET：标准 JSON 失败时尝试单引号状态机转换（对齐桌面 httpGetLooseJson）。
 async fn http_get_loose_json(
     url: &str,
     headers: &[(&str, &str)],
 ) -> Result<Value, String> {
-    // 复用 lx_search 的严格 GET；失败时再拉一次文本做宽松解析。
-    // 这里直接调用严格版：其错误信息含 HTTP 状态，无法区分解析失败，
-    // 因此宽松版仅在严格版返回「Invalid JSON」时用独立请求兜底。
     match http_get_json(url, headers).await {
         Ok(v) => Ok(v),
         Err(e) if e.starts_with("Invalid JSON") => {
-            // 重新请求一次拿原始文本做状态机转换（低频兜底路径，可接受）。
             let body = http_get_text(url, headers).await?;
             parse_loose_json(&body).map_err(|_| e)
         }
@@ -251,7 +225,6 @@ async fn http_get_loose_json(
     }
 }
 
-/// GET 原始文本（仅宽松解析兜底用）。
 async fn http_get_text(url: &str, headers: &[(&str, &str)]) -> Result<String, String> {
     use std::sync::OnceLock;
     static CLIENT: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
@@ -259,7 +232,6 @@ async fn http_get_text(url: &str, headers: &[(&str, &str)]) -> Result<String, St
         .get_or_init(|| {
             reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(15))
-                // DNS pinning：连接复用校验时刻已钉住的公网 IP，杜绝 rebinding TOCTOU
                 .dns_resolver(crate::security::ssrf::pinned_dns_resolver())
                 .build()
                 .map_err(|e| e.to_string())
@@ -281,7 +253,6 @@ async fn http_get_text(url: &str, headers: &[(&str, &str)]) -> Result<String, St
 
 // ==================== 歌单搜索 ====================
 
-/// LX 歌单搜索（对齐桌面 searchLxPlaylists）。
 pub async fn lx_search_playlists(
     source: &str,
     keyword: &str,
@@ -290,7 +261,6 @@ pub async fn lx_search_playlists(
 ) -> Result<Vec<LxPlaylistItem>, String> {
     match source {
         "kw" => {
-            // 优先新 API，被风控/空结果时回退旧 r.s 接口（单引号 JSON）。
             let new_url = format!(
                 "https://www.kuwo.cn/api/www/search/searchPlayListBykeyWord?key={}&pn={}&rn={}",
                 urlencode(keyword),
@@ -373,7 +343,6 @@ pub async fn lx_search_playlists(
             Ok(normalize_playlists(source, &list))
         }
         "tx" => {
-            // 新签名(Mobile)通道，被风控/降级时回退无签名 Desktop 通道（实测稳定）。
             let request_data = serde_json::json!({
                 "comm": {
                     "ct": "24", "cv": "4747474", "v": "4747474",
@@ -467,8 +436,6 @@ pub async fn lx_search_playlists(
     }
 }
 
-/// TX 歌单搜索无签名 Desktop 兜底（对齐桌面 txSheetSearchDesktopFallback）：
-/// musicu.fcg DoSearchForQQMusicDesktop search_type=3 → body.songlist.list。
 async fn tx_sheet_search_desktop_fallback(
     keyword: &str,
     page: u32,
@@ -511,8 +478,6 @@ async fn tx_sheet_search_desktop_fallback(
 
 // ==================== 歌单曲目 ====================
 
-/// 构造简化 LxSearchItem（专辑/歌单接口不返回音质信息，types 留空，
-/// 播放时由 url_resolver 统一解析）。
 #[allow(clippy::too_many_arguments)]
 fn simple_item(
     source: &str,
@@ -544,7 +509,6 @@ fn simple_item(
     }
 }
 
-/// TX 歌单详情经典 Web 兜底：不依赖新签名(musics.fcg)风控体系。
 async fn tx_sheet_tracks_web_fallback(
     playlist_id: &str,
     page: u32,
@@ -576,7 +540,6 @@ async fn tx_sheet_tracks_web_fallback(
     Ok(tx_handle_result(&Value::Array(songlist)))
 }
 
-/// LX 歌单曲目拉取（对齐桌面 lxGetPlaylistTracks）。
 pub async fn lx_playlist_tracks(
     source: &str,
     playlist_id: &str,
@@ -591,8 +554,6 @@ pub async fn lx_playlist_tracks(
     }
     let result = match source {
         "kw" => {
-            // www.kuwo.cn/api/www/playlist/playListInfo 已被风控，
-            // 改用 nplserver 无风控接口，一次 rn=1000 拉全部曲目。
             let url = format!(
                 "http://nplserver.kuwo.cn/pl.svc?op=getlistinfo&pid={}&pn=0&rn=1000&encode=utf8&keyset=pl2012&vipver=MUSIC_9.1.1.2_BCS2&newver=1",
                 urlencode(playlist_id)
@@ -615,7 +576,6 @@ pub async fn lx_playlist_tracks(
             let list = musiclist
                 .iter()
                 .map(|m| {
-                    // id 可能是数字或 "MUSIC_xxx" 形式的字符串
                     let rid = match m.get("id") {
                         Some(Value::Number(n)) => n.to_string(),
                         Some(Value::String(s)) => s.clone(),
@@ -644,7 +604,6 @@ pub async fn lx_playlist_tracks(
                     )
                 })
                 .collect();
-            // nplserver 一次返回全部，isEnd 始终为 true
             LxPlaylistTracksResult {
                 list,
                 is_end: true,
@@ -670,8 +629,6 @@ pub async fn lx_playlist_tracks(
             }
         }
         "tx" => {
-            // 新签名(Mobile)通道被风控(reqCode 2001)或降级时 songlist 为空，
-            // 回退经典 Web 接口兜底。
             let request_data = serde_json::json!({
                 "comm": { "ct": "24", "cv": "0" },
                 "req": {
@@ -870,26 +827,17 @@ fn urlencode(s: &str) -> String {
 
 // ==================== 专辑曲目 ====================
 
-/// 检测 albumId 是否为有效专辑 ID（而非回退的专辑名）。
-/// derive 专辑时 albumId/albumMid 均空会回退到专辑名，此时直连 API 必失败，
-/// 由调用方走搜索回退（对齐桌面 isValidAlbumId）。
 fn is_valid_album_id(source: &str, album_id: &str) -> bool {
     if album_id.is_empty() {
         return false;
     }
     if source == "tx" {
-        // TX albumMid：字母数字组合，通常以 "00" 开头
         album_id.len() >= 6 && album_id.chars().all(|c| c.is_ascii_alphanumeric())
     } else {
-        // kw/kg/wy/mg：纯数字 ID
         album_id.chars().all(|c| c.is_ascii_digit())
     }
 }
 
-/// LX 专辑曲目（对齐桌面 lxGetAlbumSongs）：kw/kg/tx/wy/mg 原生专辑接口。
-/// tx 复用 lx_search.rs 的签名 AlbumSongList；其余源走公开 Web 接口，
-/// 结果映射回 LxSearchItem（types 留空，播放时由 url_resolver 统一解析）。
-/// album_id 无效（可能是回退的专辑名）或接口失败时返回空数组，由调用方走搜索回退。
 pub async fn lx_album_songs(
     source: &str,
     album_id: &str,

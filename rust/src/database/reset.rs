@@ -1,10 +1,8 @@
-//! 清空所有应用数据（数据库表 + 封面/状态目录）。
 
 use rusqlite::Connection;
 use std::fs;
 use std::path::Path;
 
-/// 清空所有库表，并清理封面与状态目录（阻塞）。
 pub fn clear_all_app_data(conn: &mut Connection, data_dir: &Path) -> Result<(), String> {
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
@@ -30,7 +28,6 @@ pub fn clear_all_app_data(conn: &mut Connection, data_dir: &Path) -> Result<(), 
         fs::remove_dir_all(&cover_dir).map_err(|e| e.to_string())?;
     }
 
-    // 清理文件系统存储的歌单数据（大歌单超过 localStorage 配额时使用）
     let state_dir = data_dir.join("state");
     if state_dir.exists() {
         fs::remove_dir_all(&state_dir).map_err(|e| e.to_string())?;

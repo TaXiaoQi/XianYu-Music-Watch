@@ -1,9 +1,3 @@
-//! 工具箱：文件重命名、下载编排、QMC 解密、元数据嵌入、状态持久化等。
-//!
-//! 从桌面端移植时移除了以下桌面平台专用/无关命令：
-//! `open_external_program`（启动外部程序）、`set_gpu_acceleration` 及 GPU 配置、
-//! `run_installer`（安装程序）、`download_update_file`（桌面更新下载）。
-//! 依赖 `AppHandle` 的路径获取改为由调用方传入 `data_dir` / 数据库连接。
 
 use crate::music::tags::{
     extract_text_metadata, read_tagged_file_from_path, write_metadata_to_file, EmbedMetadataRequest,
@@ -250,7 +244,6 @@ pub fn file_exists(path: String) -> bool {
     std::path::Path::new(&path).is_file()
 }
 
-/// 在目标目录中解析非冲突文件路径；若文件已存在且不覆盖，自动追加 ` (1)`/` (2)`…。
 pub fn resolve_download_path(
     directory: String,
     file_name: String,
@@ -282,7 +275,6 @@ pub fn resolve_download_path(
     Ok(direct.to_string_lossy().to_string())
 }
 
-/// 下载文件名清洗：非法字符替换为空格、折叠连续空白、限长 180 字符。
 fn sanitize_download_filename(name: &str) -> String {
     let sanitized: String = name
         .chars()
@@ -302,7 +294,6 @@ fn sanitize_download_filename(name: &str) -> String {
     trimmed.chars().take(180).collect()
 }
 
-/// 从 URL 路径推断音频文件扩展名（含点）；无法识别返回空串。
 fn ext_from_url(url: &str) -> String {
     let path = match reqwest::Url::parse(url) {
         Ok(u) => u.path().to_string(),
@@ -394,7 +385,6 @@ fn build_download_filename(
     format!("{}{}", sanitize_download_filename(&base), ext)
 }
 
-/// 构建下载文件名并解析非冲突完整路径（单次调用）。
 pub fn resolve_download_full_path(
     directory: String,
     title: String,
@@ -421,7 +411,6 @@ pub fn resolve_download_full_path(
     resolve_download_path(directory, file_name, overwrite_existing)
 }
 
-/// 构建下载附件（歌词/封面）的清洗后文件名基名（不含扩展名）。
 pub fn build_download_basename(
     title: String,
     artist: String,
@@ -458,7 +447,6 @@ pub async fn check_update_by_rust(owner: String, repo: String) -> Result<String,
         .map_err(|e| format!("读取更新数据失败: {e}"))
 }
 
-/// 在线歌曲下载进度负载。
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SongDownloadProgress {
     pub progress: f64,
@@ -467,7 +455,6 @@ pub struct SongDownloadProgress {
     pub speed: f64,
 }
 
-/// 下载在线歌曲的真实音源直链到指定目标路径（流式写入 + QMC2 解密）。
 pub async fn download_online_song(
     url: String,
     dest_path: String,
@@ -482,16 +469,13 @@ pub async fn download_online_song(
         return Err("无效的下载链接".to_string());
     }
 
-    // SSRF 防护：音源直链仅允许公网 http/https 目标，拒绝内网/回环/云元数据等
     crate::security::ssrf::validate_outbound_url(&url)
         .await
         .map_err(|e| format!("下载链接校验失败: {e}"))?;
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(600))
-        // 每个跳转目标都需通过 SSRF 校验，防重定向到内网/元数据地址
         .redirect(crate::security::ssrf::ssrf_redirect_policy())
-        // DNS pinning：连接复用校验时刻已钉住的公网 IP，杜绝 rebinding TOCTOU
         .dns_resolver(crate::security::ssrf::pinned_dns_resolver())
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         .build()
@@ -598,7 +582,6 @@ pub async fn download_online_song(
     Ok(dest.to_string_lossy().to_string())
 }
 
-/// 从文件尾部提取 QMC ekey（QTag/V1 footer 格式）。
 fn try_extract_ekey_from_file(path: &Path) -> Option<String> {
     let metadata = fs::metadata(path).ok()?;
     let file_size = metadata.len();
@@ -616,14 +599,12 @@ fn try_extract_ekey_from_file(path: &Path) -> Option<String> {
     crate::player::qmc2::extract_ekey_from_footer(&tail)
 }
 
-/// 原地解密 QMC 加密文件：读取加密内容，逐块解密，覆盖写回。
 fn decrypt_qmc_file_inplace(path: &Path, ekey: &str) -> Result<u64, String> {
     let crypto = crate::player::qmc2::QmcCrypto::from_ekey(ekey)
         .map_err(|e| format!("ekey 解析失败: {e}"))?;
     decrypt_with_crypto_inplace(path, &crypto)
 }
 
-/// 用指定 QMC 密码学实例原地解密（临时文件 + 原子替换）。
 fn decrypt_with_crypto_inplace(path: &Path, crypto: &crate::player::qmc2::QmcCrypto) -> Result<u64, String> {
     use std::io::{Read, Write};
 
@@ -667,7 +648,6 @@ fn decrypt_with_crypto_inplace(path: &Path, crypto: &crate::player::qmc2::QmcCry
     Ok(file_size)
 }
 
-/// 读取文件头部（最多 16 字节）。
 fn read_file_header(path: &Path) -> Result<Vec<u8>, String> {
     use std::io::Read;
     let mut file = fs::File::open(path).map_err(|e| format!("打开文件失败: {e}"))?;
@@ -684,7 +664,6 @@ fn read_file_header(path: &Path) -> Result<Vec<u8>, String> {
     Ok(header)
 }
 
-/// 判断是否 QMC1 老格式扩展名（固定密钥加密，无需 ekey）。
 fn is_qmc1_extension(path: &Path) -> bool {
     let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
         return false;
@@ -696,7 +675,6 @@ fn is_qmc1_extension(path: &Path) -> bool {
     ) || lower.starts_with("qmc")
 }
 
-/// 解密后按真实音频格式修正文件扩展名（如 .qmcflac → .flac），返回新路径。
 fn rename_to_audio_extension(path: &Path) -> Result<Option<PathBuf>, String> {
     let header = read_file_header(path)?;
     let Some(real_ext) = crate::player::qmc2::detect_audio_extension(&header) else {
@@ -713,24 +691,12 @@ fn rename_to_audio_extension(path: &Path) -> Result<Option<PathBuf>, String> {
     let stem = path.file_stem().unwrap_or_default();
     let new_path = path.with_file_name(format!("{}.{}", stem.to_string_lossy(), real_ext));
     if new_path.exists() && new_path != path {
-        // 目标名已存在：跳过改名，保留解密后内容。
         return Ok(None);
     }
     fs::rename(path, &new_path).map_err(|e| format!("修正扩展名失败: {e}"))?;
     Ok(Some(new_path))
 }
 
-/// 独立解密 QMC 加密文件（用户手动选择文件的工具入口）。
-///
-/// 解密策略（按优先级）：
-/// 1. 调用方提供 ekey（非空）→ QMC2 解密；
-/// 2. 文件尾部 footer 携带 ekey（QTag / V1 footer）→ QMC2 解密；
-/// 3. 无 ekey 但文件名是 QMC1 老格式（.qmcflac/.qmcmp3 等）→ 固定密钥 QMC1 解密，
-///    并校验解密结果确为音频格式（校验失败则还原原文件）；
-/// 4. 以上都不满足 → 未加密或缺少密钥，不做任何修改。
-///
-/// 解密成功后按内容修正扩展名（如 .mflac → .flac）。
-/// 返回 JSON：`{"status": "decrypted"|"not_encrypted", "outputPath": "...", "renamedTo": "..."}`
 pub fn decrypt_qmc_file_standalone(
     file_path: String,
     ekey: Option<String>,
@@ -756,14 +722,12 @@ pub fn decrypt_qmc_file_standalone(
             .map_err(|e| format!("ekey 解析失败: {e}"))?;
         (decrypt_with_crypto_inplace(&path, &crypto), "QMC2")
     } else if is_qmc1_extension(&path) {
-        // QMC1 固定密钥解密：先解密到临时产物，校验头部有效后再替换原文件。
         let crypto = crate::player::qmc2::QmcCrypto::qmc1();
         let backup = path.with_extension("qmc_tmp_backup");
         fs::copy(&path, &backup).map_err(|e| format!("备份原文件失败: {e}"))?;
         let result = decrypt_with_crypto_inplace(&path, &crypto);
         match result {
             Ok(_) => {
-                // 校验解密结果是否为有效音频格式；无效则还原。
                 let header = read_file_header(&path).unwrap_or_default();
                 if crate::player::qmc2::detect_audio_extension(&header).is_none() {
                     let _ = fs::rename(&backup, &path);
@@ -802,7 +766,6 @@ pub fn decrypt_qmc_file_standalone(
     }
 }
 
-/// 原地解密 QMC2 加密文件（用于缓存复用路径）。无 ekey 且无 footer 时返回 false。
 pub fn decrypt_qmc_file(file_path: String, ekey: Option<String>) -> Result<bool, String> {
     let path = path_validator::validate_path(&file_path, None)?;
 
@@ -830,12 +793,10 @@ pub fn decrypt_qmc_file(file_path: String, ekey: Option<String>) -> Result<bool,
     }
 }
 
-/// 保存歌词文本到指定文件。
 pub async fn save_download_lyrics(content: String, dest_path: String) -> Result<String, String> {
     write_text_file(content, dest_path).await
 }
 
-/// 将文本内容写入指定路径（自动创建父目录）。
 pub async fn write_text_file(content: String, dest_path: String) -> Result<String, String> {
     let dest = path_validator::validate_path(&dest_path, None)?;
     if let Some(parent) = dest.parent() {
@@ -855,22 +816,18 @@ pub struct FetchedImage {
     pub mime: String,
 }
 
-/// 通过 reqwest 下载图片二进制数据（绕过 WebView CORS 限制）。
 pub async fn fetch_image_bytes(url: String) -> Result<FetchedImage, String> {
     if !(url.starts_with("http://") || url.starts_with("https://")) {
         return Err("无效的图片链接".to_string());
     }
 
-    // SSRF 防护：图片直链仅允许公网 http/https 目标
     crate::security::ssrf::validate_outbound_url(&url)
         .await
         .map_err(|e| format!("图片链接校验失败: {e}"))?;
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
-        // 每个跳转目标都需通过 SSRF 校验
         .redirect(crate::security::ssrf::ssrf_redirect_policy())
-        // DNS pinning：连接复用校验时刻已钉住的公网 IP，杜绝 rebinding TOCTOU
         .dns_resolver(crate::security::ssrf::pinned_dns_resolver())
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         .build()
@@ -906,7 +863,6 @@ pub async fn fetch_image_bytes(url: String) -> Result<FetchedImage, String> {
     Ok(FetchedImage { data, mime })
 }
 
-/// 将前端已下载的字节数据写入目标文件。
 pub async fn save_download_bytes(data: Vec<u8>, dest_path: String) -> Result<String, String> {
     if data.is_empty() {
         return Err("下载数据为空".to_string());
@@ -923,7 +879,6 @@ pub async fn save_download_bytes(data: Vec<u8>, dest_path: String) -> Result<Str
     Ok(dest.to_string_lossy().to_string())
 }
 
-/// 将歌曲元数据写入音频文件 tag。
 pub async fn embed_audio_metadata(request: EmbedMetadataRequest) -> Result<(), String> {
     let request = request.clone();
     tokio::task::spawn_blocking(move || write_metadata_to_file(&request))
@@ -952,7 +907,6 @@ pub struct FinalizeDownloadExtrasResult {
     pub cover_mime: String,
 }
 
-/// 下载后收尾编排：歌词保存 + 封面下载保存 + 元数据嵌入。
 pub async fn finalize_download_extras(
     request: FinalizeDownloadExtrasRequest,
 ) -> Result<FinalizeDownloadExtrasResult, String> {
@@ -1033,7 +987,6 @@ fn download_history_path(data_dir: &Path) -> Result<PathBuf, String> {
     Ok(data_dir.join(DOWNLOAD_HISTORY_FILE))
 }
 
-/// 读取下载记录 JSON 文本。文件不存在或损坏时返回 `"{}"`。
 pub async fn read_download_history(data_dir: &Path) -> Result<String, String> {
     let path = download_history_path(data_dir)?;
     if !path.is_file() {
@@ -1046,7 +999,6 @@ pub async fn read_download_history(data_dir: &Path) -> Result<String, String> {
     }
 }
 
-/// 写入下载记录 JSON 文本（整体覆盖），自动创建父目录。
 pub async fn write_download_history(data_dir: &Path, content: String) -> Result<(), String> {
     let path = download_history_path(data_dir)?;
     if let Some(parent) = path.parent() {
@@ -1068,22 +1020,18 @@ pub struct ProbeUrlInfo {
     pub error: Option<String>,
 }
 
-/// 用 `Range: bytes=0-0` 探测直链文件大小。
 pub async fn probe_url_size(url: String) -> Result<ProbeUrlInfo, String> {
     if !(url.starts_with("http://") || url.starts_with("https://")) {
         return Err("无效的探测链接".to_string());
     }
 
-    // SSRF 防护：探测目标仅允许公网 http/https 地址
     crate::security::ssrf::validate_outbound_url(&url)
         .await
         .map_err(|e| format!("探测链接校验失败: {e}"))?;
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(8))
-        // 每次跳转目标都需通过 SSRF 校验
         .redirect(crate::security::ssrf::ssrf_redirect_policy())
-        // DNS pinning：连接复用校验时刻已钉住的公网 IP，杜绝 rebinding TOCTOU
         .dns_resolver(crate::security::ssrf::pinned_dns_resolver())
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         .build()
@@ -1152,7 +1100,6 @@ pub async fn fetch_announcement() -> Result<String, String> {
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
-        // DNS pinning：公告接口为固定地址，钉住解析结果防 rebinding
         .dns_resolver(crate::security::ssrf::pinned_dns_resolver())
         .user_agent("XY-Music-Updater")
         .http1_only()
@@ -1200,7 +1147,6 @@ pub async fn fetch_announcement() -> Result<String, String> {
     }
 }
 
-/// 将 JSON 字符串写入 `{data_dir}/state/{key}.json`。
 pub async fn write_state_json(data_dir: &Path, key: String, value: String) -> Result<(), String> {
     let sanitized_key = path_validator::sanitize_filename_component(&key)
         .map_err(|e| format!("无效的 key: {}", e))?;
@@ -1215,7 +1161,6 @@ pub async fn write_state_json(data_dir: &Path, key: String, value: String) -> Re
     Ok(())
 }
 
-/// 从 `{data_dir}/state/{key}.json` 读取 JSON 字符串。文件不存在时返回 None。
 pub async fn read_state_json(data_dir: &Path, key: String) -> Result<Option<String>, String> {
     let sanitized_key = path_validator::sanitize_filename_component(&key)
         .map_err(|e| format!("无效的 key: {}", e))?;
@@ -1229,7 +1174,6 @@ pub async fn read_state_json(data_dir: &Path, key: String) -> Result<Option<Stri
     Ok(Some(content))
 }
 
-/// 下载壁纸图片到 `{data_dir}/wallpapers/{filename}`，返回本地文件路径。
 pub async fn download_wallpaper(
     data_dir: &Path,
     url: String,
@@ -1242,7 +1186,6 @@ pub async fn download_wallpaper(
         return Err("无效的壁纸下载链接".to_string());
     }
 
-    // SSRF 防护：壁纸源仅允许公网 http/https 目标
     crate::security::ssrf::validate_outbound_url(&url)
         .await
         .map_err(|e| format!("壁纸链接校验失败: {e}"))?;
@@ -1266,9 +1209,7 @@ pub async fn download_wallpaper(
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(60))
-        // 每个跳转目标都需通过 SSRF 校验
         .redirect(crate::security::ssrf::ssrf_redirect_policy())
-        // DNS pinning：连接复用校验时刻已钉住的公网 IP，杜绝 rebinding TOCTOU
         .dns_resolver(crate::security::ssrf::pinned_dns_resolver())
         .user_agent("XY-Music-WallpaperDownloader")
         .build()
@@ -1299,7 +1240,6 @@ pub async fn download_wallpaper(
     Ok(dest_path.to_string_lossy().to_string())
 }
 
-/// 删除 `{data_dir}/wallpapers` 下的已下载壁纸文件。
 pub async fn delete_wallpaper_file(data_dir: &Path, local_path: String) -> Result<(), String> {
     let wallpaper_dir = data_dir.join("wallpapers");
     let target = PathBuf::from(&local_path);

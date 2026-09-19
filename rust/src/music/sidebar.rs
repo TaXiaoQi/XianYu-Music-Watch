@@ -1,6 +1,3 @@
-// music/sidebar.rs - 侧边栏管理（废弃兼容命令）
-// Deprecated compatibility commands for legacy sidebar_folders data.
-// New main-flow folder browsing must use library_folders and get_library_hierarchy.
 use super::scanner::scan_folder_recursive;
 use super::types::FolderNode;
 use super::utils::normalize_path;
@@ -36,7 +33,6 @@ pub fn get_sidebar_folders(conn: &Connection) -> Result<Vec<SidebarFolder>, Stri
     Ok(folders)
 }
 
-// Deprecated compat command. Keep only for legacy sidebar_folders access.
 pub fn add_sidebar_folder(conn: &Connection, path: String) -> Result<(), String> {
     let normalized = normalize_path(&path);
     conn.execute(
@@ -54,7 +50,6 @@ pub fn add_sidebar_folder(conn: &Connection, path: String) -> Result<(), String>
     Ok(())
 }
 
-// Deprecated compat command. Keep only for legacy sidebar_folders access.
 pub fn remove_sidebar_folder(conn: &Connection, path: String) -> Result<(), String> {
     let normalized = normalize_path(&path);
     conn.execute("DELETE FROM sidebar_folders WHERE path = ?1", [&normalized])
@@ -62,7 +57,6 @@ pub fn remove_sidebar_folder(conn: &Connection, path: String) -> Result<(), Stri
     Ok(())
 }
 
-// Deprecated compat command. Main folder-tree flow must use get_library_hierarchy.
 pub fn get_sidebar_hierarchy(conn: &Connection) -> Result<Vec<FolderNode>, String> {
     let mut stmt = conn
         .prepare("SELECT path FROM sidebar_folders ORDER BY added_at DESC")

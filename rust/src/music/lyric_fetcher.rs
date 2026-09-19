@@ -1,11 +1,3 @@
-// lyric_fetcher.rs - 四音源歌词抓取与解密
-//
-// 将前端 lxLyricFetcher.ts 中的请求构造+解密逻辑迁移到 Rust。
-// 支持的音源：
-// - kg (酷狗): KRC 加密歌词，包含逐字时间
-// - kw (酷我): XOR 加密请求 → zlib 解压 → 逐字歌词解析
-// - tx (QQ音乐): QRC 3DES 解密 → 逐字歌词解析
-// - wy (网易云): eapi AES-ECB 加密 → yrc/krc 逐字歌词
 
 use base64::Engine;
 use encoding_rs::{BIG5, EUC_KR, GBK, SHIFT_JIS, UTF_16BE, UTF_16LE};
@@ -41,8 +33,6 @@ static WY_FIX_ROMA_TRAIL_RE: OnceLock<Regex> = OnceLock::new();
 
 // ==================== Types ====================
 
-/// 歌词源返回的歌曲信息，作为纯反序列化 DTO。
-/// 部分字段只在特定歌词源（酷狗/腾讯/网易）分支被消费，其余随 payload 保留。
 #[derive(Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
@@ -551,11 +541,9 @@ fn decompress_zlib_to_bytes(bytes: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 fn decompress_zlib_to_bytes_skip_header(bytes: &[u8]) -> Result<Vec<u8>, String> {
-    // Try normal zlib first
     if let Ok(result) = decompress_zlib_to_bytes(bytes) {
         return Ok(result);
     }
-    // Try skipping 2-byte zlib header
     if bytes.len() > 2 {
         if let Ok(result) = decompress_zlib_to_bytes(&bytes[2..]) {
             return Ok(result);
@@ -652,7 +640,6 @@ fn decode_kw_lyric(body_base64: &str) -> Result<String, String> {
         return Ok(String::new());
     }
 
-    // Split header and binary data: find \r\n\r\n or \n\n
     let mut binary_start = None;
     for i in 0..buf.len().saturating_sub(3) {
         if buf[i] == 0x0d && buf[i + 1] == 0x0a && buf[i + 2] == 0x0d && buf[i + 3] == 0x0a {
@@ -674,18 +661,15 @@ fn decode_kw_lyric(body_base64: &str) -> Result<String, String> {
     }
     let binary_data = &buf[start..];
 
-    // zlib decompress
     let lrc_data = decompress_zlib_to_bytes_skip_header(binary_data)?;
     if lrc_data.is_empty() {
         return Ok(String::new());
     }
 
-    // Check if plain LRC (starts with '[')
     if lrc_data[0] == 0x5b {
         return Ok(encoding_rs::GB18030.decode(&lrc_data).0.into_owned());
     }
 
-    // Otherwise it's base64-encoded XOR encrypted data
     let lrc_str = String::from_utf8_lossy(&lrc_data);
     let lrc_trimmed = lrc_str.trim();
     if !is_valid_base64(lrc_trimmed) {
@@ -718,11 +702,9 @@ fn wy_eapi_encrypt(url: &str, data: &str) -> Result<String, String> {
     let digest_hex = format!("{:x}", digest);
     let data_str = format!("{}-36cd479b6b5-{}-36cd479b6b5-{}", url, data, digest_hex);
 
-    // AES-ECB encrypt
     let key = GenericArray::from_slice(WY_EAPI_KEY);
     let cipher = aes::Aes128::new(key);
 
-    // PKCS7 pad
     let data_bytes = data_str.as_bytes();
     let pad_len = 16 - (data_bytes.len() % 16);
     let mut padded = data_bytes.to_vec();
@@ -747,8 +729,6 @@ struct HttpResponse {
     body_bytes: Vec<u8>,
 }
 
-/// 从 Content-Type 头中提取 charset 参数，如 `text/plain; charset=gbk` → `gbk`。
-/// （对齐桌面端 lyric_fetcher：GBK/Big5/Shift_JIS 等本地编码歌词页不再乱码）
 fn extract_charset(content_type: Option<&str>) -> Option<String> {
     let header = content_type?;
     let (_, params) = header.split_once(';')?;
@@ -767,7 +747,6 @@ fn extract_charset(content_type: Option<&str>) -> Option<String> {
     None
 }
 
-/// 按 HTTP charset 解码响应体；无 charset 或未知 charset 时回退到内容探测。
 fn decode_http_body(body_bytes: &[u8], content_type: Option<&str>) -> String {
     if let Some(charset) = extract_charset(content_type) {
         let decoded = match charset.as_str() {
@@ -811,15 +790,12 @@ async fn http_fetch_text(
     headers: &[(&str, &str)],
     body: Option<&str>,
 ) -> Result<HttpResponse, String> {
-    // SSRF 防护：歌词取数仅允许公网 http/https 目标，拒绝内网/回环/元数据等
     crate::security::ssrf::validate_outbound_url(url)
         .await
         .map_err(|e| e.to_string())?;
 
     let client = reqwest::Client::builder()
-        // 每个跳转目标都需通过 SSRF 校验
         .redirect(crate::security::ssrf::ssrf_redirect_policy())
-        // DNS pinning：连接复用校验时刻已钉住的公网 IP，杜绝 rebinding TOCTOU
         .dns_resolver(crate::security::ssrf::pinned_dns_resolver())
         .build()
         .map_err(|e| e.to_string())?;
@@ -870,7 +846,6 @@ fn kg_parse_lyric(str_in: &str) -> LyricResult {
     let s = if let Some(stripped) =
         str_in.strip_prefix(|c: char| c.is_ascii() && !c.is_alphanumeric())
     {
-        // Remove [id:$...] header
         let re = KG_ID_HEADER_RE.get_or_init(|| Regex::new(r"^.*\[id:\$\w+\]\n").unwrap());
         re.replace(stripped, "").to_string()
     } else {
@@ -880,7 +855,6 @@ fn kg_parse_lyric(str_in: &str) -> LyricResult {
 
     let mut result = LyricResult::default();
 
-    // Extract translation
     let trans_re = KG_LANGUAGE_RE.get_or_init(|| Regex::new(r"\[language:([\w=\\/+]+)\]").unwrap());
     let mut work_str = s.clone();
     if let Some(caps) = trans_re.captures(&s) {
@@ -935,7 +909,6 @@ fn kg_parse_lyric(str_in: &str) -> LyricResult {
         }
     }
 
-    // Parse lxlyric from [time,duration] format
     let time_re = KG_LX_TIME_RE.get_or_init(|| Regex::new(r"\[(\d+),(\d+)\]").unwrap());
     let word_tag_re = KG_WORD_TAG_RE.get_or_init(|| Regex::new(r"<(\d+,\d+),\d+>").unwrap());
 
@@ -979,11 +952,9 @@ fn kg_parse_lyric(str_in: &str) -> LyricResult {
         result.tlyric = decode_html_entities(&tlyric_arr.join("\n"));
     }
 
-    // Simplify word tags: <offset,duration,extra> → <offset,duration>
     lxlyric = word_tag_re.replace_all(&lxlyric, "<$1>").to_string();
     lxlyric = decode_html_entities(&lxlyric);
 
-    // Generate plain lyric by removing word tags
     let word_re = KG_WORD_PLAIN_RE.get_or_init(|| Regex::new(r"<\d+,\d+>").unwrap());
     result.lyric = word_re.replace_all(&lxlyric, "").to_string();
     result.lxlyric = lxlyric;
@@ -1191,7 +1162,7 @@ fn kw_parse_lrc(lrc: &str) -> Result<LyricResult, String> {
     let lyricx_tag_re = KW_LYRICX_TAG_RE.get_or_init(|| Regex::new(r"^<-?\d+,-?\d+>").unwrap());
 
     let mut tags: Vec<String> = Vec::new();
-    let mut lrc_arr: Vec<(String, String)> = Vec::new(); // (time, text)
+    let mut lrc_arr: Vec<(String, String)> = Vec::new();
 
     for line in lrc.split(|c| c == '\r' || c == '\n') {
         let line = line.trim();
@@ -1202,7 +1173,6 @@ fn kw_parse_lrc(lrc: &str) -> Result<LyricResult, String> {
             let time = caps[1].to_string();
             let text = time_re.replace(line, "").trim().to_string();
             let mut fixed_time = time.clone();
-            // Pad to 3 decimal digits
             if fixed_time.matches('.').count() == 1 {
                 let parts: Vec<&str> = fixed_time.split('.').collect();
                 if parts.len() == 2 && parts[1].len() == 2 {
@@ -1215,7 +1185,6 @@ fn kw_parse_lrc(lrc: &str) -> Result<LyricResult, String> {
         }
     }
 
-    // Sort and split into lrc and lrcT
     let mut lrc_set = std::collections::HashSet::new();
     let mut lrc: Vec<(String, String)> = Vec::new();
     let mut lrc_t: Vec<(String, String)> = Vec::new();
@@ -1310,16 +1279,12 @@ async fn fetch_kw_lyric(song_info: &LyricSongInfo) -> Result<Option<LyricResult>
         lrc_info.tlyric = word_time_re.replace_all(&lrc_info.tlyric, "").to_string();
     }
 
-    // 与酷狗(kg)处理方式一致：后端直接输出原始歌词（含 [kuwo:] 标签和 <a,b> 加密标签），
-    // 前端 convertLxLyricToEnhancedLrc 检测到 [kuwo:] 标签后会对全文统一使用酷我公式解析。
-    // 不再在 Rust 侧用 kw_parse_lxlyric 转换，避免转换 bug 导致逐字行丢失。
     if word_time_re.is_match(&lrc_info.lyric) {
         lrc_info.lxlyric = lrc_info.lyric.clone();
     }
 
     lrc_info.lyric = word_time_re.replace_all(&lrc_info.lyric, "").to_string();
 
-    // Validate lyric has time tags
     let time_check = KW_TIME_CHECK_RE.get_or_init(|| Regex::new(r"\[\d{1,2}:.*\d{1,4}]").unwrap());
     if !time_check.is_match(&lrc_info.lyric) {
         return Ok(None);
@@ -1562,10 +1527,6 @@ async fn fetch_tx_lyric(song_info: &LyricSongInfo) -> Result<Option<LyricResult>
     let mut tlyric = String::new();
     let mut rlyric = String::new();
 
-    // 主接口：musicu.fcg + GetPlayLyricInfo，qrc=1&crypt=1 请求逐字 QRC（与桌面端对齐）。
-    // lyric_download.fcg 会被 QQ 风控包装成 <command-lable-xwl78-qq-music> 且 content 为空，
-    // 改用音乐统一接口，逐字数据在 data.lyric 字段（qrc_t 指示逐字）。crypt=1 必须带上，
-    // 否则接口不返回带逐字时间戳的 QRC 加密歌词。
     let req_body = serde_json::json!({
         "comm": { "g_tk": 5381, "uin": 0, "format": "json", "ct": 24, "cv": 0, "platform": "yqq.json", "needNewCode": 1 },
         "req_0": {
@@ -1647,7 +1608,6 @@ async fn fetch_tx_lyric(song_info: &LyricSongInfo) -> Result<Option<LyricResult>
         }
     }
 
-    // Fallback to old API
     if lyric.is_empty() && lxlyric.is_empty() {
         let old_url = format!(
             "https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?songmid={}&g_tk=5381&loginUin=0&hostUin=0&format=json&inCharset=utf8&outCharset=utf-8&platform=yqq",
@@ -1714,7 +1674,6 @@ fn parse_yrc(yrc_text: &str) -> String {
             let start_ms: u64 = caps[1].parse().unwrap_or(0);
             let content = &line[caps[0].len()..];
 
-            // Find all (wordStart,wordDur,0) tags
             let tags: Vec<(u64, u64, usize, usize)> = word_tag_re
                 .captures_iter(content)
                 .map(|c| {
@@ -1793,7 +1752,7 @@ fn read_uint32_le(data: &[u8], pos: usize) -> u32 {
 
 struct KrcLine {
     time: u32,
-    words: Vec<(u32, u32, String)>, // (start, dur, text)
+    words: Vec<(u32, u32, String)>,
 }
 
 fn wyy_parse_krc(raw: &[u8]) -> Vec<KrcLine> {
@@ -1888,10 +1847,7 @@ fn krc_lines_to_lxlyric(lines: &[KrcLine]) -> String {
 }
 
 fn try_extract_yrc(body: &serde_json::Value) -> String {
-    // 不再强制检查 code==200：eapi 响应可能不包含 code 字段，
-    // 只要有 yrc/klyric 字段就尝试提取。
 
-    // Check yrc field
     if let Some(yrc) = body
         .get("yrc")
         .and_then(|v| v.get("lyric"))
@@ -1903,7 +1859,6 @@ fn try_extract_yrc(body: &serde_json::Value) -> String {
         }
     }
 
-    // Check klyric field for YRC format
     if let Some(klyric) = body.get("klyric") {
         if let Some(lyric) = klyric.get("lyric").and_then(|v| v.as_str()) {
             if lyric.len() > 50 {
@@ -1933,7 +1888,6 @@ fn try_extract_yrc(body: &serde_json::Value) -> String {
 }
 
 fn try_extract_krc(body: &serde_json::Value) -> String {
-    // 不再强制检查 code==200：同 try_extract_yrc。
 
     if let Some(klyric) = body.get("klyric") {
         if let Some(lyric) = klyric.as_str() {
@@ -1989,7 +1943,6 @@ fn wy_fix_time_label(lrc: &str, tlrc: &str, romalrc: &str) -> (String, String, S
     }
 }
 
-/// WY eapi POST request helper: encrypts params and sends POST to the given eapi endpoint
 async fn wy_eapi_post(
     eapi_path: &str,
     data: serde_json::Value,
@@ -2017,13 +1970,11 @@ async fn wy_eapi_post(
     }
 }
 
-/// Fallback karaoke lyrics extraction: tries two parameter sets to get YRC/KRC
 async fn wyy_get_karaoke(song_id: &str) -> String {
     let song_id_value = song_id
         .parse::<i64>()
         .map(serde_json::Value::from)
         .unwrap_or_else(|_| serde_json::Value::from(song_id.to_string()));
-    // First try: same params as main request (kv=0, yv=0)
     let data1 = serde_json::json!({
         "id": song_id_value, "cp": false, "tv": 0, "lv": 0, "rv": 0, "kv": 0, "yv": 0, "ytv": 0, "yrv": 0,
     });
@@ -2038,12 +1989,10 @@ async fn wyy_get_karaoke(song_id: &str) -> String {
         }
     }
 
-    // Second try: Go code params (kv=1, requests klyric binary KRC)
     let id_num: i64 = song_id.parse().unwrap_or(0);
     let data2 = serde_json::json!({
         "cp": -1, "id": id_num, "kv": 1, "lv": -1, "rv": 0, "tv": -1, "yt": false, "yv": 0,
     });
-    // Override User-Agent for this request
     let data_str = serde_json::to_string(&data2).unwrap_or_default();
     let params = match wy_eapi_encrypt("/api/song/lyric/v1", &data_str) {
         Ok(p) => p,
@@ -2166,8 +2115,6 @@ async fn fetch_wy_lyric_by_id(song_id: &str) -> Result<Option<LyricResult>, Stri
         .map(serde_json::Value::from)
         .unwrap_or_else(|_| serde_json::Value::from(song_id.to_string()));
 
-    // Use /api/song/lyric/v1 with POST (matching frontend's proven approach)
-    // kv=0 + yv=0 lets the API return yrc field for YRC word-by-word lyrics
     let data = serde_json::json!({
         "id": song_id_value, "cp": false, "tv": 0, "lv": 0, "rv": 0, "kv": 0, "yv": 0, "ytv": 0, "yrv": 0,
     });
@@ -2176,7 +2123,6 @@ async fn fetch_wy_lyric_by_id(song_id: &str) -> Result<Option<LyricResult>, Stri
         None => return fetch_wy_legacy_lyric(song_id).await,
     };
 
-    // Try YRC first, then KRC
     let lxlyric = try_extract_yrc(&body);
     let krc_lxlyric = if lxlyric.is_empty() {
         try_extract_krc(&body)
@@ -2189,12 +2135,10 @@ async fn fetch_wy_lyric_by_id(song_id: &str) -> Result<Option<LyricResult>, Stri
         krc_lxlyric
     };
 
-    // If no word-by-word lyrics, try fallback karaoke extraction
     if final_lxlyric.is_empty() {
         final_lxlyric = wyy_get_karaoke(song_id).await;
     }
 
-    // Get plain lyrics
     let lrc = body
         .get("lrc")
         .and_then(|v| v.get("lyric"))
@@ -2217,8 +2161,6 @@ async fn fetch_wy_lyric_by_id(song_id: &str) -> Result<Option<LyricResult>, Stri
         return fetch_wy_legacy_lyric(song_id).await;
     }
 
-    // eapi 返回了普通歌词但没有逐字歌词时，尝试 legacy API 获取 YRC/KRC。
-    // 某些歌曲的逐字歌词只在非加密 API 中可用。
     if final_lxlyric.is_empty() && !fixed_lrc.is_empty() {
         if let Ok(Some(legacy)) = fetch_wy_legacy_lyric(song_id).await {
             if !legacy.lxlyric.is_empty() {

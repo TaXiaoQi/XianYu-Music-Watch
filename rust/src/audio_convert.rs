@@ -1,11 +1,3 @@
-//! Audio format conversion: pure Rust, no FFmpeg needed.
-//!
-//! Decode: symphonia (mp3/flac/m4a/aac/ogg/wav/aiff/alac) + ape-decoder (APE) +
-//! wavicle (WV/WavPack). All inputs unified to PCM float32 interleaved.
-//!
-//! Encode:
-//! - WAV  : manual header + PCM write
-//! - FLAC : claxon (pure Rust, no C deps)
 
 use std::fs;
 use std::io::{Seek, Write};
@@ -324,7 +316,6 @@ fn encode_wav_f32(out: &Path, sr: u32, ch: u16, f32: &[f32]) -> Result<(), Strin
 fn encode_flac_f32(out: &Path, sr: u32, ch: u16, f32: &[f32]) -> Result<(), String> {
     fs::create_dir_all(out.parent().ok_or("out_dir missing")?)
         .map_err(|e| e.to_string())?;
-    // f32 -> i16
     let pcm: Vec<i32> = f32.iter().map(|&s| {
         (s * 32767.0).clamp(-32768.0, 32767.0).round() as i32
     }).collect();

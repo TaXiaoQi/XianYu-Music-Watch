@@ -1,8 +1,3 @@
-//! 调制类机架（阶段 5）。
-//!
-//! 抖音(Tremolo) / 颤音(Vibrato) / 音调漂移(PitchDrift) / 镶边(Flanger) /
-//! 相位(Phaser) / 延迟回声(Delay, 单次/乒乓)。
-//! 调制类依赖延迟线与 LFO，按帧处理，立体声独立延迟。
 
 use super::dsp::{soft_clip, Biquad, DelayLine, Lfo, SmoothedValue};
 use super::SoundEffectSettings;
@@ -15,20 +10,16 @@ pub struct ModulationRack {
     wet_flanger: SmoothedValue,
     wet_phaser: SmoothedValue,
     wet_delay: SmoothedValue,
-    // Tremolo
     trem_lfo: Lfo,
-    // Vibrato / PitchDrift / Flanger：双声道延迟
     vib_dl: [DelayLine; 2],
     vib_lfo: Lfo,
     drift_dl: [DelayLine; 2],
     drift_lfo: Lfo,
     flanger_dl: [DelayLine; 2],
     flanger_lfo: Lfo,
-    // Phaser：级联 allpass（用 biquad allpass 近似）+ LFO + 反馈
     phaser_ap: [[Biquad; 4]; 2],
     phaser_lfo: Lfo,
     phaser_fb: [f32; 2],
-    // Delay：长延迟线 + 反馈
     delay_dl: [DelayLine; 2],
 }
 
@@ -82,7 +73,6 @@ impl ModulationRack {
         ] {
             w.set_time_constant(tc, sample_rate);
         }
-        // 延迟线容量按采样率调整（最长 2s）
         let delay_size = (sample_rate as usize * 2).next_power_of_two();
         for d in &mut self.delay_dl {
             d.resize(delay_size);
@@ -127,7 +117,6 @@ impl ModulationRack {
 
         self.trem_lfo.set_freq(s.tremolo.rate.clamp(0.1, 20.0), sr);
         self.vib_lfo.set_freq(s.vibrato.rate.clamp(0.1, 20.0), sr);
-        // 音调漂移：0.1~5 → 0.01~0.5Hz
         self.drift_lfo
             .set_freq((s.pitch_drift.speed * 0.1).clamp(0.01, 0.5), sr);
         self.flanger_lfo
@@ -141,23 +130,21 @@ impl ModulationRack {
         }
         let sr = self.sample_rate;
 
-        // Tremolo 抖音
         let w = self.wet_tremolo.tick();
         if w > 0.001 {
             let depth = (s.tremolo.depth / 100.0).clamp(0.0, 1.0);
             let lfo = self.trem_lfo.tick_sine();
-            let amp = 1.0 - depth * 0.5 + depth * 0.5 * lfo; // 1-depth .. 1
+            let amp = 1.0 - depth * 0.5 + depth * 0.5 * lfo;
             let g = lerp(1.0, amp, w);
             frame[0] *= g;
             frame[1] *= g;
         }
 
-        // Vibrato 颤音（调制延迟）
         let w = self.wet_vibrato.tick();
         if w > 0.001 {
-            let depth_samp = (s.vibrato.depth * 0.001 * sr).clamp(0.0, 20.0); // ms→采样
+            let depth_samp = (s.vibrato.depth * 0.001 * sr).clamp(0.0, 20.0);
             for i in 0..2 {
-                let lfo = self.vib_lfo.tick_sine() * 0.5 + 0.5; // 0..1
+                let lfo = self.vib_lfo.tick_sine() * 0.5 + 0.5;
                 let delay = 1.0 + lfo * depth_samp;
                 let delayed = self.vib_dl[i].read(delay);
                 self.vib_dl[i].write(frame[i]);
@@ -165,7 +152,6 @@ impl ModulationRack {
             }
         }
 
-        // PitchDrift 音调漂移（慢速调制延迟 + 双 LFO 叠加更不规则）
         let w = self.wet_pitch_drift.tick();
         if w > 0.001 {
             let depth_samp = (s.pitch_drift.depth * 0.001 * sr).clamp(0.0, 40.0);
@@ -178,12 +164,10 @@ impl ModulationRack {
             }
         }
 
-        // Flanger 镶边
         let w = self.wet_flanger.tick();
         if w > 0.001 {
             let base_delay = (0.8 * 0.001 * sr).clamp(1.0, sr * 0.002);
             let depth_samp = (s.flanger.depth.clamp(0.2, 5.0) * 0.001 * sr).clamp(1.0, sr * 0.005);
-            // 镶边反馈过高会快速自激；这里限制到 0.65，避免开启后只剩杂音。
             let fb = (s.flanger.feedback / 100.0).clamp(0.0, 0.65);
             let mix = (s.flanger.mix / 100.0).clamp(0.0, 0.75);
             let lfo = self.flanger_lfo.tick_sine() * 0.5 + 0.5;
@@ -197,14 +181,12 @@ impl ModulationRack {
             }
         }
 
-        // Phaser 相位（4 级 allpass，调制截止频率 + 反馈）
         let w = self.wet_phaser.tick();
         if w > 0.001 {
             let depth = s.phaser.depth.clamp(0.0, 3.0);
             let fb = (s.phaser.feedback / 100.0).clamp(-0.9, 0.9);
             let mix = (s.phaser.mix / 100.0).clamp(0.0, 1.0);
             let lfo = self.phaser_lfo.tick_sine() * 0.5 + 0.5;
-            // 中心频率 200..2000Hz 调制
             let center = 200.0 + lfo * 1800.0 * depth.max(0.1);
             for i in 0..2 {
                 for ap in &mut self.phaser_ap[i] {
@@ -220,7 +202,6 @@ impl ModulationRack {
             }
         }
 
-        // Delay 延迟回声
         let w = self.wet_delay.tick();
         if w > 0.001 {
             let time_samp = (s.delay.time_ms * 0.001 * sr).clamp(1.0, sr * 2.0);
@@ -234,7 +215,6 @@ impl ModulationRack {
                 let wet = frame[i] * (1.0 - mix) + delayed * mix;
                 frame[i] = lerp(frame[i], soft_clip(wet), w);
             }
-            // 乒乓：交换两声道延迟反馈
             if pingpong {
                 let tmp = self.delay_dl[0].read(time_samp);
                 let _ = tmp;

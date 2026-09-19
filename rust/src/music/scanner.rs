@@ -21,7 +21,6 @@ pub(crate) use orchestrator::{
 pub(crate) use parser::{parse_song_from_file, parse_song_from_file_with_name, parse_song_from_fd};
 pub(crate) use repository::apply_scan_changes;
 
-/// 在音乐库中递归查找某个文件夹下的第一首歌曲路径（按路径字典序）。
 pub fn find_first_song_in_folder(
     conn: &rusqlite::Connection,
     folder_path: &str,
@@ -33,9 +32,6 @@ pub(super) const VARIOUS_ARTISTS: &str = "Various Artists";
 pub(super) const VARIOUS_ARTISTS_THRESHOLD: usize = 5;
 pub(super) const PROGRESS_EMIT_INTERVAL_MS: u64 = 200;
 
-/// Android SAF：Android 侧用 Documents 枚举目录并把每个音频文件打开为 fd，
-/// 逐个解析成 Song 后在此做增量入库（按 folder_key 前缀）。复用 diff/repository，
-/// 使"新增/变更/删除"与桌面路径扫描保持同样的库内一致性。
 pub(crate) fn commit_saf_scan_songs(
     conn: &mut rusqlite::Connection,
     folder_key: &str,
@@ -81,7 +77,6 @@ pub(super) const UNKNOWN_ALBUM: &str = "未知专辑";
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ScanOptions {
     pub(crate) minimum_duration_seconds: u32,
-    /// 允许入库的扩展名白名单（小写，无点）。None 表示不限制（沿用全部受支持格式）。
     pub(crate) allowed_extensions: Option<Vec<String>>,
 }
 
@@ -93,8 +88,6 @@ impl ScanOptions {
         }
     }
 
-    /// 同时指定最小时长与扩展名白名单。
-    /// `allowed` 中的扩展名会转为小写去点；空 Vec 视为不限制（None 语义）。
     pub(crate) fn new(
         minimum_duration_seconds: Option<u32>,
         allowed: Option<Vec<String>>,
@@ -117,7 +110,6 @@ impl ScanOptions {
         }
     }
 
-    /// 判断某扩展名是否允许入库：先看是否受支持，再看白名单（若有）。
     pub(crate) fn is_ext_allowed(&self, ext: &str) -> bool {
         if !super::utils::is_supported_library_extension(ext) {
             return false;
@@ -696,7 +688,6 @@ mod tests {
 
     #[test]
     fn test_single_and_multi_artist_filtering() {
-        // 复用 make_song
         let mut song_single = make_song("/music/test.flac");
         song_single.artist_names = vec!["周杰伦".to_string()];
         assert_eq!(
@@ -715,13 +706,11 @@ mod tests {
 
     #[test]
     fn test_db_avatar_no_override() {
-        // 复用 setup_test_db
         let mut conn = setup_test_db();
         let mut song = make_song("/music/test.flac");
         song.artist_names = vec!["周杰伦".to_string()];
         song.artist_avatar_path = Some("/cache/avatar.jpg".to_string());
 
-        // 首次写入
         super::apply_scan_changes(&mut conn, &[song.clone()], &[], &[], None).unwrap();
         let db_path: Option<String> = conn
             .query_row(
@@ -732,7 +721,6 @@ mod tests {
             .unwrap();
         assert_eq!(db_path, Some("/cache/avatar.jpg".to_string()));
 
-        // 已有头像不覆盖验证
         let mut song_new = song.clone();
         song_new.artist_avatar_path = Some("/cache/new_avatar.jpg".to_string());
         super::apply_scan_changes(&mut conn, &[], &[song_new], &[], None).unwrap();

@@ -1,4 +1,3 @@
-// music/library.rs - 音乐库管理
 
 use super::scanner::ScanOptions;
 use super::scanner::{scan_folder_recursive, scan_single_directory_internal};
@@ -193,7 +192,6 @@ fn folder_song_matches_query(row: &FolderViewSongRow, query: &str) -> bool {
             .any(|name| name.to_lowercase().contains(&lowered_query))
 }
 
-/// 从 rusqlite::Row 解析 LibrarySong（共享行解析逻辑）
 fn parse_song_from_row(row: &rusqlite::Row) -> rusqlite::Result<LibrarySong> {
     let path: String = row.get(1)?;
     let duration = clamp_i64_to_u32(row.get::<_, Option<i64>>(11)?.unwrap_or(0));
@@ -247,7 +245,6 @@ fn parse_song_from_row(row: &rusqlite::Row) -> rusqlite::Result<LibrarySong> {
     })
 }
 
-/// 所有歌曲字段的 SELECT 子句（与 parse_song_from_row 的列顺序一一对应）
 const SONG_SELECT_COLUMNS: &str = "id, path, title, artist, artist_names, effective_artist_names, album, album_artist, album_key, is_various_artists_album, collapse_artist_credits, duration, cover_thumb_path, bitrate, sample_rate, bit_depth, format, container, codec, file_size, track_number, disc_number, added_at, file_modified_at, cue_source_path, cue_start_offset, cue_end_offset, source_type, remote_source_id, comment";
 
 fn load_cached_songs(conn: &Connection) -> Result<Vec<LibrarySong>, String> {
@@ -263,7 +260,6 @@ fn load_cached_songs(conn: &Connection) -> Result<Vec<LibrarySong>, String> {
     Ok(songs)
 }
 
-/// 按路径批量查询歌曲（用于前端按需 invoke，减少 canonicalSongs 内存依赖）
 fn load_cached_songs_by_paths(
     conn: &Connection,
     paths: &[String],
@@ -287,8 +283,6 @@ fn load_cached_songs_by_paths(
     Ok(songs)
 }
 
-/// 搜索归一化（对齐 BakaMusic search-matcher）：NFKC 全角→半角、转小写、
-/// NFKD 去变音符（é→e）、繁转简（周杰倫↔周杰伦 双向兼容）。
 fn normalize_search_value(s: &str) -> String {
     let nfkc: String = s.chars().nfkc().collect();
     let no_accent: String = nfkc
@@ -300,11 +294,6 @@ fn normalize_search_value(s: &str) -> String {
     fast2s::convert(&no_accent)
 }
 
-/// 离散搜索：旧实现整串 `LIKE %query%`，要求连续子串全对上，「周杰伦 晴天」
-/// 这种跨歌手/歌名字段的词组搜不到。改为分词 AND 匹配：
-/// - 查询按空格拆词，每个词命中任一归一化字段即算（跨字段、顺序无关）
-/// - 词也可命中字段去空格后的串（「tinyme」命中「Tiny Me」）
-/// - 整串连写命中的歌排前面（强匹配），散词全中的排后面
 fn search_cached_songs(
     conn: &Connection,
     query: &str,
@@ -317,7 +306,6 @@ fn search_cached_songs(
     }
     let whole = normalized_query.replace(' ', "");
 
-    // 被搜字段组：title/artist/album/album_artist/path + 冗余歌手名列，全部归一化
     let haystacks = |song: &LibrarySong| -> Vec<String> {
         let mut v = vec![
             normalize_search_value(&song.title),
@@ -833,9 +821,6 @@ pub fn get_library_song_paths_for_folder_view(
     Ok(song_rows.into_iter().map(|row| row.path).collect())
 }
 
-/// 扫描所有音乐库文件夹，返回全部歌曲。
-///
-/// 传入 `Arc<Mutex<Connection>>` 以便扫描内部跨 await 共享连接。
 pub fn scan_library(
     db_conn: Arc<Mutex<Connection>>,
     minimum_duration_seconds: Option<u32>,
@@ -884,8 +869,6 @@ pub fn get_library_hierarchy(conn: &Connection) -> Result<Vec<FolderNode>, Strin
         .filter_map(|r| r.ok())
         .collect();
 
-    // SAF 根（content:// tree）无法用文件系统 read_dir 构建层级，改为按歌曲
-    // path（`{tree}/document/{docId}`）在内存中聚合出目录树。
     let has_saf_root = roots.iter().any(|r| r.starts_with("content://"));
     let all_song_paths: Vec<String> = if has_saf_root {
         let mut s = conn
@@ -918,7 +901,6 @@ pub fn get_library_hierarchy(conn: &Connection) -> Result<Vec<FolderNode>, Strin
     Ok(tree)
 }
 
-/// SAF 树的中间聚合节点（按目录组织，songs 为该目录下的直接文件）。
 struct SafDirNode {
     name: String,
     path: String,
@@ -926,8 +908,6 @@ struct SafDirNode {
     children: BTreeMap<String, SafDirNode>,
 }
 
-/// 对单个 `content://` tree 根，从全部歌曲 path 聚合出完整目录树。
-/// 根节点 path = `{tree}/document/{rootDocId}`，以便后代路径匹配命中全部歌曲。
 fn build_saf_folder_tree(root: &str, all_song_paths: &[String]) -> Option<FolderNode> {
     let tree_uri = root.trim_end_matches('/');
     let root_doc_id = saf_tree_root_doc_id(tree_uri)?;
@@ -946,7 +926,6 @@ fn build_saf_folder_tree(root: &str, all_song_paths: &[String]) -> Option<Folder
             Some(rel) if !rel.is_empty() => rel,
             _ => continue,
         };
-        // split_last 返回 (末段=文件名, 其余=[目录...])，目录才是要展开的段。
         let parts: Vec<&str> = relative.split('/').collect();
         let (_file, dirs) = match parts.split_last() {
             Some(v) => v,
@@ -974,7 +953,6 @@ fn build_saf_folder_tree(root: &str, all_song_paths: &[String]) -> Option<Folder
     Some(saf_dir_to_node(&dir_root))
 }
 
-/// 把聚合目录转成 [`FolderNode`]，song_count = 子树直接/间接歌曲总数。
 fn saf_dir_to_node(node: &SafDirNode) -> FolderNode {
     let mut song_count = node.songs.len();
     let mut cover_song_path = node.songs.first().cloned();
@@ -1001,13 +979,11 @@ fn saf_dir_to_node(node: &SafDirNode) -> FolderNode {
     }
 }
 
-/// 取 tree URI 的根 documentId（末段，解码百分号）。
 fn saf_tree_root_doc_id(tree_uri: &str) -> Option<String> {
     let last = tree_uri.rsplit('/').next()?;
     Some(percent_decode(last))
 }
 
-/// 根目录显示名：取根 documentId 去掉「卷名:」前缀后的最后一段。
 fn saf_tree_label(root_doc_id: &str) -> String {
     let base = root_doc_id.rsplit('/').next().unwrap_or(root_doc_id);
     match base.split_once(':') {
@@ -1016,7 +992,6 @@ fn saf_tree_label(root_doc_id: &str) -> String {
     }
 }
 
-/// 极简百分号解码（RFC 3986），源为 SAF URI 的字符编码。
 fn percent_decode(s: &str) -> String {
     let bytes = s.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
@@ -1070,7 +1045,6 @@ pub fn get_folder_children(
     Ok(children)
 }
 
-/// 解析歌曲路径排序模式字符串到枚举。
 pub fn parse_library_song_sort_mode(s: &str) -> Result<LibrarySongSortMode, String> {
     match s {
         "title" => Ok(LibrarySongSortMode::Title),
@@ -1083,7 +1057,6 @@ pub fn parse_library_song_sort_mode(s: &str) -> Result<LibrarySongSortMode, Stri
     }
 }
 
-/// 解析文件夹视图排序模式字符串到枚举。
 pub fn parse_folder_song_sort_mode(s: &str) -> Result<FolderSongSortMode, String> {
     match s {
         "title" => Ok(FolderSongSortMode::Title),

@@ -214,7 +214,6 @@ fn collect_disk_candidates(
         }
     }
 
-    // Collect CUE sheet tracks and record referenced audio paths
     let mut cue_referenced_audio: HashSet<String> = HashSet::new();
 
     for entry in WalkDir::new(normalized_folder)
@@ -262,7 +261,6 @@ fn collect_disk_candidates(
         }
     }
 
-    // Filter out audio files that are referenced by CUE sheets
     if !cue_referenced_audio.is_empty() {
         candidates.retain(|c| !cue_referenced_audio.contains(&c.path_str));
     }
@@ -371,7 +369,6 @@ fn process_cue_parse_tasks(tasks: &[ParseTask], options: &ScanOptions) -> Vec<Pa
 
     let mut grouped: HashMap<String, Vec<&ParseTask>> = HashMap::new();
     for task in tasks {
-        // Extract CUE file path from synthetic path: "{cue_path}::track{NN}"
         if let Some(cue_path) = task.path_str.split("::track").next() {
             grouped.entry(cue_path.to_string()).or_default().push(task);
         }
@@ -389,7 +386,6 @@ fn process_cue_parse_tasks(tasks: &[ParseTask], options: &ScanOptions) -> Vec<Pa
         let cue_path_normalized = normalize_path(&cue_path);
 
         for task in group_tasks {
-            // Extract track number from synthetic path
             let track_number: u32 = task
                 .path_str
                 .rsplit("::track")
@@ -475,12 +471,10 @@ pub(super) fn collect_scan_diff(
         }
     }
 
-    // Separate CUE-track tasks from regular audio tasks
     let (cue_tasks, audio_tasks): (Vec<ParseTask>, Vec<ParseTask>) =
         parse_tasks.into_iter().partition(|t| t.ext == "cue_track");
     parse_tasks = audio_tasks;
 
-    // Process CUE tasks: group by CUE file, parse once, build all track songs
     let cue_results = process_cue_parse_tasks(&cue_tasks, options);
 
     if let Some(reporter) = reporter {
@@ -504,7 +498,6 @@ pub(super) fn collect_scan_diff(
         }
     }
 
-    // Merge CUE track results
     for result in cue_results {
         if let Some(song) = result.song {
             songs_by_index[result.index] = Some(song.clone());

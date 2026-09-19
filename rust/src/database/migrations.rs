@@ -403,13 +403,10 @@ mod tests {
     #[test]
     fn test_fresh_database_migration() {
         let conn = Connection::open_in_memory().unwrap();
-        // 初始化基线 Schema (包含所有表)
         crate::database::schema::ensure_base_schema(&conn).unwrap();
 
-        // 运行迁移逻辑
         run_migrations(&conn).unwrap();
 
-        // 验证 avatar_path 字段存在
         let columns = get_table_columns(&conn, "artists").unwrap();
         assert!(columns.iter().any(|c| c == "avatar_path"));
     }
@@ -417,10 +414,8 @@ mod tests {
     #[test]
     fn test_upgrade_database_migration_retains_data() {
         let conn = Connection::open_in_memory().unwrap();
-        // 初始化基线 Schema
         crate::database::schema::ensure_base_schema(&conn).unwrap();
 
-        // 模拟旧版本库：重建 artists 表并去掉 avatar_path 列
         conn.execute("DROP TABLE artists", []).unwrap();
         conn.execute(
             "CREATE TABLE artists (
@@ -431,18 +426,14 @@ mod tests {
         )
         .unwrap();
 
-        // 插入测试数据，确保迁移时老数据不丢失
         conn.execute("INSERT INTO artists (name) VALUES ('测试歌手')", [])
             .unwrap();
 
-        // 运行迁移逻辑
         run_migrations(&conn).unwrap();
 
-        // 验证新列已成功添加
         let columns = get_table_columns(&conn, "artists").unwrap();
         assert!(columns.iter().any(|c| c == "avatar_path"));
 
-        // 验证旧数据依然完好
         let artist_name: String = conn
             .query_row("SELECT name FROM artists WHERE id = 1", [], |row| {
                 row.get(0)
@@ -450,7 +441,6 @@ mod tests {
             .unwrap();
         assert_eq!(artist_name, "测试歌手");
 
-        // 验证新列初始值为 NULL
         let avatar_path: Option<String> = conn
             .query_row("SELECT avatar_path FROM artists WHERE id = 1", [], |row| {
                 row.get(0)

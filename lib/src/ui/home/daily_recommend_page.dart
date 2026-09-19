@@ -10,18 +10,14 @@ import '../common/stepped_list.dart';
 import '../local/local_music_hub.dart';
 import '../online/plugin_manage_page.dart';
 
-/// 每日推荐页：服务端算法下发 + 已启用插件搜索执行（与移动端/桌面端同源）。
-/// 未登录引导扫码登录；无已启用插件引导去插件管理；点歌整批入队起播。
 class DailyRecommendPage extends ConsumerWidget {
   const DailyRecommendPage({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(dailyRecommendProvider);
-    final s = context.watchScale(); // 屏径等比缩放
+    final s = context.watchScale();
 
-    // 页面头：做进滚动内容最顶部，居中标题 + 左上角返回 + 右侧换一批
-    // （One UI 式，随列表滚走，圆弧适配完整）。
     final headerRow = PageTitleHeader(
       '每日推荐',
       showBack: true,
@@ -31,7 +27,6 @@ class DailyRecommendPage extends ConsumerWidget {
         icon: Icon(Icons.casino_rounded, size: 20 * s),
       ),
     );
-    // 无列表状态（加载/错误/未登录/空）自行渲染头部，保持标题可见。
     Widget stateBody(Widget child) =>
         Column(children: [headerRow, Expanded(child: child)]);
 
@@ -99,8 +94,7 @@ class _RecommendList extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final s = context.watchScale(); // 屏径等比缩放
-    // 功能页同款圆屏阶梯列表：一屏约三行，焦点行最大铺满中部。
+    final s = context.watchScale();
     return SteppedListView(
       header: header,
       itemCount: items.length,
@@ -129,7 +123,6 @@ class _RecommendList extends ConsumerWidget {
           onTap: () async {
             await ref.read(dailyRecommendProvider.notifier).play(i);
             if (!context.mounted) return;
-            // 与本地/在线点歌一致：回到 hub 并落在播放页。
             ref.read(localHubPageProvider.notifier).state = 1;
             Navigator.of(context).pop();
           },
@@ -144,7 +137,7 @@ class _SongIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final s = context.watchScale(); // 屏径等比缩放
+    final s = context.watchScale();
     return Container(
       color: Colors.white.withValues(alpha: 0.08),
       child: Icon(Icons.music_note_rounded,
@@ -168,7 +161,7 @@ class _EmptyView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final s = context.watchScale(); // 屏径等比缩放
+    final s = context.watchScale();
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,

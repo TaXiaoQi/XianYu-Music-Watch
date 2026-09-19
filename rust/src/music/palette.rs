@@ -1,9 +1,3 @@
-// player/palette.rs - 封面取色（HSL 桶聚类）
-//
-// 从桌面端集色引擎（前端 Web Worker colorExtraction.worker.ts 迁移）移植：
-// 像素采样 → RGB→HSL → 分桶累加 → 候选评分 → 多样性选择 → 抛光/衍生。
-// 所有数学运算与桌面端一一对应，保证迁移后调色板视觉一致。
-// 移动端由宿主在后台线程调用（纯 CPU 运算）。
 
 use base64::Engine;
 use image::imageops::FilterType;
@@ -399,20 +393,15 @@ fn load_image_bytes(source: &str) -> Result<Vec<u8>, String> {
             Ok(decoded)
         }
     } else if source.starts_with("http://") || source.starts_with("https://") {
-        // SSRF 防护：封面色提取仅允许公网 http/https 目标，拒绝内网/回环/元数据等
         crate::security::ssrf::validate_outbound_url_sync(&source)
             .map_err(|e| format!("图片源校验失败: {e}"))?;
-        // 本函数由 FRB 同步处理器在专用线程调用（非 tokio 上下文），
-        // 建临时 current-thread runtime 执行异步请求，避免链接 reqwest blocking 模块。
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .map_err(|e| e.to_string())?;
         let client = reqwest::Client::builder()
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-            // 每个跳转目标都需通过 SSRF 校验
             .redirect(crate::security::ssrf::ssrf_redirect_policy())
-            // DNS pinning：连接复用校验时刻已钉住的公网 IP，杜绝 rebinding TOCTOU
             .dns_resolver(crate::security::ssrf::pinned_dns_resolver())
             .build()
             .map_err(|e| e.to_string())?;
@@ -448,11 +437,6 @@ fn percent_decode(input: &str) -> Vec<u8> {
     out
 }
 
-/// 从封面提取主色调调色板。
-///
-/// `source` 可为：本地文件路径、`http(s)://` 直链、`data:` URI。
-/// 失败时返回静态回退调色板，保证前端始终可拿到非空结果（与原 Worker 行为一致）。
-/// 纯 CPU 运算，移动端由宿主在后台线程调用。
 pub fn extract_palette(
     source: String,
     count: usize,
@@ -505,7 +489,6 @@ mod tests {
 
     #[test]
     fn fallback_when_image_too_dark() {
-        // 近乎纯黑的像素全部被 l<0.02 过滤，应回退到静态调色板。
         let rgba = solid_color_rgba(1, 1, 1);
         let palette = process_pixel_data(&rgba, 4, 56.0, 58.0);
         assert_eq!(palette.len(), 4);

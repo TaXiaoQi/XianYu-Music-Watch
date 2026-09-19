@@ -4,8 +4,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../player/player_provider.dart' show QueueItem;
 
-/// 云端歌单下载到腕上后的本机模型（只读消费：点歌单 → 整单入队播放；
-/// 歌单的增删改仍在手机/桌面端，腕上每次同步整表刷新）。
 class CloudSong {
   final String path;
   final String title;
@@ -38,8 +36,6 @@ class CloudSong {
       path.startsWith('http://') ||
       path.startsWith('https://');
 
-  /// 云端同步载荷 → 本地模型（与移动端 _songFromSyncPayload 同构，
-  /// duration 毫秒 → 秒；在线歌 localPath 置空语义由 isOnline 判定替代）。
   factory CloudSong.fromJson(Map<String, dynamic> j) {
     final rawPath = j['localPath'] as String? ?? j['path'] as String? ?? '';
     final musicInfo = j['musicInfo'] is Map
@@ -74,7 +70,6 @@ class CloudSong {
         'musicInfo': musicInfo,
       };
 
-  /// 直接起播的队列条目：在线歌带插件解析信息，本地歌走文件路径。
   QueueItem toQueueItem() {
     String? onlineSongJson;
     if (isOnline && pluginId.isNotEmpty) {
@@ -126,8 +121,6 @@ class CloudPlaylist {
       };
 }
 
-/// 云端歌单本机持久化（SharedPreferences JSON；歌单量级在几十个 ×
-/// 每单几百首，整表刷新场景够用）。
 class CloudPlaylistStore {
   static const _key = 'xianyu_watch_cloud_playlists_v1';
 

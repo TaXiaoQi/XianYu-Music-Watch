@@ -4,10 +4,8 @@ use tokio::sync::Semaphore;
 pub const THUMBNAIL_IMAGE_CONCURRENCY_LIMIT: usize = 2;
 pub const FULL_COVER_IMAGE_CONCURRENCY_LIMIT: usize = 2;
 
-/// 缩略图并发控制状态
 pub struct ThumbnailImageConcurrencyLimit(pub Semaphore);
 
-/// 高清封面并发控制状态
 pub struct FullCoverImageConcurrencyLimit(pub Semaphore);
 
 #[cfg(test)]
@@ -28,7 +26,7 @@ mod tests {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Song {
-    pub id: Option<i64>, // 数据库主键 (新增用于行为统计关联)
+    pub id: Option<i64>,
     #[serde(skip)]
     pub artist_avatar_bytes: Option<Vec<u8>>,
     #[serde(skip)]
@@ -125,7 +123,6 @@ pub struct SongDetail {
     pub container: Option<String>,
     pub codec: Option<String>,
     pub file_size: Option<u64>,
-    /// 技术信息（采样率/位深/码率/封装格式），用于移动端「歌曲详情」展示，对齐 RwaS 技术信息页。
     pub sample_rate: Option<u32>,
     pub bit_depth: Option<u8>,
     pub bitrate: Option<u32>,

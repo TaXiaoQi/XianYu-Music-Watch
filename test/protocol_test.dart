@@ -99,7 +99,7 @@ void main() {
     )[0];
 
     final corrupted = Uint8List.fromList(a);
-    corrupted[corrupted.length - 2] ^= 0xFF; // 破坏 payload 尾部
+    corrupted[corrupted.length - 2] ^= 0xFF;
     final decoder = FrameDecoder();
     final out = decoder.feed([...corrupted, ...b]);
     expect(out.length, 1);
@@ -110,7 +110,6 @@ void main() {
     final seq = makeSeqGenerator();
     final msg = LinkMessage.position(pos: 5, duration: 6);
     final frame = encodeFrames(msg, nextSeq: seq)[0];
-    // 手工构造未知 type=0x77 的帧。
     final unknown = Uint8List.fromList(frame);
     unknown[5] = 0x77;
     unknown[12] = 0;
@@ -123,7 +122,7 @@ void main() {
 
   test('超大 payload 自动分片并在解码端重组', () {
     final seq = makeSeqGenerator();
-    final bigText = '弦予' * 6000; // 24KB UTF-8
+    final bigText = '弦予' * 6000;
     final msg = LinkMessage(
       LinkMsgType.nowPlaying,
       {'id': 'big', 'title': bigText, 'artist': '', 'album': '', 'duration': 0},

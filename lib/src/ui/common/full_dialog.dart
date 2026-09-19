@@ -2,14 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../core/watch_fit.dart';
 
-/// 腕上全屏对话框：AlertDialog / SimpleDialog / bottom sheet 的统一替代。
-///
-/// 腕屏太小不适合浮窗——所有弹窗统一为完整页面：
-/// - 内容不足一屏时整体垂直居中，上下空白填充；
-/// - 超出一屏时可滚动；
-/// - 返回值语义与 showDialog 一致（`pop(value)`），await 即得结果。
-///
-/// 屏径等比适配经 [watchScale]；返回入口 `showFullDialog<T>`。
 Future<T?> showFullDialog<T>({
   required BuildContext context,
   required WidgetBuilder builder,
@@ -59,7 +51,6 @@ class _FullDialogRoute<T> extends PageRoute<T> {
   }
 }
 
-/// 全屏对话框骨架：标题 + 内容 + 动作按钮整体居中，内容超高时可滚。
 class FullDialogScaffold extends StatelessWidget {
   const FullDialogScaffold({
     super.key,
@@ -71,7 +62,6 @@ class FullDialogScaffold extends StatelessWidget {
   final String? title;
   final Widget? content;
 
-  /// 底部动作行（并排两个大按钮）；空则不显示。
   final List<Widget> actions;
 
   @override
@@ -120,7 +110,6 @@ class FullDialogScaffold extends StatelessWidget {
   }
 }
 
-/// 大号胶囊按钮（全屏对话框的标准动作件）。
 class FullDialogButton extends StatelessWidget {
   const FullDialogButton({
     super.key,
@@ -132,7 +121,6 @@ class FullDialogButton extends StatelessWidget {
   final String label;
   final VoidCallback? onPressed;
 
-  /// true = 主题色实底主按钮；false = 弱化描边按钮。
   final bool primary;
 
   @override
@@ -157,7 +145,6 @@ class FullDialogButton extends StatelessWidget {
   }
 }
 
-/// 确认框：返回 true（确定）/ null（取消）。[okOnly] 时只有确定按钮。
 Future<bool?> showFullConfirm(
   BuildContext context, {
   required String title,
@@ -198,8 +185,6 @@ Future<bool?> showFullConfirm(
   );
 }
 
-/// 单选页：[options] = (返回值, 文案)，[current] 高亮当前项。
-/// 点击选项立即返回。
 Future<T?> showFullPicker<T>(
   BuildContext context, {
   required String title,
@@ -230,7 +215,6 @@ Future<T?> showFullPicker<T>(
   );
 }
 
-/// 单选胶囊行：选中主题色描边 + 勾标，未选中弱化白。
 class _OptionButton extends StatelessWidget {
   const _OptionButton({
     required this.label,
@@ -287,7 +271,6 @@ class _OptionButton extends StatelessWidget {
   }
 }
 
-/// 滑杆选择页：大号数值 + Slider，确定返回当前值。
 Future<double?> showFullSlider(
   BuildContext context, {
   required String title,
@@ -389,7 +372,6 @@ class _FullSliderPageState extends State<_FullSliderPage> {
   }
 }
 
-/// 文本输入页：TextField + 确定按钮返回输入内容（trim 后）。
 Future<String?> showFullInput(
   BuildContext context, {
   required String title,

@@ -1,4 +1,3 @@
-// music/files.rs - 文件操作功能
 
 use super::lyrics::build_structured_lyrics_payload;
 use super::scanner::{apply_scan_changes, parse_song_from_file};
@@ -46,10 +45,8 @@ fn read_sidecar_lrc_with_path(path_obj: &Path) -> Option<(String, PathBuf)> {
     let stem = path_obj.file_stem()?.to_string_lossy().to_string();
     let parent = path_obj.parent()?;
 
-    // 支持的侧边歌词文件后缀，按照优先级排序
     let extensions = ["lrc", "ttml", "qrc", "yrc", "lys", "txt"];
 
-    // 1. 优先尝试精确匹配
     for ext in &extensions {
         let exact_path = parent.join(format!("{}.{}", stem, ext));
         if let Ok(content) = fs::read_to_string(&exact_path) {
@@ -57,7 +54,6 @@ fn read_sidecar_lrc_with_path(path_obj: &Path) -> Option<(String, PathBuf)> {
         }
     }
 
-    // 2. 如果没有精确匹配到，进行目录遍历（不区分后缀大小写）
     let entries = fs::read_dir(parent).ok()?;
     for entry in entries.flatten() {
         let candidate = entry.path();
@@ -348,7 +344,6 @@ fn read_song_lyrics_raw(path: &str) -> String {
     String::new()
 }
 
-/// 同步提取远程歌词所需的 owned 上下文（避免 &Connection 跨 await，不够 Send）。
 struct RemoteLyricsCtx {
     source: crate::remote::types::RemoteSourceCredentials,
     lrc_path: String,
@@ -430,7 +425,6 @@ pub(crate) fn decode_lyrics_file_bytes(bytes: &[u8]) -> String {
     decoded.trim_start_matches('\u{feff}').to_string()
 }
 
-/// 读取用户主动选择的 LRC 文件。只允许歌词扩展名，并限制大小以避免误选大文件。
 pub fn read_lyrics_file(path: String) -> Result<String, String> {
     const MAX_LYRICS_FILE_SIZE: u64 = 2 * 1024 * 1024;
     let path_obj = Path::new(&path);
@@ -842,7 +836,6 @@ struct SongTagWriteInfo {
     artist_count: i64,
 }
 
-/// 保存歌手头像。`write_to_tags` 为 true 时同步把头像写入该歌手所有歌曲的标签。
 pub fn save_artist_avatar(
     conn: &rusqlite::Connection,
     covers_root: &Path,

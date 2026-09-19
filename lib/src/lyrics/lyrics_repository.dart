@@ -8,8 +8,6 @@ import '../plugin/plugin_provider.dart';
 import '../rust/api.dart';
 import 'lyric_model.dart';
 
-/// 歌词解析缓存（key：本地 path / 在线 `online:<json hash>`）。
-/// 手表场景单次播放列表短，8 条上限足够且防无界增长。
 final Map<String, List<LyricLine>> _linesCache = {};
 const int _lyricsCacheMax = 8;
 
@@ -21,15 +19,11 @@ void _cacheLyrics(String key, List<LyricLine> lines) {
   }
 }
 
-/// 歌词仓库：为本地/在线曲目获取结构化歌词 payload 并解析为
-/// [LyricLine] 列表，供歌词页消费。联动模式歌词由手机端以同款
-/// payload 经链路推送（见 link_provider），不经本仓库。
 class LyricsRepository {
   LyricsRepository(this._ref);
 
   final Ref _ref;
 
-  /// 获取并解析指定曲目的歌词；无歌词返回空列表。
   Future<List<LyricLine>> fetchLyrics(QueueItem item) async {
     final key = _keyOf(item);
     final cached = _linesCache[key];
@@ -45,21 +39,17 @@ class LyricsRepository {
     }
   }
 
-  /// 获取歌词结构化 payload JSON（与手机端链路推送格式一致）。
   Future<String> fetchPayloadJson(QueueItem item) async {
     if (item.onlineSongJson != null && item.onlineSongJson!.isNotEmpty) {
-      // (A) 插件来源：engine.getLyric 拉 lxlyric/lyric/翻译。
       final pluginText = await _fetchPluginLyric(item);
       if (pluginText.trim().isNotEmpty) {
         return parseLyrics(rawLyrics: pluginText);
       }
-      // (B) 内置 LX 音源兜底：Rust 在线抓取。
       if (item.source != null && item.onlineInfoJson != null) {
         return _fetchFromBuiltinSource(item.source!, item.onlineInfoJson!);
       }
       return '';
     }
-    // 本地曲目：内嵌歌词或侧边 .lrc。
     final dbPath = await _ref.read(dbPathProvider.future);
     return getSongLyricsPayload(dbPath: dbPath, path: item.path);
   }
@@ -88,7 +78,6 @@ class LyricsRepository {
     return parseLyrics(rawLyrics: text);
   }
 
-  /// 从在线插件拉取歌词正文（含翻译拼接，与手机端同口径）。
   Future<String> _fetchPluginLyric(QueueItem item) async {
     Map<String, dynamic> parsed;
     try {
@@ -133,11 +122,9 @@ String _keyOf(QueueItem item) =>
 final lyricsRepositoryProvider =
     Provider<LyricsRepository>((ref) => LyricsRepository(ref));
 
-/// 剥离所有音源内嵌的逐字时间戳与元数据标签。
 String _cleanLyricText(String raw) {
   if (raw.isEmpty) return '';
   String text = raw;
-  // 1. 过滤元数据控制头 [ar:xx], [ti:xx] 等。
   text = text.replaceAll(
     RegExp(
       r'\[(ar|ti|al|by|offset|kuwo|kugou|hash|sign|qq|total|language|types):[^\]]*\]',
@@ -145,16 +132,12 @@ String _cleanLyricText(String raw) {
     ),
     '',
   );
-  // 2. 过滤酷狗 KRC / YRC 圆括号逐字时间戳。
   text = text.replaceAll(RegExp(r'\(\d+,\d+(?:,\d+)?\)'), '');
-  // 3. 过滤方括号内嵌逐字时间戳。
   text = text.replaceAll(RegExp(r'\[\d+,\d+\]'), '');
-  // 4. 过滤尖括号时间戳。
   text = text.replaceAll(RegExp(r'<[^>]*>'), '');
   return text.trim();
 }
 
-/// 将歌词 payload JSON（displayLines/lines）解析为歌词行列表。
 List<LyricLine> parsePayload(String jsonStr) {
   final map = jsonDecode(jsonStr) as Map<String, dynamic>;
   final rawLines =
@@ -223,7 +206,6 @@ List<LyricLine> parsePayload(String jsonStr) {
   return _normalizeBoundaries(lines);
 }
 
-/// 时间边界修正：行结束时间缺失时用下一行起点回推（与手机端同口径）。
 List<LyricLine> _normalizeBoundaries(List<LyricLine> lines) {
   final result = <LyricLine>[];
   for (var i = 0; i < lines.length; i++) {

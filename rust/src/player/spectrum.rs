@@ -84,14 +84,7 @@ pub fn build_frequency_bands(samples: &[f32], sample_rate: u32, band_count: usiz
 }
 
 // =========================================================================
-// RealtimeSpectrumAnalyzer（流式频谱分析器，参考 RawS MonoSpectrumAnalyzer）
 // =========================================================================
-//
-// 与一次性 `build_frequency_bands` 的区别：
-// - 维护环形输入缓冲，跨调用累积样本（无需整块传入）
-// - 时间平滑：相邻帧之间插值，避免频谱跳动
-// - 静默呼吸：输入为静音时缓慢衰减到零而非瞬间归零
-// - 下混单声道后做一次 FFT（与 RawS 一致）
 
 const REALTIME_FFT_SIZE: usize = 4096;
 const REALTIME_ANALYSIS_SAMPLE_RATE: u32 = 48_000;
@@ -148,14 +141,12 @@ impl RealtimeSpectrumAnalyzer {
         }
     }
 
-    /// 推入交错 PCM。内部做下混单声道 + 重采样到 48kHz（如需要）。
     pub fn push_pcm(&mut self, interleaved: &[f32], source_sample_rate: u32) {
         self.source_sample_rate = source_sample_rate;
         let ch = self.channels;
         let frame_count = interleaved.len() / ch;
 
         for frame in 0..frame_count {
-            // 下混单声道
             let mut mono = 0.0;
             for c in 0..ch {
                 let idx = frame * ch + c;
@@ -165,15 +156,12 @@ impl RealtimeSpectrumAnalyzer {
             }
             mono /= ch as f32;
 
-            // 重采样到分析采样率：非目标采样率暂按逐帧直通（后续接入线性插值）
             self.append_frame(mono);
 
-            // 低通跟随 RMS
             self.low_pass_mono = self.low_pass_mono * 0.95 + mono.abs() * 0.05;
             self.last_input_rms = self.last_input_rms * 0.9 + mono * mono * 0.1;
         }
 
-        // 有足够样本时做一次变换
         if self.valid_frames >= REALTIME_FFT_SIZE {
             self.transform();
         }
@@ -188,7 +176,6 @@ impl RealtimeSpectrumAnalyzer {
     }
 
     fn transform(&mut self) {
-        // 从环形缓冲读出，加汉宁窗
         let start = if self.valid_frames >= REALTIME_FFT_SIZE {
             self.write_index
         } else {
@@ -200,7 +187,6 @@ impl RealtimeSpectrumAnalyzer {
         }
         self.fft.process(&mut self.fft_buffer);
 
-        // 计算目标频段
         let max_freq = ((REALTIME_ANALYSIS_SAMPLE_RATE as f32) * 0.5).min(MAX_VISUALIZER_FREQUENCY_HZ);
         if max_freq <= MIN_VISUALIZER_FREQUENCY_HZ {
             return;
@@ -237,7 +223,6 @@ impl RealtimeSpectrumAnalyzer {
             self.last_targets[band] = peak.powf(0.55).min(1.0);
         }
 
-        // 时间平滑
         let now = Instant::now();
         let dt = self.last_analyze.map_or(0.016, |t| now.duration_since(t).as_secs_f32());
         self.last_analyze = Some(now);
@@ -246,8 +231,8 @@ impl RealtimeSpectrumAnalyzer {
 
     fn update_smoothed(&mut self, dt: f32) {
         let breathe = self.last_input_rms < 1e-6;
-        let attack = 1.0 - (-dt / 0.03).exp(); // 30ms 上升
-        let release = 1.0 - (-dt / 0.18).exp(); // 180ms 释放
+        let attack = 1.0 - (-dt / 0.03).exp();
+        let release = 1.0 - (-dt / 0.18).exp();
 
         for band in 0..self.band_count {
             let target = self.last_targets[band];
@@ -259,7 +244,6 @@ impl RealtimeSpectrumAnalyzer {
             self.smoothed[band] += (target - self.smoothed[band]) * coeff;
 
             if breathe {
-                // 静默时缓慢呼吸衰减
                 self.breath_phase += dt * 0.8;
                 let breathe_val = (self.breath_phase * 3.0).sin() * 0.5 + 0.5;
                 self.smoothed[band] *= 0.96;
@@ -268,7 +252,6 @@ impl RealtimeSpectrumAnalyzer {
         }
     }
 
-    /// 返回当前平滑后的频段（0..=1）。
     pub fn bands(&self) -> Vec<f32> {
         self.smoothed.clone()
     }
@@ -329,13 +312,11 @@ mod tests {
     #[test]
     fn realtime_analyzer_accumulates_and_smooths() {
         let mut analyzer = RealtimeSpectrumAnalyzer::new(44_100, 2, 32);
-        // 喂入静音，频段应为零或接近零
         analyzer.push_pcm(&vec![0.0; 4096], 44_100);
         let bands = analyzer.bands();
         assert_eq!(bands.len(), 32);
         assert!(bands.iter().all(|b| *b < 0.05));
 
-        // 喂入正弦波，应有频段响应
         let sine = sine_wave(440.0, 44_100, 8192);
         for _ in 0..4 {
             analyzer.push_pcm(&sine, 44_100);

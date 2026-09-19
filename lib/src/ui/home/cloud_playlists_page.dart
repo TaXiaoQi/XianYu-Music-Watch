@@ -7,8 +7,6 @@ import '../../sync/playlist_store.dart';
 import '../common/stepped_list.dart';
 import '../local/local_music_hub.dart';
 
-/// 我的歌单（云端同步下载，只读消费）：歌单列表 → 歌曲列表，
-/// 点任意一首整单入队并回播放页。
 class CloudPlaylistsPage extends ConsumerStatefulWidget {
   const CloudPlaylistsPage({super.key});
 
@@ -32,16 +30,13 @@ class _CloudPlaylistsPageState extends ConsumerState<CloudPlaylistsPage> {
         .read(playerProvider.notifier)
         .playQueue(items, startIndex: index);
     if (!mounted) return;
-    // 网易云式：点歌后回 hub 播放页。
     ref.read(localHubPageProvider.notifier).state = 1;
     Navigator.of(context).pop();
   }
 
   @override
   Widget build(BuildContext context) {
-    final s = context.watchScale(); // 屏径等比缩放
-    // 页面头：做进滚动内容最顶部（One UI 式，随列表滚走，圆弧适配完整。
-    // 与设备联动等二级页统一的居中表头 + 左上角返回键）。
+    final s = context.watchScale();
     final headerRow = const PageTitleHeader('我的歌单', showBack: true);
     return Scaffold(
       backgroundColor: Colors.black,
@@ -138,16 +133,14 @@ class _CloudPlaylistDetailPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final s = context.watchScale(); // 屏径等比缩放
+    final s = context.watchScale();
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
         child: SteppedListView(
-          // 页面头：歌单名随列表滚走，居中 + 左上角返回（One UI 式）。
           header: PageTitleHeader(playlist.name, showBack: true),
           itemCount: playlist.songs.length,
         itemBuilder: (context, i) {
-          // 局部变量改名为 song，避免遮蔽缩放系数 s。
           final song = playlist.songs[i];
           return SteppedTile(
             leading: SizedBox(

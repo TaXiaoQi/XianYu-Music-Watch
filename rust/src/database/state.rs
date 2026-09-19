@@ -5,13 +5,11 @@ use std::fs;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-/// 共享数据库连接状态（无 Tauri 依赖）。
 pub struct DbState {
     pub conn: Arc<Mutex<Connection>>,
 }
 
 impl DbState {
-    /// 从数据库文件路径打开连接（替代桌面端的 `DbState::new(app_handle)`）。
     pub fn new_from_path(db_path: &Path) -> Result<Self, String> {
         if let Some(parent) = db_path.parent() {
             if !parent.exists() {
