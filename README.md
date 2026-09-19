@@ -132,7 +132,7 @@ flutter build hap --target-platform ohos-x64   # 模拟器包（x86_64，无 Rus
 .\scripts\ohos\build-ohos.ps1 -AppPack         # 同上 + 出上架 AppGallery 的 .app
 ```
 
-> **flutter 命令路由（PowerShell profile 包装函数）**：本工程目录内，`flutter hap`（调试运行）、`flutter build app` / `build hap`（正式构建）、`pub get` 自动切到 Flutter-OH fork（与官方同引擎，仅多 ohos 目标），并注入 `PUB_CACHE=D:\pub-cache`（hvigor 插件要求 pub 缓存与工程同盘）与 DevEco ohpm/hvigor/node 工具，命令结束自动恢复环境，路由时终端显示浅灰 `[flutter-ohos]` 提示；**裸 `flutter run` 与 `flutter build apk` 始终走官方 SDK（安卓）**，安卓+鸿蒙设备同时在线互不干扰。构建前自动做 rust 陈旧检测（rust 源码新于 `ohos/entry/libs/*.so` 时先编译，`XIANMU_SKIP_RUST=1` 跳过）。
+> **flutter 命令路由（PowerShell profile 包装函数）**：本工程目录内，`flutter hap`（调试运行）、`flutter build app` / `build hap`（正式构建）、`pub get` 自动切到 Flutter-OH fork（与官方同引擎，仅多 ohos 目标），并注入 `PUB_CACHE=D:\XianYu-Music\.tools\pub-cache`（hvigor 插件要求 pub 缓存与工程同盘）与 DevEco ohpm/hvigor/node 工具，命令结束自动恢复环境，路由时终端显示浅灰 `[flutter-ohos]` 提示；**裸 `flutter run` 与 `flutter build apk` 始终走官方 SDK（安卓）**，安卓+鸿蒙设备同时在线互不干扰。构建前自动做 rust 陈旧检测（rust 源码新于 `ohos/entry/libs/*.so` 时先编译，`XIANMU_SKIP_RUST=1` 跳过）。
 >
 > **依赖态驻留模型**：ohos 命令进入时由 `scripts\ohos\pub-state.ps1` 写入 `pubspec_overrides.yaml`（fork 解析态），命令结束仅释放互斥、依赖态驻留 ohos（DevEco/hvigor 的 FlutterTask 需要 fork 态 package_config 才能编译）；裸 `flutter run` / `build apk` 遇残留 overrides 会自动还原 android 态并重新 pub get，互不劫持。
 >
