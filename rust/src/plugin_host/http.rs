@@ -1,3 +1,12 @@
+//! 插件 HTTP 桥 —— QuickJS 侧所有网络请求的统一出口
+//!
+//! 语义对齐原链路（worker tauriAdapter → plugin_http_request）：
+//!   - 请求前按 URL 域名注入已存 Cookie（headers 已带 Cookie 则跳过）
+//!   - 响应后捕获全部 Set-Cookie 存入 PluginStore
+//!   - gzip/br/deflate 自动解压，UA 兜底 Chrome 120
+//!   - 文本 body 按 Content-Type charset 解码（缺省 UTF-8，encoding_rs；
+//!     无效序列输出 U+FFFD，与浏览器一致）
+//!   - timeout_ms = 0 → 默认 30s；follow < 0 → 默认跟随 10 次重定向，0 → 不跟随
 
 use super::store::PluginStore;
 use base64::{engine::general_purpose, Engine as _};
@@ -12,6 +21,7 @@ const MAX_BODY_SIZE: usize = 50 * 1024 * 1024;
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
 const DEFAULT_REDIRECT_LIMIT: usize = 10;
 
+/// 把 reqwest 错误链展开成可读字符串，便于前端定位 timeout/dns/connection/proxy 等问题。
 fn format_request_error(err: reqwest::Error) -> String {
     let mut parts = Vec::new();
     parts.push(err.to_string());
@@ -37,6 +47,7 @@ pub struct HttpBridgeResponse {
     pub error: Option<String>,
 }
 
+/// 按 Content-Type 的 charset 解码文本 body；未声明或无法识别时按 UTF-8
 fn decode_text_body(bytes: &[u8], content_type: Option<&String>) -> String {
     let charset = content_type
         .and_then(|ct| {
@@ -67,7 +78,7 @@ impl HttpBridge {
 
     fn client_for(&self, redirect_limit: usize) -> Result<reqwest::Client, String> {
         {
-            let clients = self.clients.lock().unwrap_or_else(|e| e.into_inner());
+            let clients = self.clients.lock().unwrap();
             if let Some(client) = clients.get(&redirect_limit) {
                 return Ok(client.clone());
             }
@@ -75,6 +86,7 @@ impl HttpBridge {
         let policy = if redirect_limit == 0 {
             reqwest::redirect::Policy::none()
         } else {
+            // 跟随重定向，但每个跳转目标都需通过 SSRF 校验
             crate::security::ssrf::ssrf_redirect_policy()
         };
         let client = reqwest::Client::builder()
@@ -86,7 +98,7 @@ impl HttpBridge {
             .user_agent(USER_AGENT)
             .build()
             .map_err(|e| e.to_string())?;
-        let mut clients = self.clients.lock().unwrap_or_else(|e| e.into_inner());
+        let mut clients = self.clients.lock().unwrap();
         Ok(clients.entry(redirect_limit).or_insert(client).clone())
     }
 
@@ -132,16 +144,26 @@ impl HttpBridge {
         };
         let client = self.client_for(redirect_limit)?;
 
-        crate::security::ssrf::validate_outbound_url(url)
+        // SSRF 防护：插件请求只允许公网 http/https 目标，拒绝内网/回环/云元数据等
+        let parsed_url = crate::security::ssrf::validate_outbound_url(url)
             .await
             .map_err(|e| e.to_string())?;
+        // fake-ip 目标（代理接管 DNS 但本应用被分应用排除、未走其隧道）会连接黑洞，
+        // 缩短等待并在失败时给出针对性提示
+        let fake_ip_target = parsed_url
+            .host_str()
+            .map(crate::security::ssrf::host_is_fake_ip_target)
+            .unwrap_or(false);
 
         let mut request = client.request(method, url);
-        if timeout_ms > 0 {
-            request = request.timeout(Duration::from_millis(timeout_ms));
+        let timeout = if timeout_ms > 0 {
+            Duration::from_millis(timeout_ms)
+        } else if fake_ip_target {
+            Duration::from_secs(8)
         } else {
-            request = request.timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS));
-        }
+            Duration::from_secs(DEFAULT_TIMEOUT_SECS)
+        };
+        request = request.timeout(timeout);
 
         let mut has_cookie_header = false;
         for (key, value) in &headers {
@@ -165,7 +187,15 @@ impl HttpBridge {
             }
         }
 
-        let mut response = request.send().await.map_err(|e| e.to_string())?;
+        let mut response = match request.send().await {
+            Ok(r) => r,
+            Err(e) => {
+                if fake_ip_target {
+                    return Err("连接失败：该域名被本机代理以 fake-ip 方式接管，但当前应用未走代理隧道（可能被分应用排除）。请在代理软件中将本应用加入代理名单，或将该域名设为直连/加入 fake-ip-filter".to_string());
+                }
+                return Err(format_request_error(e));
+            }
+        };
         let status = response.status().as_u16();
         let final_url = response.url().to_string();
 
@@ -246,6 +276,7 @@ mod tests {
         let store = Arc::new(PluginStore::load(None));
         store.set_cookie("https://example.com/", "sid", "v1", None);
         let bridge = HttpBridge::new(store);
+        // 直接验证内部逻辑：有 Cookie 头时不重复注入（通过网络层不可测，跳过）
         assert!(bridge.client_for(0).is_ok());
         assert!(bridge.client_for(10).is_ok());
     }
