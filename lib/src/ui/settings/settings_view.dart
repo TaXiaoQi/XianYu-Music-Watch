@@ -7,11 +7,14 @@ import '../../core/app_version.dart';
 import '../../core/settings.dart';
 import '../common/full_dialog.dart';
 import '../../core/watch_fit.dart';
+import '../../auth/auth_provider.dart';
 import '../../library/library_provider.dart';
 import '../../player/stream_cache.dart';
 import '../common/stepped_list.dart';
 import '../online/plugin_manage_page.dart';
 import '../../plugin/plugin_provider.dart';
+import '../../backup/watch_backup.dart';
+import '../../link/link_provider.dart';
 
 class SettingsView extends ConsumerWidget {
   const SettingsView({super.key});
@@ -69,6 +72,16 @@ class SettingsView extends ConsumerWidget {
         subtitle: 'v$kAppVersion · 弦予音乐 腕上版',
         onTap: () => Navigator.of(context).push(
           MaterialPageRoute<void>(builder: (_) => const _AboutPage()),
+        ),
+      ),
+      _categoryRow(
+        s: s,
+        color: const Color(0xFFE8963D),
+        icon: Icons.settings_backup_restore_rounded,
+        title: '备份',
+        subtitle: '推送给手机 / 保存到本地',
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const _BackupPage()),
         ),
       ),
     ];
@@ -441,21 +454,342 @@ class _LibraryPageState extends ConsumerState<_LibraryPage> {
   }
 }
 
+class _BackupPage extends ConsumerStatefulWidget {
+  const _BackupPage();
+
+  @override
+  ConsumerState<_BackupPage> createState() => _BackupPageState();
+}
+
+class _BackupPageState extends ConsumerState<_BackupPage> {
+  bool _busy = false;
+
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), duration: const Duration(seconds: 2)),
+    );
+  }
+
+  Future<String> _export() async {
+    final service = ref.read(watchBackupProvider);
+    return service.exportJson();
+  }
+
+  Future<void> _saveLocal() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final json = await _export();
+      await writeWatchBackupFileLocal(json);
+      _toast('已保存到本地');
+    } catch (e) {
+      _toast('保存失败：$e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _pushToPhone() async {
+    if (_busy) return;
+    final link = ref.read(linkControllerProvider);
+    if (link.phase != LinkPhase.connected) {
+      _toast('未连接手机，请先在「设备联动」连接');
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      final json = await _export();
+      final result = await ref
+          .read(linkControllerProvider.notifier)
+          .pushBackup(name: watchBackupFileName(), content: json);
+      switch (result) {
+        case LinkController.backupPushSaved:
+          _toast('已完成：手机已保存备份');
+        case LinkController.backupPushCancelled:
+          _toast('已取消：手机端未保存');
+        case LinkController.backupPushTimeout:
+          _toast('推送超时，请确认手机已处理');
+        default:
+          _toast('推送失败：未收到回应');
+      }
+    } catch (e) {
+      _toast('推送失败：$e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _restoreLocal() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final json = await readLatestLocalBackupFile();
+      if (json == null) {
+        _toast('未找到本地备份，请先「保存到本地」');
+        return;
+      }
+      final result = await ref.read(watchBackupProvider).importJson(json);
+      final parts = <String>[
+        if (((result['favorites'] as num?) ?? 0) > 0) '收藏 ${result['favorites']} 条',
+        if (((result['playlists'] as num?) ?? 0) > 0) '歌单 ${result['playlists']} 个',
+        if (((result['plugins'] as num?) ?? 0) > 0) '插件 ${result['plugins']} 个',
+        if (((result['settings'] as num?) ?? 0) > 0) '设置',
+      ];
+      if (parts.isEmpty) {
+        _toast('恢复完成：无新数据需要导入');
+      } else {
+        _toast('已恢复 ${parts.join('、')}');
+      }
+    } catch (e) {
+      _toast('恢复失败：$e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.watchScale();
+    final link = ref.watch(linkControllerProvider);
+
+    final rows = <Widget>[
+      _rowPill(
+        s,
+        leading: _iconBubble(s, const Color(0xFF4A90D9), Icons.watch_rounded),
+        title: '推送给手机',
+        subtitle: link.phase == LinkPhase.connected
+            ? '已连接 ${link.phoneName.isEmpty ? '手机' : link.phoneName}，发送后将等待回执'
+            : '未连接手机，请在「设备联动」连接后再试',
+        trailing: _busy
+            ? SizedBox(
+                width: 18 * s,
+                height: 18 * s,
+                child: CircularProgressIndicator(strokeWidth: 2 * s),
+              )
+            : Icon(Icons.chevron_right_rounded,
+                size: 22 * s, color: Colors.white.withValues(alpha: 0.38)),
+        onTap:
+            _busy || link.phase != LinkPhase.connected ? null : _pushToPhone,
+      ),
+      _rowPill(
+        s,
+        leading: _iconBubble(s, const Color(0xFF5FA97C), Icons.save_alt_rounded),
+        title: '保存到本地',
+        subtitle: '生成备份文件保存到腕上端文档目录',
+        trailing: Icon(Icons.chevron_right_rounded,
+            size: 22 * s, color: Colors.white.withValues(alpha: 0.38)),
+        onTap: _busy ? null : _saveLocal,
+      ),
+      _rowPill(
+        s,
+        leading: _iconBubble(s, const Color(0xFFB07EE8), Icons.settings_backup_restore_rounded),
+        title: '从本地恢复',
+        subtitle: '读取最新本地备份，恢复收藏、歌单、插件的本机设置',
+        trailing: _busy
+            ? SizedBox(
+                width: 18 * s,
+                height: 18 * s,
+                child: CircularProgressIndicator(strokeWidth: 2 * s),
+              )
+            : Icon(Icons.chevron_right_rounded,
+                size: 22 * s, color: Colors.white.withValues(alpha: 0.38)),
+        onTap: _busy ? null : _restoreLocal,
+      ),
+    ];
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        child: SteppedListView(
+          header: const PageTitleHeader('备份', showBack: true),
+          itemCount: rows.length,
+          rowExtent: (_) => 62 * s,
+          itemBuilder: (context, i) => rows[i],
+        ),
+      ),
+    );
+  }
+
+  Widget _iconBubble(double s, Color color, IconData icon) {
+    return Container(
+      width: 36 * s,
+      height: 36 * s,
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      child: Icon(icon, size: 20 * s, color: Colors.white),
+    );
+  }
+}
+
 class _AboutPage extends ConsumerWidget {
   const _AboutPage();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final s = context.watchScale();
-    return _SteppedPage(title: '关于', rows: [
-      _actionRow(
-        s: s,
-        icon: Icon(Icons.music_note_rounded, size: 24 * s),
-        title: '弦予音乐 腕上版',
-        subtitle: 'v$kAppVersion · 独立播放 / 手机联动',
+    final cfg =
+        ref.watch(aboutConfigProvider).valueOrNull ?? const WatchAboutConfig();
+
+    final rows = <Widget>[
+      // 顶部信息
+      Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 60 * s,
+              height: 60 * s,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFFFF4D6E), Color(0xFFFF8FA3)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(18 * s),
+              ),
+              child: Icon(Icons.music_note_rounded,
+                  size: 30 * s, color: Colors.white),
+            ),
+            SizedBox(height: 6 * s),
+            Text('弦予音乐',
+                style: TextStyle(
+                    fontSize: 16 * s,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white)),
+            SizedBox(height: 2 * s),
+            Text('将音乐给予你',
+                style: TextStyle(
+                    fontSize: 10.5 * s,
+                    color: Colors.white.withValues(alpha: 0.55))),
+            SizedBox(height: 2 * s),
+            Text('v$kAppVersion · 腕上版',
+                style: TextStyle(
+                    fontSize: 10 * s,
+                    color: Colors.white.withValues(alpha: 0.4))),
+          ],
+        ),
       ),
-    ]);
+      if (cfg.officialSiteUrl.isNotEmpty)
+        _aboutLink(
+          s,
+          icon: Icons.language_rounded,
+          label: '前往官网',
+          sub: cfg.officialSiteUrl,
+          onTap: () => _aboutOpenExternal(context, '前往官网'),
+        ),
+      if (cfg.joinGroupUrl.isNotEmpty)
+        _aboutLink(
+          s,
+          icon: Icons.group_rounded,
+          label: '加入群组',
+          sub: '与开发者和玩友交流',
+          onTap: () => _aboutOpenExternal(context, '加入群组'),
+        ),
+      _aboutLink(
+        s,
+        icon: Icons.favorite_rounded,
+        label: '致谢名单',
+        sub: cfg.acknowledgements.isEmpty ? '暂无致谢名单' : '感谢以下项目的贡献者',
+        onTap: () => _aboutShowAcknowledgements(context, cfg.acknowledgements),
+      ),
+      _rowPill(
+        s,
+        leading: Icon(Icons.verified_rounded,
+            size: 24 * s, color: const Color(0xFF4A90D9)),
+        title: '开发者',
+        subtitle: 'xiaoqi',
+      ),
+      Center(
+        child: Text(
+          '© 2026 弦予音乐 · License AGPL-3.0',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+              fontSize: 9.5 * s, color: Colors.white.withValues(alpha: 0.32)),
+        ),
+      ),
+    ];
+
+    final extents = <double>[
+      132 * s, // 顶部信息
+      for (var i = 0; i < rows.length - 1; i++) 54 * s,
+    ];
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        child: SteppedListView(
+          header: const PageTitleHeader('关于', showBack: true),
+          itemCount: rows.length,
+          rowExtent: (i) => extents[i],
+          itemBuilder: (context, i) => rows[i],
+        ),
+      ),
+    );
   }
+
+  void _aboutOpenExternal(BuildContext context, String label) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('请在手机端打开：$label'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _aboutShowAcknowledgements(
+      BuildContext context, List<AboutAck> acks) {
+    final s = context.watchScale();
+    showFullDialog<void>(
+      context: context,
+      builder: (context) => FullDialogScaffold(
+        title: '致谢名单',
+        content: acks.isEmpty
+            ? Text(
+                '暂无致谢名单',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    fontSize: 12 * s,
+                    color: Colors.white.withValues(alpha: 0.6)),
+              )
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final a in acks)
+                    Padding(
+                      padding: EdgeInsets.symmetric(vertical: 4 * s),
+                      child: Center(
+                        child: Text(
+                          a.name,
+                          style: TextStyle(
+                              fontSize: 13 * s, color: Colors.white),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+        actions: [
+          FullDialogButton(label: '知道了', primary: true, onPressed: () => Navigator.of(context).pop()),
+        ],
+      ),
+    );
+  }
+}
+
+Widget _aboutLink(
+  double s, {
+  required IconData icon,
+  required String label,
+  required String sub,
+  required VoidCallback onTap,
+}) {
+  return _rowPill(
+    s,
+    leading: Icon(icon, size: 24 * s, color: const Color(0xFFFF4D6E)),
+    title: label,
+    subtitle: sub,
+    onTap: onTap,
+  );
 }
 
 class _SteppedPage extends StatelessWidget {
@@ -509,6 +843,58 @@ Widget _backChip(double s) {
   );
 }
 
+/// 设置/详情页统一行：内容整体左对齐，前置图标 + 标题/副标题靠左，右侧只留非装饰控件
+Widget _rowPill(
+  double s, {
+  Widget? leading,
+  String? title,
+  String? subtitle,
+  Widget? trailing,
+  VoidCallback? onTap,
+}) {
+  return SteppedPill(
+    onTap: onTap,
+    child: Padding(
+      padding: EdgeInsets.symmetric(horizontal: 5 * s, vertical: 2 * s),
+      child: Row(
+        children: [
+          if (leading != null) ...[
+            leading,
+            SizedBox(width: 12 * s),
+          ],
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (title != null)
+                  Text(title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: 16 * s, fontWeight: FontWeight.w600)),
+                if ((subtitle ?? '').isNotEmpty) ...[
+                  SizedBox(height: 2 * s),
+                  Text(subtitle!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: 11.5 * s,
+                          color: Colors.white.withValues(alpha: 0.5))),
+                ],
+              ],
+            ),
+          ),
+          if (trailing != null) ...[
+            SizedBox(width: 8 * s),
+            trailing,
+          ],
+        ],
+      ),
+    ),
+  );
+}
+
 Widget _categoryRow({
   required double s,
   required Color color,
@@ -517,65 +903,17 @@ Widget _categoryRow({
   required String subtitle,
   required VoidCallback onTap,
 }) {
-  return SteppedPill(
-    onTap: onTap,
-    child: Padding(
-      padding: EdgeInsets.symmetric(horizontal: 3 * s),
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: Center(
-              child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: 56 * s),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Text(title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                            fontSize: 16 * s, fontWeight: FontWeight.w600)),
-                    SizedBox(height: 2 * s),
-                    Text(subtitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                            fontSize: 11.5 * s,
-                            color: Colors.white.withValues(alpha: 0.5))),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 44 * s,
-                  height: 44 * s,
-                  decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-                  child: Icon(icon, size: 22 * s, color: Colors.white),
-                ),
-                SizedBox(width: 12 * s),
-              ],
-            ),
-          ),
-          Align(
-            alignment: Alignment.centerRight,
-            child: Icon(
-              Icons.chevron_right_rounded,
-              size: 22 * s,
-              color: Colors.white.withValues(alpha: 0.38),
-            ),
-          ),
-        ],
-      ),
+  return _rowPill(
+    s,
+    leading: Container(
+      width: 44 * s,
+      height: 44 * s,
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      child: Icon(icon, size: 22 * s, color: Colors.white),
     ),
+    title: title,
+    subtitle: subtitle,
+    onTap: onTap,
   );
 }
 
@@ -586,52 +924,18 @@ Widget _switchRow({
   required bool value,
   required ValueChanged<bool> onChanged,
 }) {
-  return InkWell(
-    onTap: () => onChanged(!value),
-    child: Padding(
-      padding: EdgeInsets.symmetric(horizontal: 3 * s),
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: Center(
-              child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: 56 * s),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Text(title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                            fontSize: 16 * s, fontWeight: FontWeight.w600)),
-                    SizedBox(height: 2 * s),
-                    Text(subtitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                            fontSize: 11.5 * s,
-                            color: Colors.white.withValues(alpha: 0.5))),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          Align(
-            alignment: Alignment.centerRight,
-            child: SizedBox(
-              width: 48 * s,
-              child: Switch(
-                  value: value,
-                  activeThumbColor: const Color(0xFFFF4D6E),
-                  onChanged: onChanged),
-            ),
-          ),
-        ],
-      ),
+  return _rowPill(
+    s,
+    title: title,
+    subtitle: subtitle,
+    trailing: SizedBox(
+      width: 48 * s,
+      child: Switch(
+          value: value,
+          activeThumbColor: const Color(0xFFFF4D6E),
+          onChanged: onChanged),
     ),
+    onTap: () => onChanged(!value),
   );
 }
 
@@ -643,56 +947,13 @@ Widget _actionRow({
   Widget? trailing,
   VoidCallback? onTap,
 }) {
-  return SteppedPill(
+  return _rowPill(
+    s,
+    leading: icon,
+    title: title,
+    subtitle: subtitle,
+    trailing: trailing,
     onTap: onTap,
-    child: Padding(
-      padding: EdgeInsets.symmetric(horizontal: 3 * s),
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: Center(
-              child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: 56 * s),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Text(title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                            fontSize: 16 * s, fontWeight: FontWeight.w600)),
-                    ...?subtitle == null
-                        ? null
-                        : [
-                            SizedBox(height: 2 * s),
-                            Text(subtitle,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                    fontSize: 11.5 * s,
-                                    color: Colors.white
-                                        .withValues(alpha: 0.5))),
-                          ],
-                  ],
-                ),
-              ),
-            ),
-          ),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [icon, SizedBox(width: 12 * s)],
-            ),
-          ),
-          if (trailing != null)
-            Align(alignment: Alignment.centerRight, child: trailing),
-        ],
-      ),
-    ),
   );
 }
 
