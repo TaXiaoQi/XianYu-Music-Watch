@@ -91,8 +91,8 @@ class _SteppedListViewState extends State<SteppedListView> {
 
   static const double _capsuleH = 56;
 
-  /// 行距系数默认值，可被 widget.rowSpacing 覆盖
-  double get _rowSpacing => widget.rowSpacing ?? 1.06;
+  /// 行距系数默认值（功能页同款），可被 widget.rowSpacing 覆盖
+  double get _rowSpacing => widget.rowSpacing ?? 1.12;
 
   static const double _minScale = 0.26;
 
@@ -362,7 +362,7 @@ class _SteppedListViewState extends State<SteppedListView> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final viewportH = constraints.maxHeight;
-        final rowPad = widget.rowPadding ?? (round ? 8.0 : 6.0) * s;
+        final rowPad = widget.rowPadding ?? (round ? 4.0 : 6.0) * s;
         final rowW = math.max(0.0, constraints.maxWidth - 2 * rowPad);
         final endPad = ((viewportH - nomPitch * _rowSpacing) / 2).clamp(
           0.0,

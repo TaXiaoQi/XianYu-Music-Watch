@@ -192,8 +192,6 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
           itemCount: specs.length + 1,
           header: const PageTitleHeader('功能'),
           rotaryGuard: () => ref.read(localHubPageProvider) == 0,
-          rowSpacing: 1.12,
-          rowPadding: 4,
           itemBuilder: (context, i) {
             if (i == 0) {
               return const LinkEntryTile(
