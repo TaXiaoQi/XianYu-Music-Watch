@@ -183,6 +183,8 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
         ).push(MaterialPageRoute<void>(builder: (_) => const SettingsView())),
       ),
     ];
+    // 功能条统一配色：深灰实底胶囊 + 白字 + 彩色圆标（kSteppedTileBg）
+    const tileFg = Color(0xFFFFFFFF);
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: SafeArea(
@@ -190,8 +192,16 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
           itemCount: specs.length + 1,
           header: const PageTitleHeader('功能'),
           rotaryGuard: () => ref.read(localHubPageProvider) == 0,
+          rowSpacing: 1.12,
+          rowPadding: 4,
           itemBuilder: (context, i) {
-            if (i == 0) return const LinkEntryTile();
+            if (i == 0) {
+              return const LinkEntryTile(
+                titleColor: tileFg,
+                subtitleColor: Colors.white70,
+                backgroundColor: kSteppedTileBg,
+              );
+            }
             final (color, icon, label, onTap) = specs[i - 1];
             return SteppedTile(
               leading: SteppedLeadCircle(
@@ -199,12 +209,14 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
                 child: Icon(icon, size: 22 * s, color: Colors.white),
               ),
               title: label,
+              titleColor: tileFg,
               trailing: Icon(
                 Icons.chevron_right_rounded,
                 size: 22 * s,
-                color: Colors.white.withValues(alpha: 0.38),
+                color: tileFg.withValues(alpha: 0.35),
               ),
               onTap: onTap,
+              backgroundColor: kSteppedTileBg,
             );
           },
         ),

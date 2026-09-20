@@ -9,6 +9,7 @@ import '../../core/haptics.dart';
 import '../../core/watch_fit.dart';
 import '../common/full_dialog.dart';
 import '../common/rotary_input.dart';
+import '../common/stepped_list.dart';
 import 'effects_page.dart';
 import 'player_source.dart';
 
@@ -41,8 +42,6 @@ class PlayPageBody extends StatefulWidget {
 }
 
 class _PlayPageBodyState extends State<PlayPageBody> {
-  static const _speedSteps = [0.75, 1.0, 1.25, 1.5, 2.0];
-
   StreamSubscription<RotaryEvent>? _rotarySub;
   final RotaryQuantizer _rotary = RotaryQuantizer();
 
@@ -106,180 +105,17 @@ class _PlayPageBodyState extends State<PlayPageBody> {
     });
   }
 
-  static String _speedLabel(double s) =>
-      s == s.roundToDouble() ? '${s.toStringAsFixed(1)}x' : '${s}x';
-
-  static String _modeLabel(int m) => switch (m) {
-    1 => '单曲循环',
-    2 => '随机播放',
-    _ => '列表循环',
-  };
-
-  IconData _modeIcon(int m) => switch (m) {
-    2 => Icons.shuffle_rounded,
-    1 => Icons.repeat_one_rounded,
-    _ => Icons.repeat_rounded,
-  };
-
   void _openMoreSheet() {
     Haptics.tick();
-    final s = context.watchScale();
     showFullDialog<void>(
       context: context,
-      builder: (sheetCtx) => StatefulBuilder(
-        builder: (sheetCtx, setSheet) {
-          final src = widget.sourceBuilder();
-          return FullDialogScaffold(
-            title: '播放设置',
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                _sheetLabel('播放模式', s),
-                SizedBox(height: 7 * s),
-                Wrap(
-                  spacing: 7 * s,
-                  runSpacing: 7 * s,
-                  alignment: WrapAlignment.center,
-                  children: [
-                    for (var m = 0; m < 3; m++)
-                      _sheetChip(
-                        s: s,
-                        active: src.playMode == m,
-                        onTap: () {
-                          src.setMode(m);
-                          Haptics.tick();
-                          setSheet(() {});
-                        },
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              _modeIcon(m),
-                              size: 14.5 * s,
-                              color: src.playMode == m
-                                  ? kPlayerAccent
-                                  : Colors.white.withValues(alpha: 0.7),
-                            ),
-                            SizedBox(width: 4.5 * s),
-                            Text(
-                              _modeLabel(m),
-                              style: TextStyle(
-                                fontSize: 11.5 * s,
-                                color: src.playMode == m
-                                    ? kPlayerAccent
-                                    : Colors.white.withValues(alpha: 0.85),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
-                ),
-                if (src.speed != null) ...[
-                  SizedBox(height: 13 * s),
-                  _sheetLabel('倍速', s),
-                  SizedBox(height: 7 * s),
-                  Wrap(
-                    spacing: 7 * s,
-                    runSpacing: 7 * s,
-                    alignment: WrapAlignment.center,
-                    children: [
-                      for (final v in _speedSteps)
-                        _sheetChip(
-                          s: s,
-                          active: (src.speed! - v).abs() < 0.01,
-                          onTap: () {
-                            src.setSpeed(v);
-                            Haptics.tick();
-                            setSheet(() {});
-                          },
-                          child: Text(
-                            _speedLabel(v),
-                            style: TextStyle(
-                              fontSize: 11.5 * s,
-                              fontWeight: FontWeight.w600,
-                              color: (src.speed! - v).abs() < 0.01
-                                  ? kPlayerAccent
-                                  : Colors.white.withValues(alpha: 0.85),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ],
-                if (src.supportsSoundEffects) ...[
-                  SizedBox(height: 13 * s),
-                  _sheetLabel('音效', s),
-                  SizedBox(height: 7 * s),
-                  _sheetChip(
-                    s: s,
-                    active: false,
-                    onTap: () {
-                      Haptics.tick();
-                      Navigator.of(sheetCtx).pop();
-                      openSoundEffectsPage(context);
-                    },
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.graphic_eq_rounded,
-                          size: 14.5 * s,
-                          color: Colors.white.withValues(alpha: 0.7),
-                        ),
-                        SizedBox(width: 4.5 * s),
-                        Text(
-                          '均衡器 · 音效调节',
-                          style: TextStyle(
-                            fontSize: 11.5 * s,
-                            color: Colors.white.withValues(alpha: 0.85),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          );
+      builder: (_) => _PlayerSettingsSheet(
+        sourceBuilder: widget.sourceBuilder,
+        onOpenEffects: () {
+          Haptics.tick();
+          Navigator.of(context, rootNavigator: true).pop();
+          openSoundEffectsPage(context);
         },
-      ),
-    );
-  }
-
-  Widget _sheetLabel(String text, double s) => Text(
-    text,
-    style: TextStyle(
-      fontSize: 10 * s,
-      fontWeight: FontWeight.w600,
-      color: Colors.white.withValues(alpha: 0.45),
-    ),
-  );
-
-  Widget _sheetChip({
-    required double s,
-    required bool active,
-    required VoidCallback onTap,
-    required Widget child,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: EdgeInsets.symmetric(horizontal: 11 * s, vertical: 6.5 * s),
-        decoration: BoxDecoration(
-          color: active
-              ? kPlayerAccent.withValues(alpha: 0.18)
-              : Colors.white.withValues(alpha: 0.07),
-          borderRadius: BorderRadius.circular(15 * s),
-          border: Border.all(
-            color: active ? kPlayerAccent : Colors.transparent,
-            width: 1,
-          ),
-        ),
-        child: child,
       ),
     );
   }
@@ -700,6 +536,208 @@ class _PlayPageBodyState extends State<PlayPageBody> {
       tooltip: tooltip,
       padding: EdgeInsets.all(6 * s),
       constraints: BoxConstraints(minWidth: 44 * s, minHeight: 44 * s),
+    );
+  }
+}
+
+// 播放设置：与音效页统一的阶梯列表布局（标签行 + 胶囊组行 + 瘦长条入口）
+class _PlayerSettingsSheet extends StatefulWidget {
+  const _PlayerSettingsSheet({required this.sourceBuilder, this.onOpenEffects});
+
+  final PlayerViewSource Function() sourceBuilder;
+
+  final VoidCallback? onOpenEffects;
+
+  @override
+  State<_PlayerSettingsSheet> createState() => _PlayerSettingsSheetState();
+}
+
+class _PlayerSettingsSheetState extends State<_PlayerSettingsSheet> {
+  static const _speedSteps = [0.75, 1.0, 1.25, 1.5, 2.0];
+
+  static String _speedLabel(double s) =>
+      s == s.roundToDouble() ? '${s.toStringAsFixed(1)}x' : '${s}x';
+
+  static String _modeLabel(int m) => switch (m) {
+    1 => '单曲循环',
+    2 => '随机播放',
+    _ => '列表循环',
+  };
+
+  static IconData _modeIcon(int m) => switch (m) {
+    2 => Icons.shuffle_rounded,
+    1 => Icons.repeat_one_rounded,
+    _ => Icons.repeat_rounded,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.watchScale();
+    final src = widget.sourceBuilder();
+    final rows = <(Widget, double)>[
+      (_sheetLabel('播放模式', s), 30.0),
+      (
+        Wrap(
+          spacing: 7 * s,
+          runSpacing: 7 * s,
+          alignment: WrapAlignment.center,
+          children: [
+            for (var m = 0; m < 3; m++)
+              _sheetChip(
+                s: s,
+                active: src.playMode == m,
+                onTap: () {
+                  src.setMode(m);
+                  Haptics.tick();
+                  setState(() {});
+                },
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _modeIcon(m),
+                      size: 14.5 * s,
+                      color: src.playMode == m
+                          ? kPlayerAccent
+                          : Colors.white.withValues(alpha: 0.7),
+                    ),
+                    SizedBox(width: 4.5 * s),
+                    Text(
+                      _modeLabel(m),
+                      style: TextStyle(
+                        fontSize: 11.5 * s,
+                        color: src.playMode == m
+                            ? kPlayerAccent
+                            : Colors.white.withValues(alpha: 0.85),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+        64.0,
+      ),
+      if (src.speed != null) ...[
+        (_sheetLabel('倍速', s), 30.0),
+        (
+          Wrap(
+            spacing: 7 * s,
+            runSpacing: 7 * s,
+            alignment: WrapAlignment.center,
+            children: [
+              for (final v in _speedSteps)
+                _sheetChip(
+                  s: s,
+                  active: (src.speed! - v).abs() < 0.01,
+                  onTap: () {
+                    src.setSpeed(v);
+                    Haptics.tick();
+                    setState(() {});
+                  },
+                  child: Text(
+                    _speedLabel(v),
+                    style: TextStyle(
+                      fontSize: 11.5 * s,
+                      fontWeight: FontWeight.w600,
+                      color: (src.speed! - v).abs() < 0.01
+                          ? kPlayerAccent
+                          : Colors.white.withValues(alpha: 0.85),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          64.0,
+        ),
+      ],
+      if (src.supportsSoundEffects)
+        (
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: widget.onOpenEffects,
+            child: Container(
+              height: 46 * s,
+              padding: EdgeInsets.symmetric(horizontal: 12 * s),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.07),
+                borderRadius: BorderRadius.circular(23 * s),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.graphic_eq_rounded,
+                    size: 18 * s,
+                    color: Colors.white.withValues(alpha: 0.9),
+                  ),
+                  SizedBox(width: 10 * s),
+                  Expanded(
+                    child: Text(
+                      '均衡器 · 音效调节',
+                      style: TextStyle(
+                        fontSize: 13 * s,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    size: 15 * s,
+                    color: Colors.white.withValues(alpha: 0.4),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          54.0,
+        ),
+    ];
+    return Scaffold(
+      backgroundColor: const Color(0xFF101014),
+      body: SafeArea(
+        child: SteppedListView(
+          itemCount: rows.length,
+          itemBuilder: (context, i) => rows[i].$1,
+          rowExtent: (i) => rows[i].$2,
+          header: const PageTitleHeader('播放设置'),
+        ),
+      ),
+    );
+  }
+
+  Widget _sheetLabel(String text, double s) => Text(
+    text,
+    style: TextStyle(
+      fontSize: 10 * s,
+      fontWeight: FontWeight.w600,
+      color: Colors.white.withValues(alpha: 0.45),
+    ),
+  );
+
+  Widget _sheetChip({
+    required double s,
+    required bool active,
+    required VoidCallback onTap,
+    required Widget child,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: EdgeInsets.symmetric(horizontal: 11 * s, vertical: 6.5 * s),
+        decoration: BoxDecoration(
+          color: active
+              ? kPlayerAccent.withValues(alpha: 0.18)
+              : Colors.white.withValues(alpha: 0.07),
+          borderRadius: BorderRadius.circular(15 * s),
+          border: Border.all(
+            color: active ? kPlayerAccent : Colors.transparent,
+            width: 1,
+          ),
+        ),
+        child: child,
+      ),
     );
   }
 }

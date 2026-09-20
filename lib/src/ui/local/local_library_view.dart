@@ -7,6 +7,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../core/watch_fit.dart';
 import '../../library/library_provider.dart';
 import '../../library/scan_settings_provider.dart';
+import '../common/full_dialog.dart';
 import '../common/stepped_list.dart';
 import '../online/search_page.dart';
 import 'local_music_hub.dart';
@@ -30,9 +31,14 @@ class _LocalLibraryViewState extends ConsumerState<LocalLibraryView> {
   Future<void> _scan() async {
     final granted = await _ensurePermission();
     if (!granted && mounted) {
-      ScaffoldMessenger.of(
+      // 腕上不使用小弹窗：改为完整窗口，并提供去授权入口
+      final goSettings = await showFullConfirm(
         context,
-      ).showSnackBar(const SnackBar(content: Text('需要存储权限才能扫描本地音乐')));
+        title: '需要存储权限',
+        message: '需要存储权限才能扫描本地音乐',
+        okLabel: '去授权',
+      );
+      if (goSettings == true) await openAppSettings();
       return;
     }
     setState(() => _scanning = true);
@@ -47,9 +53,12 @@ class _LocalLibraryViewState extends ConsumerState<LocalLibraryView> {
       await ref.read(libraryProvider.notifier).scanAllFolders();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
+        await showFullConfirm(
           context,
-        ).showSnackBar(SnackBar(content: Text('扫描失败：$e')));
+          title: '扫描失败',
+          message: '$e',
+          okOnly: true,
+        );
       }
     } finally {
       if (mounted) setState(() => _scanning = false);
@@ -139,10 +148,12 @@ class _EmptyView extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = context.watchScale();
     return Center(
-      child: Padding(
+      // 圆屏可用高度极小，滚动兜底避免 Column 溢出
+      child: SingleChildScrollView(
         padding: EdgeInsets.all(24 * s),
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Icon(
               Icons.library_music_rounded,
