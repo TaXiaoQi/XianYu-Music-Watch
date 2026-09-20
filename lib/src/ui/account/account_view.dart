@@ -56,46 +56,56 @@ class _AccountViewState extends ConsumerState<AccountView> {
                   _ => _deleteAccountButton(),
                 },
               )
-            : ListView(
-                padding: EdgeInsets.symmetric(
-                  horizontal: 22 * s,
-                  vertical: 6 * s,
-                ),
-                children: [
-                  Row(
-                    children: [
-                      const BackButton(),
-                      SizedBox(width: 4 * s),
-                      Text(
-                        '账号',
-                        style: TextStyle(
-                          fontSize: 15 * s,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white.withValues(alpha: 0.9),
+            : AnimatedSwitcher(
+                duration: const Duration(milliseconds: 180),
+                switchInCurve: Curves.easeOut,
+                switchOutCurve: Curves.easeIn,
+                child: _passwordMode
+                    ? _PasswordLoginForm(
+                        key: const ValueKey('pwd'),
+                        onSwitchMode: () =>
+                            setState(() => _passwordMode = false),
+                      )
+                    : ListView(
+                        key: const ValueKey('qr'),
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 22 * s,
+                          vertical: 6 * s,
                         ),
+                        children: [
+                          Row(
+                            children: [
+                              const BackButton(),
+                              SizedBox(width: 4 * s),
+                              Text(
+                                '账号',
+                                style: TextStyle(
+                                  fontSize: 15 * s,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white.withValues(alpha: 0.9),
+                                ),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: 10 * s),
+                          _QrLoginPanel(
+                            key: const ValueKey('qrContent'),
+                            auth: auth,
+                          ),
+                          SizedBox(height: 12 * s),
+                          TextButton(
+                            onPressed: () =>
+                                setState(() => _passwordMode = true),
+                            child: Text(
+                              '使用密码登录',
+                              style: TextStyle(
+                                fontSize: 12 * s,
+                                color: Color(0xFFFF8FA3),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                  SizedBox(height: 10 * s),
-                  AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 180),
-                    child: _passwordMode
-                        ? const _PasswordLoginForm(key: ValueKey('pwd'))
-                        : _QrLoginPanel(key: const ValueKey('qr'), auth: auth),
-                  ),
-                  SizedBox(height: 8 * s),
-                  TextButton(
-                    onPressed: () =>
-                        setState(() => _passwordMode = !_passwordMode),
-                    child: Text(
-                      _passwordMode ? '使用扫码登录' : '使用密码登录',
-                      style: TextStyle(
-                        fontSize: 12 * s,
-                        color: Color(0xFFFF8FA3),
-                      ),
-                    ),
-                  ),
-                ],
               ),
       ),
     );
@@ -489,7 +499,10 @@ class _AvatarImage {
 }
 
 class _PasswordLoginForm extends ConsumerStatefulWidget {
-  const _PasswordLoginForm({super.key});
+  const _PasswordLoginForm({super.key, required this.onSwitchMode});
+
+  /// 切换回扫码登录（由外层 _AccountView 决定 flip _passwordMode）
+  final VoidCallback onSwitchMode;
 
   @override
   ConsumerState<_PasswordLoginForm> createState() => _PasswordLoginFormState();
@@ -588,128 +601,77 @@ class _PasswordLoginFormState extends ConsumerState<_PasswordLoginForm> {
         .login(ciyuanxiId: id, password: pwd, captcha: payload);
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final s = context.watchScale();
-    final auth = ref.watch(authProvider);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        TextField(
-          controller: _idCtrl,
-          style: TextStyle(fontSize: 13 * s),
-          decoration: InputDecoration(
-            hintText: '弦予号',
-            isDense: true,
-            prefixIcon: Icon(Icons.badge_rounded, size: 18 * s),
-          ),
-          textInputAction: TextInputAction.next,
-        ),
-        SizedBox(height: 10 * s),
-        TextField(
-          controller: _pwdCtrl,
-          obscureText: true,
-          style: TextStyle(fontSize: 13 * s),
-          decoration: InputDecoration(
-            hintText: '密码',
-            isDense: true,
-            prefixIcon: Icon(Icons.lock_rounded, size: 18 * s),
-          ),
-          textInputAction: TextInputAction.done,
-        ),
-        SizedBox(height: 10 * s),
-        if (_configLoading)
-          Padding(
-            padding: EdgeInsets.symmetric(vertical: 10 * s),
-            child: Center(
-              child: SizedBox(
-                width: 16 * s,
-                height: 16 * s,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2 * s,
-                  color: const Color(0xFFFF4D6E),
-                ),
-              ),
-            ),
-          )
-        else if (_providerMode) ...[
-          Container(
-            padding: EdgeInsets.all(10 * s),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.06),
-              borderRadius: BorderRadius.circular(10 * s),
-            ),
-            child: Text(
-              '服务端启用了网页人机验证，腕上端不支持。\n请返回使用扫码登录。',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 11 * s,
-                height: 1.4,
-                color: Colors.white.withValues(alpha: 0.7),
-              ),
-            ),
-          ),
-        ] else ...[
-          Row(
+  /// 撑满列表槽位的全宽胶囊行（SteppedListView 的 itemBuilder 需自行占满宽高）
+  Widget _fullRow(
+    double s, {
+    required Widget leading,
+    required Widget child,
+    VoidCallback? onTap,
+    Color? color,
+  }) {
+    return SizedBox(
+      width: double.infinity,
+      height: double.infinity,
+      child: SteppedPill(
+        color: color,
+        onTap: onTap,
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 12 * s, vertical: 2 * s),
+          child: Row(
             children: [
-              Expanded(
-                child: Text(
-                  _captcha?.question ?? '验证题加载失败',
-                  style: TextStyle(
-                    fontSize: 14 * s,
-                    fontWeight: FontWeight.w600,
-                    color: const Color(0xFFFF8FA3),
-                  ),
-                ),
-              ),
-              IconButton(
-                onPressed: _loadCaptcha,
-                icon: Icon(Icons.refresh_rounded, size: 18 * s),
-                tooltip: '换一题',
-              ),
-              SizedBox(
-                width: 96 * s,
-                height: 38 * s,
-                child: TextField(
-                  controller: _answerCtrl,
-                  keyboardType: TextInputType.number,
-                  style: TextStyle(fontSize: 14 * s),
-                  textAlign: TextAlign.center,
-                  decoration: const InputDecoration(
-                    hintText: '答案',
-                    isDense: true,
-                  ),
-                  onSubmitted: (_) => _submit(),
-                ),
-              ),
+              leading,
+              SizedBox(width: 12 * s),
+              Expanded(child: child),
             ],
           ),
-        ],
-        if (_captchaError != null) ...[
-          SizedBox(height: 6 * s),
-          Text(
-            _captchaError!,
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 11 * s, color: const Color(0xFFFF6B81)),
-          ),
-        ],
-        if (auth.error != null) ...[
-          SizedBox(height: 8 * s),
-          Text(
-            auth.error!,
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 11 * s, color: const Color(0xFFFF6B81)),
-          ),
-        ],
-        SizedBox(height: 14 * s),
-        FilledButton(
-          onPressed: auth.loading || _configLoading || _providerMode
-              ? null
-              : _submit,
-          style: FilledButton.styleFrom(
-            backgroundColor: const Color(0xFFFF4D6E),
-            minimumSize: Size(0, 40 * s),
-          ),
+        ),
+      ),
+    );
+  }
+
+  /// 输入框行：胶囊底 + 前置圆图标 + 无感输入框（底色由胶囊提供）
+  Widget _fieldPill(
+    double s, {
+    required Color circleColor,
+    required IconData icon,
+    required TextField field,
+  }) {
+    return _fullRow(
+      s,
+      leading: SteppedLeadCircle(
+        color: circleColor,
+        child: Icon(icon, size: 20 * s, color: Colors.white),
+      ),
+      child: field,
+    );
+  }
+
+  /// 胶囊内 TextField 的裸装饰：无边框无底色，避免双层胶囊
+  InputDecoration _bareField(String hint) {
+    final s = context.watchScale();
+    return InputDecoration(
+      hintText: hint,
+      isDense: true,
+      border: InputBorder.none,
+      contentPadding: EdgeInsets.symmetric(vertical: 8 * s, horizontal: 2 * s),
+    );
+  }
+
+  Widget _centerRow(Widget child) => SizedBox(
+        width: double.infinity,
+        height: double.infinity,
+        child: Center(child: child),
+      );
+
+  Widget _loginRow(double s, AuthState auth) {
+    final canSubmit = !auth.loading && !_configLoading && !_providerMode;
+    return SizedBox(
+      width: double.infinity,
+      height: double.infinity,
+      child: SteppedPill(
+        color: const Color(0xFFFF4D6E),
+        onTap: canSubmit ? _submit : null,
+        child: Center(
           child: auth.loading
               ? SizedBox(
                   width: 18 * s,
@@ -719,20 +681,157 @@ class _PasswordLoginFormState extends ConsumerState<_PasswordLoginForm> {
                     color: Colors.white,
                   ),
                 )
-              : Text('登录', style: TextStyle(fontSize: 14 * s)),
+              : Text(
+                  '登录',
+                  style: TextStyle(
+                    fontSize: 15 * s,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
         ),
-        SizedBox(height: 8 * s),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.watchScale();
+    final auth = ref.watch(authProvider);
+    final rows = <Widget>[
+      _fieldPill(
+        s,
+        circleColor: const Color(0xFF4A90D9),
+        icon: Icons.badge_rounded,
+        field: TextField(
+          controller: _idCtrl,
+          style: TextStyle(fontSize: 14 * s),
+          decoration: _bareField('弦予号'),
+          textInputAction: TextInputAction.next,
+        ),
+      ),
+      _fieldPill(
+        s,
+        circleColor: const Color(0xFF5FA97C),
+        icon: Icons.lock_rounded,
+        field: TextField(
+          controller: _pwdCtrl,
+          obscureText: true,
+          style: TextStyle(fontSize: 14 * s),
+          decoration: _bareField('密码'),
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => _submit(),
+        ),
+      ),
+    ];
+    if (_configLoading) {
+      rows.add(
+        _centerRow(
+          SizedBox(
+            width: 16 * s,
+            height: 16 * s,
+            child: CircularProgressIndicator(
+              strokeWidth: 2 * s,
+              color: const Color(0xFFFF4D6E),
+            ),
+          ),
+        ),
+      );
+    } else if (_providerMode) {
+      rows.add(
+        _centerRow(
+          Text(
+            '服务端启用了网页人机验证，腕上端不支持。\n请返回使用扫码登录。',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 11 * s,
+              height: 1.4,
+              color: Colors.white.withValues(alpha: 0.7),
+            ),
+          ),
+        ),
+      );
+    } else {
+      rows.add(
+        _fullRow(
+          s,
+          leading: SteppedLeadCircle(
+            color: const Color(0xFFE8A84C),
+            child: Icon(Icons.help_rounded, size: 20 * s, color: Colors.white),
+          ),
+          child: Text(
+            _captcha?.question ?? '验证题加载失败',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 13 * s,
+              fontWeight: FontWeight.w600,
+              color: const Color(0xFFFF8FA3),
+            ),
+          ),
+          onTap: _loadCaptcha,
+        ),
+      );
+      rows.add(
+        _fieldPill(
+          s,
+          circleColor: const Color(0xFF8E8EF0),
+          icon: Icons.pin_rounded,
+          field: TextField(
+            controller: _answerCtrl,
+            keyboardType: TextInputType.number,
+            style: TextStyle(fontSize: 14 * s),
+            textAlign: TextAlign.center,
+            decoration: _bareField('答案'),
+            onSubmitted: (_) => _submit(),
+          ),
+        ),
+      );
+    }
+    if (_captchaError != null) {
+      rows.add(_centerRow(_smallError(_captchaError!, s)));
+    }
+    if (auth.error != null) {
+      rows.add(_centerRow(_smallError(auth.error!, s)));
+    }
+    rows.add(
+      _centerRow(
         Text(
           '没有账号？请在手机端注册',
-          textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: 10 * s,
             color: Colors.white.withValues(alpha: 0.35),
           ),
         ),
-      ],
+      ),
+    );
+    rows.add(_loginRow(s, auth));
+    rows.add(
+      SizedBox(
+        width: double.infinity,
+        height: double.infinity,
+        child: Center(
+          child: TextButton(
+            onPressed: widget.onSwitchMode,
+            child: Text(
+              '使用扫码登录',
+              style: TextStyle(fontSize: 12 * s, color: const Color(0xFFFF8FA3)),
+            ),
+          ),
+        ),
+      ),
+    );
+    return SteppedListView(
+      header: const PageTitleHeader('账号', showBack: true),
+      itemCount: rows.length,
+      itemBuilder: (context, i) => rows[i],
     );
   }
+
+  Widget _smallError(String text, double s) => Text(
+        text,
+        textAlign: TextAlign.center,
+        style: TextStyle(fontSize: 11 * s, color: const Color(0xFFFF6B81)),
+      );
 }
 
 class _QrLoginPanel extends ConsumerStatefulWidget {

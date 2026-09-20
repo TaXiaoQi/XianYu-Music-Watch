@@ -184,6 +184,8 @@ class LinkController extends StateNotifier<LinkState> {
 
   final Map<String, String> _lyricCache = {};
 
+  Completer<String>? _backupAckCompleter;
+
   void Function(String title, String artist)? onBackgroundNowPlaying;
 
   bool Function()? isAmbient;
@@ -349,6 +351,31 @@ class LinkController extends StateNotifier<LinkState> {
   void _sendCmd(String action, {Map<String, dynamic>? arg}) {
     if (state.phase != LinkPhase.connected) return;
     _send(LinkMessage.cmd(action, arg));
+  }
+
+  /// 推送给手机的备份回执结果。
+  static const String backupPushSaved = 'saved';
+  static const String backupPushCancelled = 'cancelled';
+  static const String backupPushTimeout = 'timeout';
+  static const String backupPushOffline = 'offline';
+
+  /// 通过联动通道推送备份文件到手机，并等待手机回执。
+  /// 返回 saved / cancelled / timeout / offline。未连接且无云中继时返回 offline。
+  Future<String> pushBackup({
+    required String name,
+    required String content,
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    if (state.phase != LinkPhase.connected) return backupPushOffline;
+    final pending = Completer<String>();
+    _backupAckCompleter = pending;
+    try {
+      _send(LinkMessage.backupFile(name: name, content: content));
+      return await pending.future.timeout(timeout,
+          onTimeout: () => backupPushTimeout);
+    } finally {
+      _backupAckCompleter = null;
+    }
   }
 
   // ---- 连接生命周期 ----
@@ -616,6 +643,12 @@ class LinkController extends StateNotifier<LinkState> {
         break;
       case LinkMsgType.cloudBind:
         _onCloudBind(msg.payload['cloud_bind']);
+      case LinkMsgType.backupAck:
+        final result = msg.payload['result'] as String? ?? '';
+        final pending = _backupAckCompleter;
+        if (pending != null && !pending.isCompleted) {
+          pending.complete(result);
+        }
       default:
         break;
     }

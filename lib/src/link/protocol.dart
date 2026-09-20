@@ -29,6 +29,10 @@ class LinkMsgType {
 
   static const int cmd = 0x20;
 
+  static const int backupFile = 0x21;
+
+  static const int backupAck = 0x22;
+
   static const int chunk = 0x30;
 
   static const int cloudBind = 0x41;
@@ -44,6 +48,8 @@ class LinkMsgType {
       t == lyric ||
       t == precache ||
       t == cmd ||
+      t == backupFile ||
+      t == backupAck ||
       t == chunk ||
       t == cloudBind;
 }
@@ -150,6 +156,19 @@ class LinkMessage {
 
   static LinkMessage cmd(String action, [Map<String, dynamic>? arg]) =>
       LinkMessage(LinkMsgType.cmd, {'action': action, 'arg': ?arg});
+
+  static LinkMessage backupFile({
+    required String name,
+    required String content,
+  }) => LinkMessage(LinkMsgType.backupFile, {
+    'name': name,
+    'size': utf8.encode(content).length,
+    'backup': content,
+  });
+
+  static LinkMessage backupAck({
+    required String result, // 'saved' | 'cancelled'
+  }) => LinkMessage(LinkMsgType.backupAck, {'result': result});
 
   static LinkMessage cloudBind({required String key, String? url}) =>
       LinkMessage(LinkMsgType.cloudBind, {
@@ -351,7 +370,7 @@ class FrameDecoder {
     final idx = map['idx'] as int;
     final innerType = map['type'] as int;
     final data = map['data'] as String;
-    if (total <= 0 || total > 512) return null;
+    if (total <= 0 || total > 8192) return null;
     if (idx < 0 || idx >= total) return null;
     if (_chunks.length > 8 && !_chunks.containsKey(cid)) {
       _chunks.remove(_chunks.keys.first);

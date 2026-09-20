@@ -15,7 +15,6 @@ import android.view.WindowManager
 import android.view.ViewTreeObserver
 import androidx.wear.ambient.AmbientLifecycleObserver
 import com.ryanheise.audioservice.AudioServiceActivity
-import com.samsung.wearable_rotary.WearableRotaryPlugin
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
@@ -89,6 +88,23 @@ class MainActivity : AudioServiceActivity() {
             packageManager.getSharedLibraries(0)
                 ?.any { it.name == "com.google.android.wearable" } == true
         }.getOrDefault(false)
+
+    /**
+     * 圆/方屏判定：以官方 isScreenRound 为主，再按整屏宽高比近似方形兜底 ——
+     * 判据对齐鸿蒙端 display 宽高比 <10%（近似方形）即圆屏。部分 WearOS 圆表
+     * 的 configuration.isScreenRound 会误报 false，用整屏宽高比补齐后，
+     * 安卓端阶梯列表样式与鸿蒙端一致。
+     */
+    private fun isRoundScreen(): Boolean {
+        if (resources.configuration.isScreenRound) return true
+        val real = android.graphics.Point()
+        @Suppress("DEPRECATION")
+        windowManager.defaultDisplay.getRealSize(real)
+        if (real.x <= 0 || real.y <= 0) return resources.configuration.isScreenRound
+        val w = real.x.toFloat()
+        val h = real.y.toFloat()
+        return Math.abs(w - h) / Math.max(w, h) < 0.10f
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -165,7 +181,7 @@ class MainActivity : AudioServiceActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "xianyu/screen_shape")
             .setMethodCallHandler { call, result ->
                 if (call.method == "isRound") {
-                    result.success(resources.configuration.isScreenRound)
+                    result.success(isRoundScreen())
                 } else {
                     result.notImplemented()
                 }
@@ -221,11 +237,23 @@ class MainActivity : AudioServiceActivity() {
      * Flutter（列表滚不动、播放页调不了音量）。
      */
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean =
-        if (WearableRotaryPlugin.onGenericMotionEvent(event)) {
+        if (wearRotaryConsumed(event)) {
             true
         } else {
             super.dispatchGenericMotionEvent(event)
         }
+
+    /**
+     * 表冠转发走反射而非静态 import：官方 Samsung 包才带
+     * WearableRotaryPlugin；ohos 依赖态下它被本地 shim 顶掉（类不存在），
+     * 静态引用会直接编译失败。运行期探测：类在 → 消费表冠事件；不在 → false
+     * 回落给系统，保证 Android/ohos 两种依赖态都能编译。
+     */
+    private fun wearRotaryConsumed(event: MotionEvent): Boolean = runCatching {
+        val clazz = Class.forName("com.samsung.wearable_rotary.WearableRotaryPlugin")
+        clazz.getMethod("onGenericMotionEvent", MotionEvent::class.java)
+            .invoke(null, event) as Boolean
+    }.getOrDefault(false)
 
     override fun onRequestPermissionsResult(
         requestCode: Int,

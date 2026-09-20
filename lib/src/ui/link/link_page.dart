@@ -397,6 +397,18 @@ Widget _switchRow({
       padding: EdgeInsets.symmetric(horizontal: 3 * s),
       child: Row(
         children: [
+          Padding(
+            padding: EdgeInsets.only(left: 4 * s),
+            child: SteppedLeadCircle(
+              color: const Color(0xFFFF4D6E),
+              child: Icon(
+                Icons.sync_alt_rounded,
+                size: 20 * s,
+                color: Colors.white,
+              ),
+            ),
+          ),
+          SizedBox(width: 12 * s),
           Expanded(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,

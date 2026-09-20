@@ -394,8 +394,104 @@ class AuthNotifier extends StateNotifier<AuthState> {
       await rust.authClearCredentials(dataDir: await _dataDir());
     } catch (_) {}
   }
+
+  /// 拉取服务端下发的腕上关于页配置（watch 平台）。
+  Future<WatchAboutConfig> fetchAboutConfig() async {
+    try {
+      final data = await requestAction(
+          'get_about_config', {'platform': 'watch'});
+      return WatchAboutConfig.fromJson(data);
+    } catch (_) {
+      return const WatchAboutConfig();
+    }
+  }
+
+  /// 拉取服务端下发的腕上端最新版本（watch 平台），无可用版本返回 null。
+  Future<LatestVersion?> fetchServerUpdate() async {
+    try {
+      final data = await requestAction('get_latest_version', {
+        'platform': 'watch',
+        'device_id': await _deviceId(),
+      });
+      if (data['version'] == null) return null;
+      return LatestVersion.fromJson(data);
+    } catch (_) {
+      return null;
+    }
+  }
 }
 
 final authProvider = StateNotifierProvider<AuthNotifier, AuthState>(
   (ref) => AuthNotifier(ref),
 );
+
+class AboutAck {
+  final String name;
+  final String url;
+  const AboutAck({required this.name, this.url = ''});
+  factory AboutAck.fromJson(Map<String, dynamic> j) => AboutAck(
+        name: (j['name'] ?? '').toString(),
+        url: (j['url'] ?? '').toString(),
+      );
+}
+
+/// 服务端下发的腕上关于页配置
+class WatchAboutConfig {
+  final String officialSiteUrl;
+  final bool updateEnabled;
+  final String projectUrl;
+  final String referenceProjectUrl;
+  final String joinGroupUrl;
+  final List<AboutAck> acknowledgements;
+  const WatchAboutConfig({
+    this.officialSiteUrl = 'https://xianyumusic.cn',
+    this.updateEnabled = true,
+    this.projectUrl = '',
+    this.referenceProjectUrl = '',
+    this.joinGroupUrl = '',
+    this.acknowledgements = const [],
+  });
+  factory WatchAboutConfig.fromJson(Map<String, dynamic> j) =>
+      WatchAboutConfig(
+        officialSiteUrl: (j['officialSiteUrl'] ?? 'https://xianyumusic.cn')
+            .toString(),
+        updateEnabled: (j['updateEnabled'] as bool?) ?? true,
+        projectUrl: (j['projectUrl'] ?? '').toString(),
+        referenceProjectUrl: (j['referenceProjectUrl'] ?? '').toString(),
+        joinGroupUrl: (j['joinGroupUrl'] ?? '').toString(),
+        acknowledgements: (j['acknowledgements'] as List?)
+                ?.map((e) => AboutAck.fromJson(
+                    Map<String, dynamic>.from(e as Map)))
+                .toList() ??
+            const [],
+      );
+}
+
+final aboutConfigProvider =
+    FutureProvider<WatchAboutConfig>((ref) => ref
+        .read(authProvider.notifier)
+        .fetchAboutConfig());
+
+/// 服务端下发的腕上端最新版本信息。
+class LatestVersion {
+  final String appName;
+  final String version;
+  final String content;
+  final String downloadUrl;
+  final int fileSize;
+  const LatestVersion({
+    this.appName = '',
+    this.version = '',
+    this.content = '',
+    this.downloadUrl = '',
+    this.fileSize = 0,
+  });
+
+  factory LatestVersion.fromJson(Map<String, dynamic> j) => LatestVersion(
+        appName: (j['app_name'] ?? j['appName'] ?? '').toString(),
+        version: (j['version'] ?? '').toString(),
+        content: (j['content'] ?? '').toString(),
+        downloadUrl: (j['download_url'] ?? j['downloadUrl'] ?? '').toString(),
+        fileSize: (j['file_size'] as num?)?.toInt() ?? 0,
+      );
+}

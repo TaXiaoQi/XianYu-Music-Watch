@@ -61,26 +61,29 @@ class _PairViewState extends ConsumerState<PairView> {
           child: _loading
               ? Center(child: CircularProgressIndicator(strokeWidth: 3 * s))
               : _needsPermission
-              ? Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.bluetooth_disabled_rounded,
-                      size: 36 * s,
-                      color: Colors.white.withValues(alpha: 0.4),
-                    ),
-                    SizedBox(height: 10 * s),
-                    Text(
-                      '需要蓝牙权限\n以连接手机',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 13 * s, height: 1.4),
-                    ),
-                    SizedBox(height: 14 * s),
-                    FilledButton(
-                      onPressed: _requestPermission,
-                      child: const Text('授予权限'),
-                    ),
-                  ],
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.bluetooth_disabled_rounded,
+                        size: 36 * s,
+                        color: Colors.white.withValues(alpha: 0.4),
+                      ),
+                      SizedBox(height: 10 * s),
+                      Text(
+                        '需要蓝牙权限\n以连接手机',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 13 * s, height: 1.4),
+                      ),
+                      SizedBox(height: 14 * s),
+                      FilledButton(
+                        onPressed: _requestPermission,
+                        child: const Text('授予权限'),
+                      ),
+                    ],
+                  ),
                 )
               : (_devices ?? const []).isEmpty
               ? Center(

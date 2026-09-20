@@ -15,6 +15,9 @@ import '../online/plugin_manage_page.dart';
 import '../../plugin/plugin_provider.dart';
 import '../../backup/watch_backup.dart';
 import '../../link/link_provider.dart';
+import '../../update/app_update.dart';
+
+const String kWatchProjectUrl = 'https://github.com/TaXiaoQi/XianYu-Music-Watch';
 
 class SettingsView extends ConsumerWidget {
   const SettingsView({super.key});
@@ -621,11 +624,42 @@ class _BackupPageState extends ConsumerState<_BackupPage> {
   }
 }
 
-class _AboutPage extends ConsumerWidget {
+class _AboutPage extends ConsumerStatefulWidget {
   const _AboutPage();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_AboutPage> createState() => _AboutPageState();
+}
+
+class _AboutPageState extends ConsumerState<_AboutPage> {
+  bool _checking = false;
+
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), duration: const Duration(seconds: 2)),
+    );
+  }
+
+  Future<void> _checkUpdate() async {
+    if (_checking) return;
+    setState(() => _checking = true);
+    try {
+      final latest = await fetchWatchLatest(ref);
+      if (!mounted) return;
+      if (latest == null || !hasNewVersion(latest)) {
+        _toast('当前已是最新版本（v$kAppVersion）');
+        return;
+      }
+      await showUpdatePage(context, latest,
+          onUpdate: () => toastUpdateOnPhone(context));
+    } finally {
+      if (mounted) setState(() => _checking = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final s = context.watchScale();
     final cfg =
         ref.watch(aboutConfigProvider).valueOrNull ?? const WatchAboutConfig();
@@ -669,6 +703,22 @@ class _AboutPage extends ConsumerWidget {
           ],
         ),
       ),
+      _rowPill(
+        s,
+        leading: Icon(Icons.system_update_alt_rounded,
+            size: 24 * s, color: const Color(0xFFFF4D6E)),
+        title: '版本更新',
+        subtitle: _checking ? '正在检查…' : 'v$kAppVersion · 检查更新',
+        trailing: _checking
+            ? SizedBox(
+                width: 18 * s,
+                height: 18 * s,
+                child: CircularProgressIndicator(strokeWidth: 2 * s),
+              )
+            : Icon(Icons.chevron_right_rounded,
+                size: 22 * s, color: Colors.white.withValues(alpha: 0.38)),
+        onTap: _checking ? null : _checkUpdate,
+      ),
       if (cfg.officialSiteUrl.isNotEmpty)
         _aboutLink(
           s,
@@ -685,6 +735,13 @@ class _AboutPage extends ConsumerWidget {
           sub: '与开发者和玩友交流',
           onTap: () => _aboutOpenExternal(context, '加入群组'),
         ),
+      _aboutLink(
+        s,
+        icon: Icons.code_rounded,
+        label: '项目地址',
+        sub: kWatchProjectUrl.replaceFirst('https://', ''),
+        onTap: () => _aboutOpenExternal(context, '项目仓库'),
+      ),
       _aboutLink(
         s,
         icon: Icons.favorite_rounded,
@@ -710,8 +767,8 @@ class _AboutPage extends ConsumerWidget {
     ];
 
     final extents = <double>[
-      132 * s, // 顶部信息
-      for (var i = 0; i < rows.length - 1; i++) 54 * s,
+      132, // 顶部信息
+      for (var i = 0; i < rows.length - 1; i++) 56,
     ];
 
     return Scaffold(

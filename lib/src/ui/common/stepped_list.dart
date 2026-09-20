@@ -168,7 +168,18 @@ class _SteppedListViewState extends State<SteppedListView> {
     _rotaryAcc = 0;
     final target = (_scroll.offset + delta).clamp(0.0, max);
     if ((target - _scroll.offset).abs() < 0.5) return;
-    _scroll.jumpTo(target);
+    // 表冠增量平滑滑动（对齐手指拖拽的顺滑手感）：短时长缓动滑向目标，
+    // 而非 jumpTo 瞬时硬跳导致机械感；连按会取消上一段并续滑，停止后仍由
+    // 下方 60ms 定时器做网格吸附（ScrollEnd 200ms 守卫已屏蔽边滑边吸附）。
+    unawaited(
+      _scroll
+          .animateTo(
+            target,
+            duration: const Duration(milliseconds: 90),
+            curve: Curves.easeOutCubic,
+          )
+          .catchError((_) {}),
+    );
     _lastRotaryAt = DateTime.now();
     _settleTimer?.cancel();
     _settleTimer = Timer(

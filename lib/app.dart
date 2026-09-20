@@ -13,6 +13,7 @@ import 'src/link/link_provider.dart';
 import 'src/sync/sync_provider.dart';
 import 'src/ui/local/local_music_hub.dart';
 import 'src/ui/link/linkage_home.dart';
+import 'src/update/app_update.dart';
 
 class XianYuWatchApp extends ConsumerStatefulWidget {
   const XianYuWatchApp({super.key});
@@ -41,6 +42,7 @@ class _XianYuWatchAppState extends ConsumerState<XianYuWatchApp> {
       ref.read(linkControllerProvider.notifier).init();
       ref.read(authProvider.notifier).init();
     });
+    _startupUpdateCheck();
     initAmbientListener(ref);
     _settingsSub = ref.listenManual(settingsProvider, (prev, next) {
       _applyKeepScreenOn(next.valueOrNull?.keepScreenOn ?? true);
@@ -52,6 +54,18 @@ class _XianYuWatchAppState extends ConsumerState<XianYuWatchApp> {
     _modeSub?.close();
     _settingsSub?.close();
     super.dispose();
+  }
+
+  /// 启动后静默拉取服务端下发的最新版本，有新版且在当天未提示过则弹出整页更新页。
+  Future<void> _startupUpdateCheck() async {
+    await Future<void>.delayed(const Duration(seconds: 3));
+    final latest = await ref.read(authProvider.notifier).fetchServerUpdate();
+    if (latest == null || !hasNewVersion(latest)) return;
+    if (!await claimUpdatePrompt()) return;
+    final ctx = _navKey.currentState?.context;
+    if (ctx == null || !ctx.mounted) return;
+    await showUpdatePage(ctx, latest,
+        onUpdate: () => toastUpdateOnPhone(ctx));
   }
 
   static Future<void> _applyKeepScreenOn(bool enable) {
