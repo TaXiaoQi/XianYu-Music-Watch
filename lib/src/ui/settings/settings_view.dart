@@ -497,7 +497,7 @@ class _BackupPageState extends ConsumerState<_BackupPage> {
     if (_busy) return;
     final link = ref.read(linkControllerProvider);
     if (link.phase != LinkPhase.connected) {
-      _toast('未连接手机，请先在「设备联动」连接');
+      _toast('未连接手机，请先在「联动」连接');
       return;
     }
     setState(() => _busy = true);
@@ -563,7 +563,7 @@ class _BackupPageState extends ConsumerState<_BackupPage> {
         title: '推送给手机',
         subtitle: link.phase == LinkPhase.connected
             ? '已连接 ${link.phoneName.isEmpty ? '手机' : link.phoneName}，发送后将等待回执'
-            : '未连接手机，请在「设备联动」连接后再试',
+            : '未连接手机，请在「联动」连接后再试',
         trailing: _busy
             ? SizedBox(
                 width: 18 * s,

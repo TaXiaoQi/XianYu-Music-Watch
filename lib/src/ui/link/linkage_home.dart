@@ -34,7 +34,7 @@ class _LinkageHomeState extends ConsumerState<LinkageHome> {
       color: const Color(0xFF0C0C0F),
       child: SafeArea(
         child: SteppedListView(
-          header: const PageTitleHeader('设备联动'),
+          header: const PageTitleHeader('联动'),
           headerExtent: 46,
           rotaryGuard: isCurrent,
           itemCount: 2,

@@ -22,6 +22,7 @@ import '../online/toplist_page.dart';
 import '../link/link_page.dart';
 import '../settings/settings_view.dart';
 import 'local_library_view.dart';
+import 'favorites_page.dart';
 
 final localHubPageProvider = StateProvider<int>((ref) => 1);
 
@@ -125,6 +126,30 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
         .any((p) => p.enabled);
     final specs = <(Color, IconData, String, VoidCallback)>[
       (
+        const Color(0xFFFF4D6E),
+        Icons.library_music_rounded,
+        '本地音乐',
+        () => Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const LocalLibraryView()),
+        ),
+      ),
+      (
+        const Color(0xFFFF4D6E),
+        Icons.favorite_rounded,
+        '收藏',
+        () => Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const FavoritesPage()),
+        ),
+      ),
+      (
+        const Color(0xFFD94A8C),
+        Icons.queue_music_rounded,
+        '歌单',
+        () => Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const CloudPlaylistsPage()),
+        ),
+      ),
+      (
         const Color(0xFFE8A33D),
         Icons.account_circle_rounded,
         '账号',
@@ -156,22 +181,6 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
         '搜索',
         () => Navigator.of(context).push(
           MaterialPageRoute<void>(builder: (_) => const OnlineSearchPage()),
-        ),
-      ),
-      (
-        const Color(0xFFFF4D6E),
-        Icons.library_music_rounded,
-        '本地音乐',
-        () => Navigator.of(context).push(
-          MaterialPageRoute<void>(builder: (_) => const LocalLibraryView()),
-        ),
-      ),
-      (
-        const Color(0xFFD94A8C),
-        Icons.queue_music_rounded,
-        '我的歌单',
-        () => Navigator.of(context).push(
-          MaterialPageRoute<void>(builder: (_) => const CloudPlaylistsPage()),
         ),
       ),
       (

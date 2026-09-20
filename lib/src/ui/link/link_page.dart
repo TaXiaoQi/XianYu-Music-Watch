@@ -57,7 +57,7 @@ class LinkEntryTile extends ConsumerWidget {
           color: Colors.white,
         ),
       ),
-      title: '设备联动',
+      title: '联动',
       subtitle: subtitle,
       trailing: Icon(
         Icons.chevron_right_rounded,
@@ -86,7 +86,7 @@ class LinkagePage extends ConsumerWidget {
     final rows = <Widget>[
       _switchRow(
         s: s,
-        title: '设备联动',
+        title: '联动',
         subtitle: settings.watchLinkageEnabled ? '连接手机后可远程控制播放' : '已关闭，不自动连接手机',
         value: settings.watchLinkageEnabled,
         onChanged: (v) =>
@@ -100,7 +100,7 @@ class LinkagePage extends ConsumerWidget {
         child: Stack(
           children: [
             SteppedListView(
-              header: const PageTitleHeader('设备联动'),
+              header: const PageTitleHeader('联动'),
               headerExtent: 46,
               itemCount: rows.length,
               itemBuilder: (context, i) => rows[i],
@@ -372,7 +372,7 @@ class LinkDevicePage extends ConsumerWidget {
         child: Stack(
           children: [
             SteppedListView(
-              header: const PageTitleHeader('设备联动'),
+              header: const PageTitleHeader('联动'),
               headerExtent: 46,
               itemCount: rows.length,
               itemBuilder: (context, i) => rows[i],

@@ -41,7 +41,7 @@ class _CloudPlaylistsPageState extends ConsumerState<CloudPlaylistsPage> {
   @override
   Widget build(BuildContext context) {
     final s = context.watchScale();
-    final headerRow = const PageTitleHeader('我的歌单', showBack: true);
+    final headerRow = const PageTitleHeader('歌单', showBack: true);
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
@@ -281,7 +281,7 @@ class _CloudPlaylistDetailPageState
 }
 
 /// 把收藏条目还原成可播放的 CloudSong（标记为腕上手动添加）
-CloudSong _cloudSongOfFavorite(FavoriteEntry e) {
+CloudSong cloudSongOfFavorite(FavoriteEntry e) {
   String? pluginId, source, format;
   Map<String, dynamic> musicInfo = const {};
   final json = e.onlineSongJson;
@@ -337,7 +337,7 @@ class _AddSongsPageState extends ConsumerState<_AddSongsPage> {
     final byPath = {for (final e in favs) e.path: e};
     final songs = _selected
         .where(byPath.containsKey)
-        .map((p) => _cloudSongOfFavorite(byPath[p]!))
+        .map((p) => cloudSongOfFavorite(byPath[p]!))
         .toList();
     Navigator.of(context).pop(songs);
   }
