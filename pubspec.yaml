@@ -17,8 +17,11 @@ dependencies:
 
   # 状态管理（与移动端同栈）
   flutter_riverpod: ^2.6.1
-  # 手表表冠旋转输入
-  wearable_rotary: ^2.0.4
+  # 手表表冠旋转输入：本地双平台实现（Android 原生转发 + 鸿蒙
+  # onDigitalCrown 桥接，同一 "xianyu/rotary" EventChannel），
+  # 与 pubspec.lock 保持一致，避免 pub 重解析回 pub.dev 版导致平台断链。
+  wearable_rotary:
+    path: third_party/wearable_rotary
   # 已配对手机地址持久化
   shared_preferences: ^2.3.3
   # Rust core（扫描/入库/元数据解析，与移动端同源 libxianyu_core.so）

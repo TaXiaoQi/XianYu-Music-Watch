@@ -16,6 +16,7 @@
 // all 5 rotaryEvents.listen() call sites consume this unchanged.
 
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/services.dart';
 
@@ -69,13 +70,17 @@ Stream<RotaryEvent> _initRotaryEvents() {
 
 void Function(dynamic data) _onEvent(StreamController<RotaryEvent> controller) {
   return (dynamic data) {
-    final degree = (data as num?)?.toDouble() ?? 0.0;
-    if (degree == 0) return;
+    final raw = (data as num?)?.toDouble() ?? 0.0;
+    if (raw == 0) return;
+    // 平台换算：Android 端 MainActivity 转发的是 Wear OS 原始滚动像素
+    // （一格 ≈ 48px，Samsung 语义，与上游反射实现同一取值）；
+    // 鸿蒙端 EntryAbility 转发的是 onDigitalCrown 角度（24°/detent → ×2 = 48px）。
+    final magnitude = Platform.isAndroid ? raw.abs() : raw.abs() * 2.0;
     controller.add(RotaryEvent(
-      direction: degree > 0
+      direction: raw > 0
           ? RotaryDirection.clockwise
           : RotaryDirection.counterClockwise,
-      magnitude: degree.abs() * 2.0, // 24°/detent → 48px ≈ 一格
+      magnitude: magnitude,
     ));
   };
 }

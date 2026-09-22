@@ -11,11 +11,13 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.view.MotionEvent
+import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.view.ViewTreeObserver
 import androidx.wear.ambient.AmbientLifecycleObserver
 import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 
 // 继承 AudioServiceActivity（FlutterActivity 子类）：audio_service 后台媒体
@@ -24,6 +26,7 @@ class MainActivity : AudioServiceActivity() {
 
     private var ambientChannel: MethodChannel? = null
     private var ambientObserver: AmbientLifecycleObserver? = null
+    private var rotarySink: EventChannel.EventSink? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -109,6 +112,20 @@ class MainActivity : AudioServiceActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         WatchLinkClient.register(flutterEngine.dartExecutor.binaryMessenger, this)
+        // 表冠旋转输入：Dart 侧 third_party/wearable_rotary 统一监听
+        // "xianyu/rotary" EventChannel（鸿蒙 EntryAbility.ets 亦注册同名通道），
+        // 这里注册 Android 端实现，把 Wear OS rotary 事件以「一格像素增量」
+        // 转发过去。见 dispatchGenericMotionEvent。
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, "xianyu/rotary")
+            .setStreamHandler(object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    rotarySink = events
+                }
+
+                override fun onCancel(arguments: Any?) {
+                    rotarySink = null
+                }
+            })
         ambientChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "xianyu/ambient")
         // 系统返回（手表左滑手势）：根路由无页面可弹时退到表盘后台驻留，
         // 不走 Flutter 默认 SystemNavigator.pop 的 finish()（那会真·退出应用，
@@ -231,29 +248,40 @@ class MainActivity : AudioServiceActivity() {
     }
 
     /**
-     * 表冠旋转事件转发：wearable_rotary 插件不会自己挂监听，要求宿主
-     * Activity 重写 dispatchGenericMotionEvent 手动喂给它（SOURCE_ROTARY_
-     * ENCODER 的 ACTION_SCROLL 才会被消费）。不转发 = 表冠事件永远进不了
-     * Flutter（列表滚不动、播放页调不了音量）。
+     * 表冠旋转事件原生转发：SOURCE_ROTARY_ENCODER 的 ACTION_SCROLL 即表冠
+     * 滚动，取轴值增量 × 系统纵向滚动系数（px/档，≈48）经 "xianyu/rotary"
+     * EventChannel 发给 Dart。注意 ACTION_SCROLL 的轴值语义是「档位数」
+     * （一格 ≈ ±1.0）而非像素，与上游 Samsung 插件
+     * getScaledVerticalScrollFactor 同为档位→像素换算；漏乘此系数时一格
+     * 只值 1px，Dart 端按一格 48px 消费等效无响应。
+     * 与鸿蒙端 EntryAbility 转发 onDigitalCrown 走同一通道/同一协议，
+     * Dart 侧 third_party/wearable_rotary 无需感知平台差异。
+     * 不再反射 Samsung WearableRotaryPlugin：本地 shim 依赖态下该类不存在，
+     * 反射必然失败（即此前 Android 表冠断链的根因）。
      */
-    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean =
-        if (wearRotaryConsumed(event)) {
-            true
-        } else {
-            super.dispatchGenericMotionEvent(event)
+    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        if (rotarySink != null && event.action == MotionEvent.ACTION_SCROLL) {
+            // Wear OS 表冠滚动轴随厂商/系统版本走 AXIS_VSCROLL /
+            // AXIS_HSCROLL / AXIS_SCROLL 之一，逐轴取首个非零值即可，避免
+            // 引入 RotaryEncoder 依赖。取负号以符合「顺→正向滚动」。
+            var delta = -event.getAxisValue(MotionEvent.AXIS_VSCROLL)
+            if (delta == 0f) delta = -event.getAxisValue(MotionEvent.AXIS_HSCROLL)
+            if (delta == 0f) delta = -event.getAxisValue(MotionEvent.AXIS_SCROLL)
+            if (delta != 0f) {
+                val px = delta * scrollFactorPx
+                val sink = rotarySink
+                runOnUiThread { runCatching { sink?.success(px) } }
+                return true
+            }
         }
+        return super.dispatchGenericMotionEvent(event)
+    }
 
-    /**
-     * 表冠转发走反射而非静态 import：官方 Samsung 包才带
-     * WearableRotaryPlugin；ohos 依赖态下它被本地 shim 顶掉（类不存在），
-     * 静态引用会直接编译失败。运行期探测：类在 → 消费表冠事件；不在 → false
-     * 回落给系统，保证 Android/ohos 两种依赖态都能编译。
-     */
-    private fun wearRotaryConsumed(event: MotionEvent): Boolean = runCatching {
-        val clazz = Class.forName("com.samsung.wearable_rotary.WearableRotaryPlugin")
-        clazz.getMethod("onGenericMotionEvent", MotionEvent::class.java)
-            .invoke(null, event) as Boolean
-    }.getOrDefault(false)
+    /** 档位→像素换算系数：系统纵向滚动一格的像素数（minSdk 28 ≥ API 26，
+     * 可直接用 ViewConfiguration API，等价上游插件的 compat 版本）。 */
+    private val scrollFactorPx: Float by lazy {
+        ViewConfiguration.get(this).scaledVerticalScrollFactor
+    }
 
     override fun onRequestPermissionsResult(
         requestCode: Int,

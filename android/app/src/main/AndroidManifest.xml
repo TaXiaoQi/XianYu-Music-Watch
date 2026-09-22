@@ -44,6 +44,12 @@
                  the Android process has started. This theme is visible to the user
                  while the Flutter UI initializes. After that, this theme continues
                  to determine the Window background behind the Flutter UI. -->
+            <!-- 表冠旋转输入：声明本 Activity 参与 Wear OS rotary 事件分发，
+                 dispatchGenericMotionEvent 才能收到 SOURCE_ROTARY_ENCODER 的
+                 ACTION_SCROLL（flutter_rotary/wearable_rotary 通用要求）。 -->
+            <meta-data
+                android:name="com.google.android.wearable.rotary"
+                android:value="true" />
             <meta-data
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
