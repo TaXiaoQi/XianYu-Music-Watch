@@ -2,7 +2,7 @@ name: xianyu_watch
 description: "弦予音乐腕上版（Wear OS）：连接手机时为延伸控制器，独立时支持本地/在线播放。"
 publish_to: 'none'
 
-version: 0.1.0-beta5+10000
+version: 1.0.0+1000000
 
 environment:
   # 下限放宽到 3.11：Flutter-OH 3.41.10-ohos 对应 Dart 3.11（鸿蒙构建用），

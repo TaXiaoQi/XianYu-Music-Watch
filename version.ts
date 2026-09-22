@@ -9,4 +9,4 @@
  * 界面代码需读取版本号时，统一 import 生成的 app_version.dart，
  * 不要在业务代码里硬编码版本字符串。
  */
-export const APP_VERSION = '0.1.0-beta5';
+export const APP_VERSION = '1.0.0';
