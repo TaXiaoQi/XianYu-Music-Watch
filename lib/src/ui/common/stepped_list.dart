@@ -7,8 +7,8 @@ import 'package:wearable_rotary/wearable_rotary.dart';
 import '../../core/haptics.dart';
 import '../../core/watch_fit.dart';
 
-/// 功能条统一胶囊底色：深灰实底 + 白字（对齐系统设置暗色风格）
-const Color kSteppedTileBg = Color(0xFF26262A);
+/// 功能条统一胶囊底色：近黑的深灰，贴近 WearOS 系统设置暗色菜单（对齐系统风格）
+const Color kSteppedTileBg = Color(0xFF1E1E22);
 
 class PageTitleHeader extends StatelessWidget {
   const PageTitleHeader(
@@ -76,7 +76,7 @@ class SteppedListView extends StatefulWidget {
   /// null 行回落 60 标准胶囊高；卡片/滑条等高内容行用它避免被钳制。
   final double? Function(int index)? rowExtent;
 
-  /// 可选：覆盖行距系数（行高 × spacing = 占位高，默认 1.06），加大行间隙用
+  /// 可选：覆盖行距系数（槽高 × spacing，默认 1.0），加大行间隙用
   final double? rowSpacing;
 
   /// 可选：覆盖行左右留白（逻辑值，默认圆屏 8 / 方屏 6），加宽梯形整体用
@@ -91,8 +91,9 @@ class _SteppedListViewState extends State<SteppedListView> {
 
   static const double _capsuleH = 56;
 
-  /// 行距系数默认值（功能页同款），可被 widget.rowSpacing 覆盖
-  double get _rowSpacing => widget.rowSpacing ?? 1.12;
+  /// 行距系数：压排布局中行高 = 胶囊×s×scale×此系数，间距绑定相邻
+  /// 条的实际尺寸（缩得越小占位越窄），WearOS 观感的间隙来源
+  double get _rowSpacing => widget.rowSpacing ?? 1.06;
 
   static const double _minScale = 0.26;
 
@@ -100,15 +101,18 @@ class _SteppedListViewState extends State<SteppedListView> {
   static const double _decayTau = 1.28;
   static const double _decayPow = 2.1;
 
-  /// 三行开外压向的更低谷底（两行内曲线不受影响），d=4 起压满
-  static const double _farScale = 0.16;
+  /// 三行开外压向的谷底：d=4 起压满。抬到 0.42 保证边缘行保持
+  /// 可读的半尺寸直到滑出屏幕（系统列表观感），不会缩成碎条消失
+  static const double _farScale = 0.42;
 
   double _viewportH = 0;
   double _startPad = 0;
 
-  double _layoutCacheOffset = double.negativeInfinity;
-
-  int _layoutCacheCount = -1;
+  /// 统一槽位几何（WearOS ScalingLazyColumn 模式）：槽高不随缩放变化，
+  /// 缩放/透明度只作用在槽内视觉上。滚动范围、构建范围、绘制位置
+  /// 三者天然一致，列表两端不存在布局漂移，行永远不会被错误裁掉。
+  List<double> _slotTops = const [];
+  List<double> _slotHeights = const [];
 
   final ScrollController _scroll = ScrollController();
   StreamSubscription<RotaryEvent>? _rotarySub;
@@ -168,18 +172,7 @@ class _SteppedListViewState extends State<SteppedListView> {
     _rotaryAcc = 0;
     final target = (_scroll.offset + delta).clamp(0.0, max);
     if ((target - _scroll.offset).abs() < 0.5) return;
-    // 表冠增量平滑滑动（对齐手指拖拽的顺滑手感）：短时长缓动滑向目标，
-    // 而非 jumpTo 瞬时硬跳导致机械感；连按会取消上一段并续滑，停止后仍由
-    // 下方 60ms 定时器做网格吸附（ScrollEnd 200ms 守卫已屏蔽边滑边吸附）。
-    unawaited(
-      _scroll
-          .animateTo(
-            target,
-            duration: const Duration(milliseconds: 90),
-            curve: Curves.easeOutCubic,
-          )
-          .catchError((_) {}),
-    );
+    _scroll.jumpTo(target);
     _lastRotaryAt = DateTime.now();
     _settleTimer?.cancel();
     _settleTimer = Timer(
@@ -188,7 +181,7 @@ class _SteppedListViewState extends State<SteppedListView> {
     );
   }
 
-  // ── 变高行几何 ─────────────────────────────────────────────
+  // ── 槽位几何 ─────────────────────────────────────────────
 
   bool get _round {
     if (context.isRoundWatch) return true;
@@ -205,6 +198,125 @@ class _SteppedListViewState extends State<SteppedListView> {
 
   double _capsuleOf(int row) => widget.rowExtent?.call(row) ?? _capsuleH;
 
+  /// 槽高：定距，不随缩放变化（滚动/构建/吸附坐标系）
+  double _slotOf(int row) => _capsuleOf(row) * _s;
+
+  /// 锚定焦点行的实时压缩布局（旧版观感的绘制层）：行高跟随缩放、
+  /// 间距绑定相邻条尺寸。从分数锚点行向两侧外推，吸附后焦点行严格
+  /// 居中；仅用于绘制位移/缩放/亮度，滚动/构建/吸附仍在定距槽坐标系，
+  /// 列表两端不存在参考布局漂移，行不会因裁剪消失。
+  ({
+    List<double> centers,
+    List<double> scales,
+    List<double> heights,
+  })? _paintCache;
+  double _paintCacheOffset = double.negativeInfinity;
+  int _paintCacheCount = -1;
+  double _paintCacheScale = -1;
+  double _paintCacheVh = -1;
+  double _paintCachePad = -1;
+
+  /// 视口中心对应的分数档位：按定距槽位表插值。行高可变时与线性档距
+  /// 不一致，必须以槽位表为准——吸附偏移由槽位表导出，此处同源插值
+  /// 才能保证吸附点 a 恰为整数、焦点行像素级居中、列表尾部不漂移。
+  double _anchorRank(double offset) {
+    final n = widget.itemCount;
+    if (n == 0 || _slotTops.length != n) return 0;
+    final c = offset + _viewportH / 2;
+    var i = 0;
+    while (i < n - 1 && _slotTops[i + 1] + _slotHeights[i + 1] / 2 <= c) {
+      i++;
+    }
+    if (i >= n - 1) return (n - 1).toDouble();
+    final c0 = _slotTops[i] + _slotHeights[i] / 2;
+    final c1 = _slotTops[i + 1] + _slotHeights[i + 1] / 2;
+    final f = ((c - c0) / (c1 - c0)).clamp(0.0, 1.0);
+    return i + f;
+  }
+
+  ({List<double> centers, List<double> scales, List<double> heights})
+  _paintLayout(double offset) {
+    if (_paintCacheOffset == offset &&
+        _paintCacheCount == widget.itemCount &&
+        _paintCacheScale == _s &&
+        _paintCacheVh == _viewportH &&
+        _paintCachePad == _startPad &&
+        _paintCache != null) {
+      return _paintCache!;
+    }
+    final n = widget.itemCount;
+    final centers = List<double>.filled(n, 0);
+    final scales = List<double>.filled(n, 1.0);
+    final heights = List<double>.filled(n, 0.0);
+    if (n > 0 && _round && _viewportH > 0) {
+      final vh = _viewportH;
+      final pitch0 = _nomPitch;
+      // 分数锚点 a ∈ [0, n-1]：从槽位表插值，吸附后 a 为整数，
+      // 焦点行精确居中
+      final a = _anchorRank(offset);
+      final i0 = a.floor().clamp(0, n - 1);
+      final f = a - i0;
+      final lo = math.max(0, i0 - 8);
+      final hi = math.min(n - 1, i0 + 9);
+      final m = hi - lo + 1;
+      final pos = List<double>.generate(
+        m,
+        (k) => vh / 2 + (lo + k - a) * pitch0,
+      );
+      final h = List<double>.filled(m, 0.0);
+      final sc = List<double>.filled(m, 1.0);
+      for (var it = 0; it < 5; it++) {
+        for (var k = 0; k < m; k++) {
+          sc[k] = _scaleFromDist((pos[k] - vh / 2).abs() / pitch0);
+          h[k] = _capsuleOf(lo + k) * _s * sc[k] * _rowSpacing;
+        }
+        final h0 = h[i0 - lo];
+        final h1 = h[math.min(i0 + 1, n - 1) - lo];
+        final boundary = vh / 2 + (0.5 - f) * (h0 + h1) / 2;
+        // 边界到相邻行中心 = 中心距的一半（(h0+h1)/4），吸附点 f=0 时
+        // 焦点行精确落在视口中心
+        var down = boundary - (h0 + h1) / 4;
+        for (var j = i0; j >= lo; j--) {
+          if (j < i0) down -= (h[j - lo] + h[j - lo + 1]) / 2;
+          pos[j - lo] = down;
+        }
+        var up = boundary + (h0 + h1) / 4;
+        for (var j = i0 + 1; j <= hi; j++) {
+          if (j > i0 + 1) up += (h[j - lo] + h[j - lo - 1]) / 2;
+          pos[j - lo] = up;
+        }
+      }
+      for (var k = 0; k < m; k++) {
+        final row = lo + k;
+        scales[row] = _scaleFromDist((pos[k] - vh / 2).abs() / pitch0);
+        heights[row] = _capsuleOf(row) * _s * scales[row] * _rowSpacing;
+        centers[row] = pos[k];
+      }
+    }
+    _paintCache = (centers: centers, scales: scales, heights: heights);
+    _paintCacheOffset = offset;
+    _paintCacheCount = n;
+    _paintCacheScale = _s;
+    _paintCacheVh = _viewportH;
+    _paintCachePad = _startPad;
+    return _paintCache!;
+  }
+
+  /// 每次构建重算槽位表（O(n)，n 为可见条目量级，可忽略）
+  void _computeSlots() {
+    final n = widget.itemCount;
+    final tops = List<double>.filled(n, 0);
+    final hs = List<double>.filled(n, 0);
+    var acc = _startPad + _headerBand;
+    for (var i = 0; i < n; i++) {
+      tops[i] = acc;
+      hs[i] = _slotOf(i);
+      acc += hs[i];
+    }
+    _slotTops = tops;
+    _slotHeights = hs;
+  }
+
   double _scaleFromDist(double d) {
     final base =
         (_minScale +
@@ -219,124 +331,28 @@ class _SteppedListViewState extends State<SteppedListView> {
     return base + (_farScale - base) * w;
   }
 
-  double _scaleFor(int row, double offset) =>
-      _round ? _layout(offset).scales[row] : 1.0;
-
-  double _rowH(double scale, double capsule) =>
-      _round ? capsule * _s * scale * _rowSpacing : capsule * _s;
-
-  ({List<double> tops, List<double> heights, List<double> scales})?
-  _layoutCache;
-
-  // 恒定参考槽位：取列表中段（平移不变区）的压缩布局。
-  // 滚动坐标系(max/offset)基于它构建，maxScrollExtent 永不随位置塌缩，
-  // 杜绝接近底部时 Clamping 物理把 offset 瞬间钳到新 max（一滑就飞到底）；
-  // 绘制仍走实时压缩布局，两者只差一个 Transform.translate，观感不变。
-  List<double>? _refTops;
-  List<double>? _refHeights;
-  int _refCount = -1;
-  double _refViewport = -1;
-  double _refScale = -1;
-  bool _refHeader = false;
-
-  void _ensureRefLayout() {
-    final n = widget.itemCount;
-    if (n == 0) {
-      _refTops = _refHeights = null;
-      _refCount = 0;
-      return;
-    }
-    if (_refTops != null &&
-        _refCount == n &&
-        _refViewport == _viewportH &&
-        _refScale == _s &&
-        _refHeader == _hasHeader) {
-      return;
-    }
-    var nominal = _startPad + (_hasHeader ? _headerBand : 0.0);
-    for (var i = 0; i < n; i++) {
-      nominal += _rowH(1.0, _capsuleOf(i));
-    }
-    final mid = (nominal / 2 - _viewportH / 2).clamp(0.0, double.infinity);
-    final lay = _layout(mid);
-    _refTops = List<double>.of(lay.tops);
-    _refHeights = List<double>.of(lay.heights);
-    _refCount = n;
-    _refViewport = _viewportH;
-    _refScale = _s;
-    _refHeader = _hasHeader;
-  }
-
-  ({List<double> tops, List<double> heights, List<double> scales}) _layout(
-    double offset,
-  ) {
-    if (_layoutCacheOffset == offset &&
-        _layoutCacheCount == widget.itemCount &&
-        _layoutCache != null) {
-      return _layoutCache!;
-    }
-    final n = widget.itemCount;
-    var scales = List<double>.filled(n, 1.0);
-    var tops = List<double>.filled(n, 0.0);
-    var heights = List<double>.filled(n, 0.0);
-    for (var it = 0; it < 12; it++) {
-      var acc = _startPad + (_hasHeader ? _headerBand : 0.0);
-      for (var i = 0; i < n; i++) {
-        tops[i] = acc;
-        heights[i] = _rowH(scales[i], _capsuleOf(i));
-        acc += heights[i];
-      }
-      if (it == 11) break;
-      for (var i = 0; i < n; i++) {
-        final center = tops[i] + heights[i] / 2;
-        final d = ((center - (offset + _viewportH / 2)).abs()) / _nomPitch;
-        scales[i] = _scaleFromDist(d);
-      }
-    }
-    _layoutCache = (tops: tops, heights: heights, scales: scales);
-    _layoutCacheOffset = offset;
-    _layoutCacheCount = n;
-    return _layoutCache!;
-  }
-
   int _focusRow(double offset) {
-    final lay = _layout(offset);
     final anchor = offset + _viewportH / 2;
     var best = 0;
     var bestD = double.infinity;
-    for (var d = 0; d < widget.itemCount; d++) {
-      final c = lay.tops[d] + lay.heights[d] / 2;
+    for (var i = 0; i < widget.itemCount; i++) {
+      final c = _slotTops[i] + _slotHeights[i] / 2;
       final dd = (c - anchor).abs();
       if (dd < bestD) {
         bestD = dd;
-        best = d;
+        best = i;
       }
     }
     return best;
   }
 
   double _snapFor(int row) {
-    if (widget.itemCount == 0) return 0;
-    // g(o) = liveCenter(row, o) - o - vh/2 的穿零点 = 该行绘制居中的偏移。
-    // 中心方程是正反馈映射，不动点迭代会发散（末端尤甚），改用二分：
-    // g(0) >= 0（首行最近）且 g(max) <= 0（末行 liveCenter 最大），必然有解。
+    if (row >= _slotTops.length) return 0;
     final maxO = _scroll.hasClients
         ? math.max(_scroll.position.maxScrollExtent, 0.0)
         : 0.0;
-    var lo = 0.0;
-    var hi = maxO;
-    var mid = 0.0;
-    for (var k = 0; k < 40; k++) {
-      mid = (lo + hi) / 2;
-      final lay = _layout(mid);
-      final g = lay.tops[row] + lay.heights[row] / 2 - _viewportH / 2 - mid;
-      if (g > 0) {
-        lo = mid;
-      } else {
-        hi = mid;
-      }
-    }
-    return mid;
+    final target = _slotTops[row] + _slotHeights[row] / 2 - _viewportH / 2;
+    return target.clamp(0.0, maxO).toDouble();
   }
 
   void _settleToGrid({bool feedback = false}) {
@@ -369,62 +385,27 @@ class _SteppedListViewState extends State<SteppedListView> {
     final round = context.isRoundWatch;
     final header = widget.header;
     final headerBand = header == null ? 0.0 : widget.headerExtent * s;
-    final nomPitch = _pitchBase * s;
     return LayoutBuilder(
       builder: (context, constraints) {
         final viewportH = constraints.maxHeight;
         final rowPad = widget.rowPadding ?? (round ? 4.0 : 6.0) * s;
         final rowW = math.max(0.0, constraints.maxWidth - 2 * rowPad);
-        final endPad = ((viewportH - nomPitch * _rowSpacing) / 2).clamp(
+        // 端部对称留白：首行 o=0 恰好居中、末行 o=max 恰好居中，
+        // 吸附目标全部落在 [0, max] 内，无需任何求解。
+        final endPad = ((viewportH - _slotOf(0)) / 2).clamp(
           0.0,
           double.infinity,
         );
         final startPad = math.max(0.0, endPad - headerBand);
+        final tailPad = widget.itemCount > 0
+            ? ((viewportH - _slotOf(widget.itemCount - 1)) / 2).clamp(
+                0.0,
+                double.infinity,
+              )
+            : endPad;
         _viewportH = viewportH;
         _startPad = startPad;
-        final hasHeader = header != null;
-        if (round) _ensureRefLayout();
-        // 底部余量自洽解：maxScrollExtent 恰好 = 「最后一行绘制居中」的偏移。
-        // 该方程是正反馈映射（锚点下移→末行变高→中心再下移），增益可 >1，
-        // 不动点迭代（含阻尼）会发散、闭式解假设末行 scale=1 也不成立——
-        // 改用二分法求 g(o)=liveCenter(o)-vh/2-o 的穿零点，只依赖符号，
-        // 任何增益下都收敛。
-        var tailPad = endPad;
-        if (round && widget.itemCount > 0 && _refTops != null) {
-          final n = widget.itemCount;
-          var refSum = 0.0;
-          var fullSum = 0.0;
-          for (var i = 0; i < n; i++) {
-            refSum += _refHeights![i];
-            fullSum += _rowH(1.0, _capsuleOf(i));
-          }
-          final base = _startPad + (hasHeader ? headerBand : 0.0);
-          var lo = 0.0;
-          var hi = base + fullSum + viewportH;
-          var root = 0.0;
-          for (var k = 0; k < 50; k++) {
-            final mid = (lo + hi) / 2;
-            final lay = _layout(mid);
-            final g =
-                lay.tops[n - 1] + lay.heights[n - 1] / 2 - viewportH / 2 - mid;
-            root = mid;
-            if (g > 0) {
-              lo = mid;
-            } else {
-              hi = mid;
-            }
-          }
-          // 无下限兜底：endPad 兜底会在大行高页面把 max 抬得比 root 高，
-          // 多出一段"还能往上滚"的行程；精确解可能小于 endPad，直接采用
-          // （max=root 时末行恰好居中，行程即止）。
-          tailPad =
-              (root +
-                      viewportH -
-                      startPad -
-                      (hasHeader ? headerBand : 0.0) -
-                      refSum)
-                  .clamp(0.0, double.infinity);
-        }
+        _computeSlots();
         return Stack(
           children: [
             NotificationListener<ScrollNotification>(
@@ -447,23 +428,52 @@ class _SteppedListViewState extends State<SteppedListView> {
                 controller: _scroll,
                 physics: _SnapPhysics(snap: _nearestGridOffset),
                 padding: EdgeInsets.fromLTRB(0, startPad, 0, tailPad),
+                // 列表视口被 SafeArea 内缩（圆屏上下各 ~60px），默认框内
+                // 裁剪会让边缘行在物理屏幕边缘之前 ~60px 处被裁掉、提前
+                // 消失。关闭裁剪让行画满到物理屏幕边缘（系统列表观感），
+                // 圆屏物理切角即最终边界。
+                clipBehavior: Clip.none,
+                // 压排使远处行的绘制间距远小于槽位间距（绘制在视口内的
+                // 行，其槽位可能在数档之外），构建缓存必须覆盖这一偏差：
+                // 2 倍视口保证「画得下的行必已构建」，边缘行不会凭空消失
+                scrollCacheExtent: ScrollCacheExtent.pixels(viewportH * 2),
                 // 三项全关：自动包装层（RepaintBoundary/AutomaticKeepAlive/
-                // IndexedSemantics）尺寸 = 压缩槽位，其默认 hitTest 的
+                // IndexedSemantics）尺寸 = 槽位，其默认 hitTest 的
                 // size.contains 会把落在槽外的视觉触点拦在 _SlotBox 之前，
                 // 导致滚动后点击错位。关掉后 _SlotBox 直接成为 Sliver 子项，
                 // 命中绕过才能生效，实现"点哪儿触发哪儿"。
                 addRepaintBoundaries: false,
                 addAutomaticKeepAlives: false,
                 addSemanticIndexes: false,
-                itemCount: widget.itemCount + (hasHeader ? 1 : 0),
+                itemCount: widget.itemCount + (header != null ? 1 : 0),
                 itemBuilder: (context, i) {
-                  if (hasHeader && i == 0) {
-                    return SizedBox(
-                      height: headerBand,
-                      child: Center(child: header),
+                  if (header != null && i == 0) {
+                    return AnimatedBuilder(
+                      animation: _scroll,
+                      child: SizedBox(
+                        height: headerBand,
+                        child: Center(child: header),
+                      ),
+                      builder: (context, child) {
+                        // 表头跟随首行压排位置：贴在首行上方滚动
+                        var dy = 0.0;
+                        if (round && widget.itemCount > 0 && _scroll.hasClients) {
+                          final lay = _paintLayout(_scroll.offset);
+                          final headerTopLive =
+                              lay.centers[0] -
+                              lay.heights[0] / 2 -
+                              4 * s -
+                              headerBand;
+                          dy = headerTopLive - (startPad - _scroll.offset);
+                        }
+                        return Transform.translate(
+                          offset: Offset(0, dy),
+                          child: child,
+                        );
+                      },
                     );
                   }
-                  final row = hasHeader ? i - 1 : i;
+                  final row = header != null ? i - 1 : i;
                   return AnimatedBuilder(
                     animation: _scroll,
                     child: RepaintBoundary(
@@ -471,35 +481,35 @@ class _SteppedListViewState extends State<SteppedListView> {
                     ),
                     builder: (context, child) {
                       final offset = _scroll.hasClients ? _scroll.offset : 0.0;
-                      final scale = _scaleFor(row, offset);
+                      final slotH = _slotOf(row);
                       final cap = _capsuleOf(row);
-                      final rowH = _rowH(scale, cap);
                       double alpha = 1.0;
+                      double scale = 1.0;
                       var dy = 0.0;
-                      var slotH = rowH;
                       if (round) {
-                        final lay = _layout(offset);
-                        // 实时行中心对齐参考槽行中心：胶囊落点与旧版逐像素一致
-                        final refTop = _refTops?[row];
-                        if (refTop != null) {
-                          final refH = _refHeights?[row] ?? rowH;
-                          dy =
-                              (lay.tops[row] + lay.heights[row] / 2) -
-                              (refTop + refH / 2);
-                        }
-                        slotH = _refHeights?[row] ?? rowH;
-                        final c = lay.tops[row] + lay.heights[row] / 2 - offset;
-                        final edge = math.min(c, viewportH - c);
-                        final t = (edge / _nomPitch).clamp(0.0, 1.0);
-                        alpha = (0.55 + 0.45 * scale) * (0.35 + 0.65 * t);
+                        // 旧版压排观感：行高跟随缩放、间距绑定相邻条尺寸。
+                        // 绘制中心来自锚定焦点行的实时压缩布局；位移 =
+                        // 压排中心 − 定距槽中心。缩放/亮度跟随压排位置，
+                        // 无级连续。
+                        final lay = _paintLayout(offset);
+                        scale = lay.scales[row];
+                        final painted = lay.centers[row];
+                        final slotCenter =
+                            _slotTops[row] + slotH / 2 - offset;
+                        dy = painted - slotCenter;
+                        final kx =
+                            ((scale - _farScale) / (1.0 - _farScale)).clamp(
+                              0.0,
+                              1.0,
+                            );
+                        alpha = 0.45 + 0.55 * kx;
                       }
-                      // 视觉胶囊在槽内的 y 偏移：行中心对齐 + 槽高与视觉高差的一半
-                      final dy2 = dy + (slotH - cap * s) / 2;
+                      // 视觉在槽内居中缩放 + 压排布局位移；透明度只是视觉，不拦命中
                       return _SlotBox(
                         slotHeight: slotH,
                         childHeight: cap * s,
                         child: Transform.translate(
-                          offset: Offset(0, dy2),
+                          offset: Offset(0, dy),
                           child: Padding(
                             padding: EdgeInsets.symmetric(horizontal: rowPad),
                             child: Transform.scale(
@@ -507,7 +517,6 @@ class _SteppedListViewState extends State<SteppedListView> {
                               child: SizedBox(
                                 width: rowW,
                                 height: cap * s,
-                                // 渐隐行也保持所见即所得：透明度只是视觉，不拦命中
                                 child: Center(
                                   child: alpha >= 1
                                       ? child
@@ -678,18 +687,21 @@ class SteppedPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Ink(
+    final shape = BorderRadius.circular(999);
+    // 胶囊底色必须画在行子树内（DecoratedBox），随整行的 Opacity/Transform
+    // 一起淡出缩放。Ink 的装饰挂在祖先 Material 上绘制，绕过行的 Opacity
+    // saveLayer —— 远行会变成「全浓度纯条 + 内容已淡出」的裂图。
+    final box = DecoratedBox(
       decoration: BoxDecoration(
         color: color ?? kSteppedTileBg,
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: shape,
       ),
-      child: onTap == null
-          ? child
-          : InkWell(
-              onTap: onTap,
-              borderRadius: BorderRadius.circular(999),
-              child: child,
-            ),
+      child: child,
+    );
+    if (onTap == null) return box;
+    return Material(
+      type: MaterialType.transparency,
+      child: InkWell(onTap: onTap, borderRadius: shape, child: box),
     );
   }
 }
