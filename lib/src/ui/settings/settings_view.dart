@@ -14,6 +14,7 @@ import '../common/stepped_list.dart';
 import '../online/plugin_manage_page.dart';
 import '../../plugin/plugin_provider.dart';
 import '../../backup/watch_backup.dart';
+import '../../core/application_logger.dart';
 import '../../link/link_provider.dart';
 import '../../update/app_update.dart';
 
@@ -69,22 +70,32 @@ class SettingsView extends ConsumerWidget {
       ),
       _categoryRow(
         s: s,
-        color: const Color(0xFF5FA97C),
-        icon: Icons.info_rounded,
-        title: '关于',
-        subtitle: 'v$kAppVersion · 弦予音乐 腕上版',
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute<void>(builder: (_) => const _AboutPage()),
-        ),
-      ),
-      _categoryRow(
-        s: s,
         color: const Color(0xFFE8963D),
         icon: Icons.settings_backup_restore_rounded,
         title: '备份',
         subtitle: '推送给手机 / 保存到本地',
         onTap: () => Navigator.of(context).push(
           MaterialPageRoute<void>(builder: (_) => const _BackupPage()),
+        ),
+      ),
+      _categoryRow(
+        s: s,
+        color: const Color(0xFF4CA6A6),
+        icon: Icons.article_outlined,
+        title: '日志',
+        subtitle: '推送给手机 / 保存到本地',
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const _LogsPage()),
+        ),
+      ),
+      _categoryRow(
+        s: s,
+        color: const Color(0xFF5FA97C),
+        icon: Icons.info_rounded,
+        title: '关于',
+        subtitle: 'v$kAppVersion · 弦予音乐 腕上版',
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const _AboutPage()),
         ),
       ),
     ];
@@ -624,6 +635,131 @@ class _BackupPageState extends ConsumerState<_BackupPage> {
   }
 }
 
+class _LogsPage extends ConsumerStatefulWidget {
+  const _LogsPage();
+
+  @override
+  ConsumerState<_LogsPage> createState() => _LogsPageState();
+}
+
+class _LogsPageState extends ConsumerState<_LogsPage> {
+  bool _busy = false;
+
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), duration: const Duration(seconds: 2)),
+    );
+  }
+
+  Future<void> _saveLocal() async {
+    if (_busy) return;
+    if (AppLog.isEmpty) {
+      _toast('暂无日志');
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      await writeWatchLogFileLocal(AppLog.exportText());
+      _toast('已保存到本地');
+    } catch (e) {
+      _toast('保存失败：$e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _pushToPhone() async {
+    if (_busy) return;
+    final link = ref.read(linkControllerProvider);
+    if (link.phase != LinkPhase.connected) {
+      _toast('未连接手机，请先在「联动」连接');
+      return;
+    }
+    if (AppLog.isEmpty) {
+      _toast('暂无日志');
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      final result = await ref
+          .read(linkControllerProvider.notifier)
+          .pushLogFile(name: watchLogFileName(), content: AppLog.exportText());
+      switch (result) {
+        case LinkController.backupPushSaved:
+          _toast('已完成：手机已收到日志');
+        case LinkController.backupPushCancelled:
+          _toast('已取消：手机端未处理');
+        case LinkController.backupPushTimeout:
+          _toast('推送超时，请确认手机已处理');
+        default:
+          _toast('推送失败：未收到回应');
+      }
+    } catch (e) {
+      _toast('推送失败：$e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.watchScale();
+    final link = ref.watch(linkControllerProvider);
+
+    final rows = <Widget>[
+      _rowPill(
+        s,
+        leading: _iconBubble(s, const Color(0xFF4A90D9), Icons.watch_rounded),
+        title: '推送给手机',
+        subtitle: link.phase == LinkPhase.connected
+            ? '已连接 ${link.phoneName.isEmpty ? '手机' : link.phoneName}，发送后将等待回执'
+            : '未连接手机，请在「联动」连接后再试',
+        trailing: _busy
+            ? SizedBox(
+                width: 18 * s,
+                height: 18 * s,
+                child: CircularProgressIndicator(strokeWidth: 2 * s),
+              )
+            : Icon(Icons.chevron_right_rounded,
+                size: 22 * s, color: Colors.white.withValues(alpha: 0.38)),
+        onTap:
+            _busy || link.phase != LinkPhase.connected ? null : _pushToPhone,
+      ),
+      _rowPill(
+        s,
+        leading: _iconBubble(s, const Color(0xFF5FA97C), Icons.save_alt_rounded),
+        title: '保存到本地',
+        subtitle: '生成日志文件保存到腕上端文档目录',
+        trailing: Icon(Icons.chevron_right_rounded,
+            size: 22 * s, color: Colors.white.withValues(alpha: 0.38)),
+        onTap: _busy ? null : _saveLocal,
+      ),
+    ];
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        child: SteppedListView(
+          header: const PageTitleHeader('日志', showBack: true),
+          itemCount: rows.length,
+          rowExtent: (_) => 62 * s,
+          itemBuilder: (context, i) => rows[i],
+        ),
+      ),
+    );
+  }
+
+  Widget _iconBubble(double s, Color color, IconData icon) {
+    return Container(
+      width: 36 * s,
+      height: 36 * s,
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      child: Icon(icon, size: 20 * s, color: Colors.white),
+    );
+  }
+}
+
 class _AboutPage extends ConsumerStatefulWidget {
   const _AboutPage();
 
@@ -665,44 +801,6 @@ class _AboutPageState extends ConsumerState<_AboutPage> {
         ref.watch(aboutConfigProvider).valueOrNull ?? const WatchAboutConfig();
 
     final rows = <Widget>[
-      // 顶部信息
-      Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 60 * s,
-              height: 60 * s,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFFFF4D6E), Color(0xFFFF8FA3)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(18 * s),
-              ),
-              child: Icon(Icons.music_note_rounded,
-                  size: 30 * s, color: Colors.white),
-            ),
-            SizedBox(height: 6 * s),
-            Text('弦予音乐',
-                style: TextStyle(
-                    fontSize: 16 * s,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white)),
-            SizedBox(height: 2 * s),
-            Text('将音乐给予你',
-                style: TextStyle(
-                    fontSize: 10.5 * s,
-                    color: Colors.white.withValues(alpha: 0.55))),
-            SizedBox(height: 2 * s),
-            Text('v$kAppVersion · 腕上版',
-                style: TextStyle(
-                    fontSize: 10 * s,
-                    color: Colors.white.withValues(alpha: 0.4))),
-          ],
-        ),
-      ),
       _rowPill(
         s,
         leading: Icon(Icons.system_update_alt_rounded,
@@ -766,18 +864,50 @@ class _AboutPageState extends ConsumerState<_AboutPage> {
       ),
     ];
 
-    final extents = <double>[
-      132, // 顶部信息
-      for (var i = 0; i < rows.length - 1; i++) 56,
-    ];
-
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
         child: SteppedListView(
-          header: const PageTitleHeader('关于', showBack: true),
+          header: Padding(
+            padding: EdgeInsets.symmetric(horizontal: 4 * s),
+            child: Row(
+              children: [
+                SizedBox(width: 48 * s, child: const BackButton()),
+                Expanded(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(6 * s),
+                        child: Container(
+                          width: 22 * s,
+                          height: 22 * s,
+                          color: const Color(0xFFFFFFFF),
+                          padding: EdgeInsets.all(3 * s),
+                          child: Image.asset(
+                            'assets/img/splash_logo.png',
+                            fit: BoxFit.contain,
+                          ),
+                        ),
+                      ),
+                      SizedBox(width: 6 * s),
+                      Text(
+                        '关于',
+                        style: TextStyle(
+                          fontSize: 14 * s,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white.withValues(alpha: 0.9),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(width: 48 * s),
+              ],
+            ),
+          ),
           itemCount: rows.length,
-          rowExtent: (i) => extents[i],
           itemBuilder: (context, i) => rows[i],
         ),
       ),
@@ -868,7 +998,29 @@ class _SteppedPage extends StatelessWidget {
               itemBuilder: (context, i) => rows[i],
               header: title.isEmpty
                   ? null
-                  : PageTitleHeader(title, showBack: false),
+                  : Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 4 * s),
+                      child: Row(
+                        children: [
+                          const SizedBox(width: 48),
+                          Expanded(
+                            child: Text(
+                              title,
+                              textAlign: TextAlign.center,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 15 * s,
+                                height: 1.2,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white.withValues(alpha: 0.9),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 48),
+                        ],
+                      ),
+                    ),
             ),
             Positioned(
               top: 2 * s,

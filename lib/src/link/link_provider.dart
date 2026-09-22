@@ -289,7 +289,12 @@ class LinkController extends StateNotifier<LinkState> {
 
   // ---- 控制命令（手表 → 手机） ----
 
-  void toggle() => _sendCmd(LinkCmdAction.toggle);
+  void toggle() {
+    if (state.phase != LinkPhase.connected) return;
+    // 乐观更新图标：立即反映点击，回执(state)回来后再二次校验
+    state = state.copyWith(isPlaying: !state.isPlaying);
+    _sendCmd(LinkCmdAction.toggle);
+  }
   void next() => _sendCmd(LinkCmdAction.next);
   void prev() => _sendCmd(LinkCmdAction.prev);
   void like() => _sendCmd(LinkCmdAction.like);
@@ -371,6 +376,25 @@ class LinkController extends StateNotifier<LinkState> {
     _backupAckCompleter = pending;
     try {
       _send(LinkMessage.backupFile(name: name, content: content));
+      return await pending.future.timeout(timeout,
+          onTimeout: () => backupPushTimeout);
+    } finally {
+      _backupAckCompleter = null;
+    }
+  }
+
+  /// 通过联动通道推送运行日志到手机，并等待手机回执
+  /// （回执复用 backupAck：手机保存/分享后回 saved，放弃回 cancelled）。
+  Future<String> pushLogFile({
+    required String name,
+    required String content,
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    if (state.phase != LinkPhase.connected) return backupPushOffline;
+    final pending = Completer<String>();
+    _backupAckCompleter = pending;
+    try {
+      _send(LinkMessage.watchLogFile(name: name, content: content));
       return await pending.future.timeout(timeout,
           onTimeout: () => backupPushTimeout);
     } finally {
@@ -584,7 +608,11 @@ class LinkController extends StateNotifier<LinkState> {
       case LinkMsgType.nowPlaying:
         final now = LinkNowPlaying.fromPayload(msg.payload);
         final preCover = _linkCoverPathFor(now.id);
-        state = state.copyWith(now: now, position: 0);
+        final isSameTrack = state.now?.id == now.id;
+        state = state.copyWith(
+          now: now,
+          position: isSameTrack ? state.position : 0,
+        );
         if (preCover != null) {
           File(preCover).exists().then((ok) {
             if (_disposed || !ok || state.now?.id != now.id) return;
