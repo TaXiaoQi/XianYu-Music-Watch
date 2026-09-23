@@ -338,7 +338,7 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
         );
       }
     }
-    if (resolved == null) throw StateError('直链解析失败');
+    if (resolved == null) throw StateError('音源无结果');
     final cleaned = sanitizeMediaUrl(resolved.url);
     if (cleaned.isEmpty) throw StateError('直链无效');
     final headers = normalizeMediaRequestHeaders(cleaned, resolved.headers);
