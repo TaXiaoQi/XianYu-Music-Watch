@@ -9,6 +9,7 @@ import 'package:crypto/crypto.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/ambient.dart';
+import '../effects/sound_effect_provider.dart';
 import 'cloud_client.dart';
 import 'protocol.dart';
 import 'rfcomm_client.dart';
@@ -86,6 +87,9 @@ class LinkState {
   final String incomingName;
   final String incomingAddress;
 
+  /// 手机端 MV 加载进度提示；null = 无 MV 活动态。
+  final String? mvPhase;
+
   const LinkState({
     this.phase = LinkPhase.disconnected,
     this.phoneName = '',
@@ -103,6 +107,7 @@ class LinkState {
     this.lyricPayload,
     this.incomingName = '',
     this.incomingAddress = '',
+    this.mvPhase,
   });
 
   LinkState copyWith({
@@ -122,6 +127,7 @@ class LinkState {
     Object? lyricPayload = _noChange,
     String? incomingName,
     String? incomingAddress,
+    Object? mvPhase = _noChange,
   }) => LinkState(
     phase: phase ?? this.phase,
     phoneName: phoneName ?? this.phoneName,
@@ -147,12 +153,14 @@ class LinkState {
         : lyricPayload as String?,
     incomingName: incomingName ?? this.incomingName,
     incomingAddress: incomingAddress ?? this.incomingAddress,
+    mvPhase: mvPhase == _noChange ? this.mvPhase : mvPhase as String?,
   );
 }
 
 const Object _noChange = Object();
 
-class LinkController extends StateNotifier<LinkState> {
+class LinkController extends StateNotifier<LinkState>
+    implements SoundEffectLinkHost {
   LinkController() : super(const LinkState());
 
   final LinkClientChannel _channel = LinkClientChannel();
@@ -163,7 +171,9 @@ class LinkController extends StateNotifier<LinkState> {
   static const _heartbeatInterval = Duration(seconds: 3);
   static const _deadAfter = Duration(seconds: 10);
   static const _minBackoff = Duration(seconds: 1);
-  static const _maxBackoff = Duration(seconds: 30);
+
+  /// 安卓表整轮重试退避封顶（蓝牙 60s 阶段之间的间隔）。
+  static const _maxBackoff = Duration(seconds: 15);
 
   final List<StreamSubscription<dynamic>> _subs = [];
   Timer? _heartbeat;
@@ -172,6 +182,12 @@ class LinkController extends StateNotifier<LinkState> {
   Duration _backoff = _minBackoff;
 
   DateTime _lastFrame = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// 最近一次手机推送的播放位置与接收时刻，用于秒间插值：
+  /// 整秒 +1 的走表会让逐字歌词按秒跳变且与推送回吸互相打架。
+  double _posBase = 0;
+
+  DateTime _posAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   bool _viaCloud = false;
 
@@ -185,6 +201,55 @@ class LinkController extends StateNotifier<LinkState> {
   final Map<String, String> _lyricCache = {};
 
   Completer<String>? _backupAckCompleter;
+
+  // ---- 音效远程镜像（联动模式下手表音效页镜像手机设置） ----
+
+  SoundEffectManager? _fxMgr;
+
+  /// 注入音效管理器：连接建立/断开时切换其远程镜像模式。
+  void attachFx(SoundEffectManager mgr) {
+    _fxMgr = mgr;
+    _syncFxMirror();
+  }
+
+  @override
+  set state(LinkState value) {
+    final prevPhase = state.phase;
+    super.state = value;
+    if (prevPhase != value.phase) _syncFxMirror();
+  }
+
+  void _syncFxMirror() {
+    if (state.phase == LinkPhase.connected) {
+      _fxMgr?.linkRemote(true, host: this);
+    } else {
+      _fxMgr?.linkRemote(false);
+    }
+  }
+
+  @override
+  bool get fxActive => state.phase == LinkPhase.connected;
+
+  @override
+  void sendFx(SoundEffectSettings s) {
+    _sendCmd(LinkCmdAction.fx, arg: s.toJson());
+  }
+
+  /// 联动模式下的倍速：镜像手机音效 playbackRate（手机端统一变速入口）。
+  /// 未注入音效管理器时为 null（更多菜单隐藏倍速组）。
+  double? get linkedSpeed {
+    final mgr = _fxMgr;
+    if (mgr == null) return null;
+    return mgr.state.settings.playbackRate / 100.0;
+  }
+
+  /// 更多菜单倍速 → 控制手机：走音效远程镜像路径（乐观更新 + fx 转发）。
+  void setLinkedSpeed(double v) {
+    final mgr = _fxMgr;
+    if (mgr == null || state.phase != LinkPhase.connected) return;
+    final rate = (v * 100).clamp(50.0, 200.0);
+    mgr.set(mgr.state.settings.copyWith(playbackRate: rate));
+  }
 
   void Function(String title, String artist)? onBackgroundNowPlaying;
 
@@ -308,6 +373,7 @@ class LinkController extends StateNotifier<LinkState> {
   void retry() {
     _reconnect?.cancel();
     _backoff = _minBackoff;
+    _btPhaseStart = null;
     state = state.copyWith(phase: LinkPhase.disconnected);
     _attemptConnect();
   }
@@ -409,31 +475,61 @@ class LinkController extends StateNotifier<LinkState> {
         state.phase == LinkPhase.connecting) {
       return;
     }
+    // ohos（华为表）无 RFCOMM native 实现，connect 静默无事件：直接走云。
+    if (!Platform.isAndroid) {
+      if (_cloudKey.isNotEmpty) _tryCloud();
+      return;
+    }
     final addr = state.pairedAddress;
     if ((addr == null || addr.isEmpty)) {
       if (_cloudKey.isNotEmpty) _tryCloud();
       return;
     }
+    // 蓝牙优先持续找：单轮失败/挂死立即开下一轮，累计 60s 无果才转云。
+    _btPhaseStart ??= DateTime.now();
+    _startBtRound(addr);
+  }
+
+  /// 蓝牙阶段累计起点（60s 窗口）；进云/连上后清零。
+  DateTime? _btPhaseStart;
+
+  static const _btPhaseBudget = Duration(seconds: 60);
+
+  void _startBtRound(String addr) {
     _wasExpectingConnect = true;
     state = state.copyWith(phase: LinkPhase.connecting);
     _channel.connect(addr);
     _connectWatchdog?.cancel();
-    _connectWatchdog = Timer(const Duration(seconds: 15), () {
-      if (state.phase != LinkPhase.connecting || _viaCloud) return;
-      _wasExpectingConnect = false;
+    _connectWatchdog = Timer(const Duration(seconds: 15), _onBtRoundTimeout);
+  }
+
+  /// 单轮蓝牙超时：窗口未满 60s 继续下一轮（不退避），满则转云兜底。
+  void _onBtRoundTimeout() {
+    if (state.phase != LinkPhase.connecting || _viaCloud) return;
+    final addr = state.pairedAddress;
+    final start = _btPhaseStart;
+    if (addr != null &&
+        addr.isNotEmpty &&
+        start != null &&
+        DateTime.now().difference(start) < _btPhaseBudget) {
       _channel.disconnect();
-      state = state.copyWith(
-        phase: LinkPhase.disconnected,
-        now: null,
-        isPlaying: false,
-        position: 0,
-      );
-      if (_cloudKey.isNotEmpty) {
-        _tryCloud();
-      } else {
-        _scheduleReconnect();
-      }
-    });
+      _startBtRound(addr);
+      return;
+    }
+    _btPhaseStart = null;
+    _wasExpectingConnect = false;
+    _channel.disconnect();
+    state = state.copyWith(
+      phase: LinkPhase.disconnected,
+      now: null,
+      isPlaying: false,
+      position: 0,
+    );
+    if (_cloudKey.isNotEmpty) {
+      _tryCloud();
+    } else {
+      _scheduleReconnect();
+    }
   }
 
   void _onConnection(LinkConnectionEvent evt) {
@@ -451,6 +547,17 @@ class LinkController extends StateNotifier<LinkState> {
         isPlaying: false,
         position: 0,
       );
+      // 蓝牙阶段内的单轮失败：窗口未满 60s 继续下一轮（不退避）。
+      final start = _btPhaseStart;
+      final addr = state.pairedAddress;
+      if (!wasConnected &&
+          addr != null &&
+          addr.isNotEmpty &&
+          start != null &&
+          DateTime.now().difference(start) < _btPhaseBudget) {
+        _startBtRound(addr);
+        return;
+      }
       if ((wasConnected && state.autoEnabled) || _wasExpectingConnect) {
         if (_cloudKey.isNotEmpty) {
           _tryCloud();
@@ -468,6 +575,7 @@ class LinkController extends StateNotifier<LinkState> {
     if (_cloudKey.isEmpty) return;
     if (!state.autoEnabled) return;
     if (_cloudTryActive || state.phase == LinkPhase.connected) return;
+    _btPhaseStart = null;
     _cloudTryActive = true;
     state = state.copyWith(phase: LinkPhase.connecting);
     _cloud.connect(
@@ -497,6 +605,7 @@ class LinkController extends StateNotifier<LinkState> {
   void _onLinkUp({required String name, required bool viaCloud}) {
     _cloudTryActive = false;
     _viaCloud = viaCloud;
+    _btPhaseStart = null;
     _decoder = FrameDecoder();
     _backoff = _minBackoff;
     _lastFrame = DateTime.now();
@@ -543,7 +652,10 @@ class LinkController extends StateNotifier<LinkState> {
     if (!state.autoEnabled) return;
     if (state.pairedAddress == null && _cloudKey.isEmpty) return;
     _reconnect?.cancel();
-    _reconnect = Timer(_backoff, () {
+    // ohos 云重试固定短间隔；安卓表整轮退避（蓝牙阶段自身不退避）。
+    final delay =
+        Platform.isAndroid ? _backoff : const Duration(seconds: 5);
+    _reconnect = Timer(delay, () {
       _backoff = _backoff * 2 > _maxBackoff ? _maxBackoff : _backoff * 2;
       _attemptConnect();
     });
@@ -575,8 +687,12 @@ class LinkController extends StateNotifier<LinkState> {
       if (isAmbient?.call() ?? false) return;
       final now = state.now;
       if (now == null) return;
-      final p = state.position + 1;
-      state = state.copyWith(position: p >= now.duration ? now.duration : p);
+      final elapsed =
+          DateTime.now().difference(_posAt).inMilliseconds / 1000.0;
+      final p = _posBase + elapsed;
+      final clamped = p >= now.duration ? now.duration : p;
+      if ((clamped - state.position).abs() < 0.01) return;
+      state = state.copyWith(position: clamped);
     });
   }
 
@@ -604,11 +720,16 @@ class LinkController extends StateNotifier<LinkState> {
           playMode: linkPlayModeFromString(msg.payload['playMode'] as String?),
           liked: msg.payload['liked'] == true,
           volume: (msg.payload['volume'] as num?)?.toDouble(),
+          mvPhase: msg.payload['mvPhase'] as String?,
         );
       case LinkMsgType.nowPlaying:
         final now = LinkNowPlaying.fromPayload(msg.payload);
         final preCover = _linkCoverPathFor(now.id);
         final isSameTrack = state.now?.id == now.id;
+        if (!isSameTrack) {
+          _posBase = 0;
+          _posAt = DateTime.now();
+        }
         state = state.copyWith(
           now: now,
           position: isSameTrack ? state.position : 0,
@@ -640,9 +761,10 @@ class LinkController extends StateNotifier<LinkState> {
         }
       case LinkMsgType.position:
         if (isAmbient?.call() ?? false) break;
-        state = state.copyWith(
-          position: (msg.payload['pos'] as num?)?.toDouble() ?? 0,
-        );
+        final pos = (msg.payload['pos'] as num?)?.toDouble() ?? 0;
+        _posBase = pos;
+        _posAt = DateTime.now();
+        state = state.copyWith(position: pos);
       case LinkMsgType.lyric:
         final lyric = msg.payload['lyric'];
         if (lyric is! Map) break;
@@ -669,6 +791,15 @@ class LinkController extends StateNotifier<LinkState> {
       case LinkMsgType.pong:
       case LinkMsgType.bye:
         break;
+      case LinkMsgType.effects:
+        final fx = msg.payload['fx'];
+        if (fx is Map) {
+          try {
+            _fxMgr?.applyRemote(
+              SoundEffectSettings.fromJson(Map<String, dynamic>.from(fx)),
+            );
+          } catch (_) {}
+        }
       case LinkMsgType.cloudBind:
         _onCloudBind(msg.payload['cloud_bind']);
       case LinkMsgType.backupAck:
@@ -773,6 +904,7 @@ final linkControllerProvider = StateNotifierProvider<LinkController, LinkState>(
   (ref) {
     final controller = LinkController();
     controller.isAmbient = () => ref.read(ambientModeProvider);
+    controller.attachFx(ref.read(soundEffectProvider.notifier));
     return controller;
   },
 );
