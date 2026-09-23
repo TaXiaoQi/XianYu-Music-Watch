@@ -610,6 +610,14 @@ class SoundEffectState {
   });
 }
 
+/// 联动通道宿主抽象：由 link_controller 实现，避免本文件反向依赖链路层。
+abstract interface class SoundEffectLinkHost {
+  bool get fxActive;
+
+  /// 手表 → 手机：转发全量音效设置。
+  void sendFx(SoundEffectSettings s);
+}
+
 class SoundEffectManager extends StateNotifier<SoundEffectState> {
   SoundEffectManager()
     : super(SoundEffectState(settings: const SoundEffectSettings())) {
@@ -619,6 +627,33 @@ class SoundEffectManager extends StateNotifier<SoundEffectState> {
   static const _key = 'xianyu_sound_effect_v1';
 
   bool _dirty = false;
+
+  /// 联动远程镜像宿主；非空时 UI 修改走「乐观更新 + sendFx 转发」，
+  /// 不写本地 prefs（镜像的是手机端设置，避免污染本地配置）。
+  SoundEffectLinkHost? _host;
+
+  bool get remoteMirroring => _host != null;
+
+  /// 进入/退出远程镜像模式。退出时丢弃镜像状态，恢复本地持久化设置。
+  void linkRemote(bool active, {SoundEffectLinkHost? host}) {
+    if (active) {
+      if (host == null) return;
+      _host = host;
+    } else if (_host != null) {
+      _host = null;
+      _dirty = false;
+      _load();
+    }
+  }
+
+  /// 手机推送的权威状态（连接时初始同步 + 修改回执校正），不回发。
+  void applyRemote(SoundEffectSettings s) {
+    if (_host == null) return;
+    state = SoundEffectState(
+      settings: s,
+      customEqPresets: state.customEqPresets,
+    );
+  }
 
   Future<void> _load() async {
     try {
@@ -643,6 +678,20 @@ class SoundEffectManager extends StateNotifier<SoundEffectState> {
     SoundEffectSettings next, {
     List<CustomEqPreset>? customEqPresets,
   }) async {
+    final host = _host;
+    if (host != null) {
+      if (!host.fxActive) {
+        // 连接已断而镜像标志未及时清理：自动回退本地配置
+        linkRemote(false);
+        return;
+      }
+      state = SoundEffectState(
+        settings: next,
+        customEqPresets: customEqPresets ?? state.customEqPresets,
+      );
+      host.sendFx(next);
+      return;
+    }
     _dirty = true;
     state = SoundEffectState(
       settings: next,

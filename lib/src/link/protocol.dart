@@ -36,6 +36,9 @@ class LinkMsgType {
   /// 腕上端运行日志推送到手机；回执复用 backupAck（saved/cancelled）。
   static const int watchLogFile = 0x23;
 
+  /// 手机 → 手表的音效设置推送（payload: {'fx': SoundEffectSettings.toJson()}）。
+  static const int effects = 0x24;
+
   static const int chunk = 0x30;
 
   static const int cloudBind = 0x41;
@@ -54,6 +57,7 @@ class LinkMsgType {
       t == backupFile ||
       t == backupAck ||
       t == watchLogFile ||
+      t == effects ||
       t == chunk ||
       t == cloudBind;
 }
@@ -91,6 +95,9 @@ class LinkCmdAction {
   static const String mode = 'mode';
   static const String seek = 'seek';
   static const String volume = 'volume';
+
+  /// 手表 → 手机：修改音效（arg = SoundEffectSettings.toJson() 全量）。
+  static const String fx = 'fx';
 }
 
 class LinkMessage {
@@ -113,11 +120,13 @@ class LinkMessage {
     required LinkPlayMode playMode,
     required bool liked,
     double? volume,
+    String? mvPhase,
   }) => LinkMessage(LinkMsgType.state, {
     'isPlaying': isPlaying,
     'playMode': linkPlayModeToString(playMode),
     'liked': liked,
     'volume': ?volume,
+    'mvPhase': ?mvPhase,
   });
 
   static LinkMessage nowPlaying({
@@ -160,6 +169,10 @@ class LinkMessage {
 
   static LinkMessage cmd(String action, [Map<String, dynamic>? arg]) =>
       LinkMessage(LinkMsgType.cmd, {'action': action, 'arg': ?arg});
+
+  /// 手机 → 手表：音效设置全量推送。
+  static LinkMessage effects({required Map<String, dynamic> fx}) =>
+      LinkMessage(LinkMsgType.effects, {'fx': fx});
 
   static LinkMessage backupFile({
     required String name,

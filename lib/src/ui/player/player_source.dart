@@ -36,6 +36,9 @@ abstract class PlayerViewSource {
 
   bool get supportsSoundEffects;
 
+  /// MV 加载进度提示（联动源才有）；null = 无 MV 活动态。
+  String? get mvPhase => null;
+
   void toggle();
   void next();
   void prev();
@@ -97,10 +100,13 @@ class LinkPlayerSource implements PlayerViewSource {
   double get volume => _link.volume ?? 0.5;
 
   @override
-  double? get speed => null;
+  double? get speed => _ctrl.linkedSpeed;
 
   @override
-  bool get supportsSoundEffects => false;
+  bool get supportsSoundEffects => true;
+
+  @override
+  String? get mvPhase => _link.mvPhase;
 
   @override
   void toggle() => _ctrl.toggle();
@@ -132,7 +138,7 @@ class LinkPlayerSource implements PlayerViewSource {
   }
 
   @override
-  void setSpeed(double s) {}
+  void setSpeed(double s) => _ctrl.setLinkedSpeed(s);
 
   @override
   void setVolume(double v) => _ctrl.setVolume(v);
@@ -185,6 +191,9 @@ class LocalPlayerSource implements PlayerViewSource {
 
   @override
   bool get supportsSoundEffects => true;
+
+  @override
+  String? get mvPhase => null;
 
   @override
   void toggle() => _ctrl.toggle();

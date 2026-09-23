@@ -271,6 +271,21 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                           ),
                         if (src.hasTrack) ...[
                           SizedBox(height: 2 * s),
+                          if (src.mvPhase != null) ...[
+                            SizedBox(
+                              width: double.infinity,
+                              child: _MarqueeText(
+                                src.mvPhase!,
+                                style: TextStyle(
+                                  fontSize: 11 * s,
+                                  fontWeight: FontWeight.w500,
+                                  color: kPlayerAccent.withValues(alpha: 0.9),
+                                ),
+                              ),
+                            ),
+                            SizedBox(height: 2 * s),
+                          ],
+                          SizedBox(height: 2 * s),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             mainAxisSize: MainAxisSize.min,

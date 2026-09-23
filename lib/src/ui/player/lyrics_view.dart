@@ -330,7 +330,7 @@ class _LyricsViewState extends ConsumerState<LyricsView>
   Widget _karaokeWord(LyricWord w, double pos, double fontSize) {
     final dur = math.max(0.001, w.end - w.start);
     final progress = ((pos - w.start) / dur).clamp(0.0, 1.0);
-    const accent = kPlayerAccent;
+    const highlight = Colors.white;
     final dim = Colors.white.withValues(alpha: 0.30);
     final style = TextStyle(
       fontSize: fontSize,
@@ -345,9 +345,9 @@ class _LyricsViewState extends ConsumerState<LyricsView>
       return Text(
         w.text,
         style: style.copyWith(
-          color: accent,
+          color: highlight,
           shadows: [
-            Shadow(color: accent.withValues(alpha: 0.35), blurRadius: 8),
+            Shadow(color: Colors.white.withValues(alpha: 0.35), blurRadius: 8),
           ],
         ),
       );
@@ -361,10 +361,10 @@ class _LyricsViewState extends ConsumerState<LyricsView>
         scale: 1.0 + 0.04 * pop,
         child: ShaderMask(
           shaderCallback: (bounds) => LinearGradient(
-            colors: [accent, dim],
+            colors: [highlight, dim],
             stops: [progress, featherEnd],
           ).createShader(bounds),
-          child: Text(w.text, style: style.copyWith(color: accent)),
+          child: Text(w.text, style: style.copyWith(color: highlight)),
         ),
       ),
     );
