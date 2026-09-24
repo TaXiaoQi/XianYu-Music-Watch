@@ -926,13 +926,21 @@ class PluginEngine {
     }
     if (response is! Map) return null;
     final obj = response.cast<String, dynamic>();
-    final lyric = _pickString([obj['lyric'], obj['rawLrc'], obj['lrc']]);
-    final tlyric = _pickString([
-      obj['tlyric'],
-      obj['translation'],
-      obj['translateLyric'],
-    ]);
-    final rlyric = _pickString([obj['rlyric'], obj['romanization']]);
+    final mainRaw = _pickString([obj['lyric'], obj['rawLrc'], obj['lrc']]);
+    // Baka 系 crypt:1 返回未解密 QRC/e-lrc hex 密文（主文/译文/罗马音同批加密），
+    // 不能当歌词展示——密文置空，走「无歌词」
+    final encrypted = pluginLyricLooksEncrypted(mainRaw);
+    final lyric = encrypted ? '' : mainRaw;
+    final tlyric = encrypted
+        ? ''
+        : _pickString([
+            obj['tlyric'],
+            obj['translation'],
+            obj['translateLyric'],
+          ]);
+    final rlyric = encrypted
+        ? ''
+        : _pickString([obj['rlyric'], obj['romanization']]);
     final lxlyric = _pickString([obj['lxlyric']]);
     final yrc = _pickString([obj['yrc']]);
     final qrc = _pickString([obj['qrc']]);
@@ -1042,6 +1050,17 @@ class PluginEngine {
     }
     return '';
   }
+}
+
+/// 是否为未解密的加密歌词密文（与移动端 pluginLyricLooksEncrypted 判据一致）：
+/// Baka 系插件 crypt:1 时返回 QRC/e-lrc 的 3DES+zlib 包 hex 密文，不能当歌词
+/// 展示。判据：剥空白后几乎全为十六进制字符且无 [mm:ss 时间戳——真实歌词
+/// （LRC/QRC/YRC/lys）必然带时间戳。
+bool pluginLyricLooksEncrypted(String text) {
+  final t = text.replaceAll(RegExp(r'\s'), '');
+  if (t.length < 48) return false;
+  final nonHex = t.replaceAll(RegExp(r'[0-9A-Fa-f]'), '').length;
+  return nonHex <= t.length * 0.05 && !RegExp(r'\[\d{1,3}:\d{2}').hasMatch(text);
 }
 
 class PluginEngineException implements Exception {
