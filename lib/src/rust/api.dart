@@ -89,6 +89,11 @@ Future<String> fetchLyricFromSource({
   songInfoJson: songInfoJson,
 );
 
+/// 解密插件返回的加密歌词密文（QQ QRC / 酷我 e-lrc，3DES+zlib 压缩包 hex）。
+/// 与移动端/桌面端同一后端实现——前端在密文检测命中后直接调本函数解密复用。
+Future<String> decryptPluginLyric({required String encryptedHex}) =>
+    RustLib.instance.api.crateApiDecryptPluginLyric(encryptedHex: encryptedHex);
+
 Future<void> webdavTestConnection({required String sourceJson}) =>
     RustLib.instance.api.crateApiWebdavTestConnection(sourceJson: sourceJson);
 

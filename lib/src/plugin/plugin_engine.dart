@@ -80,8 +80,9 @@ class PluginEngine {
 
     if (RegExp(r'\blx\s*\.\s*(on|send)\s*\(').hasMatch(trimmed)) return true;
     if (RegExp(r'EVENT_NAMES\s*\.\s*request').hasMatch(trimmed)) return true;
-    if (RegExp(r"""globalThis\s*\[\s*['"]lx['"]\s*]""").hasMatch(trimmed))
+    if (RegExp(r"""globalThis\s*\[\s*['"]lx['"]\s*]""").hasMatch(trimmed)) {
       return true;
+    }
     if (RegExp(r'globalThis\s*\.\s*lx\b').hasMatch(trimmed)) return true;
     if (RegExp(r'globalThis').hasMatch(trimmed) &&
         RegExp(r'\bEVENT_NAMES\b').hasMatch(trimmed)) {
@@ -902,13 +903,13 @@ class PluginEngine {
       final response = await call(source.id, 'getLyric', [
         musicItem,
       ], timeoutMs: _lyricTimeout);
-      return _normalizeLyricResponse(response);
+      return await _normalizeLyricResponse(response);
     } catch (_) {
       return null;
     }
   }
 
-  Map<String, dynamic>? _normalizeLyricResponse(dynamic response) {
+  Future<Map<String, dynamic>?> _normalizeLyricResponse(dynamic response) async {
     if (response == null) return null;
     if (response is String) {
       final text = response.trim();
@@ -927,28 +928,39 @@ class PluginEngine {
     if (response is! Map) return null;
     final obj = response.cast<String, dynamic>();
     final mainRaw = _pickString([obj['lyric'], obj['rawLrc'], obj['lrc']]);
-    // Baka 系 crypt:1 返回未解密 QRC/e-lrc hex 密文（主文/译文/罗马音同批加密），
-    // 不能当歌词展示——密文置空，走「无歌词」
+    // Baka 系 crypt:1 返回未解密 QRC/e-lrc hex 密文（主文/译文/罗马音同批
+    // 加密）——调后端 qrc_decrypt 解密复用（三端同一能力）；失败置空走无歌词
     final encrypted = pluginLyricLooksEncrypted(mainRaw);
-    final lyric = encrypted ? '' : mainRaw;
-    final tlyric = encrypted
-        ? ''
-        : _pickString([
-            obj['tlyric'],
-            obj['translation'],
-            obj['translateLyric'],
-          ]);
-    final rlyric = encrypted
-        ? ''
-        : _pickString([obj['rlyric'], obj['romanization']]);
+    var lyric = encrypted ? '' : mainRaw;
+    var tlyric = _pickString([
+      obj['tlyric'],
+      obj['translation'],
+      obj['translateLyric'],
+    ]);
+    var rlyric = _pickString([obj['rlyric'], obj['romanization']]);
     final lxlyric = _pickString([obj['lxlyric']]);
     final yrc = _pickString([obj['yrc']]);
-    final qrc = _pickString([obj['qrc']]);
+    var qrc = _pickString([obj['qrc']]);
     final eslrc = _pickString([
       obj['eslrc'],
       obj['enhancedLrc'],
       obj['enh_lrc'],
     ]);
+    if (encrypted) {
+      final decrypted = await decryptPluginLyricText(mainRaw);
+      if (decrypted != null && decrypted.trim().isNotEmpty) {
+        qrc = decrypted;
+        if (tlyric.isNotEmpty && pluginLyricLooksEncrypted(tlyric)) {
+          tlyric = await decryptPluginLyricText(tlyric) ?? '';
+        }
+        if (rlyric.isNotEmpty && pluginLyricLooksEncrypted(rlyric)) {
+          rlyric = await decryptPluginLyricText(rlyric) ?? '';
+        }
+      } else {
+        tlyric = '';
+        rlyric = '';
+      }
+    }
     if (lyric.isEmpty &&
         lxlyric.isEmpty &&
         yrc.isEmpty &&
@@ -1060,7 +1072,22 @@ bool pluginLyricLooksEncrypted(String text) {
   final t = text.replaceAll(RegExp(r'\s'), '');
   if (t.length < 48) return false;
   final nonHex = t.replaceAll(RegExp(r'[0-9A-Fa-f]'), '').length;
-  return nonHex <= t.length * 0.05 && !RegExp(r'\[\d{1,3}:\d{2}').hasMatch(text);
+  return nonHex <= t.length * 0.05 &&
+      !RegExp(r'\[\d{1,3}:\d{2}').hasMatch(text);
+}
+
+/// 解密插件密文歌词（QQ QRC / 酷我 e-lrc，3DES+zlib hex）——调后端
+/// decrypt_plugin_lyric（三端同一 Rust 实现，与原生歌词源内部解密同款）。
+/// 失败/空结果返回 null。
+Future<String?> decryptPluginLyricText(String hex) async {
+  try {
+    final out = await frb.decryptPluginLyric(
+        encryptedHex: hex.replaceAll(RegExp(r'\s'), ''));
+    final s = out.trim();
+    return s.isEmpty ? null : s;
+  } catch (_) {
+    return null;
+  }
 }
 
 class PluginEngineException implements Exception {
