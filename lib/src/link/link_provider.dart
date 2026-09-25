@@ -191,6 +191,10 @@ class LinkController extends StateNotifier<LinkState>
 
   bool _viaCloud = false;
 
+  /// 原生 SPP 通道可用性：Android 恒 true；ohos 由 ets
+  /// WatchLinkDispatcher 应答（API 18+ 穿戴设备）；其余平台 false。
+  bool _sppAvailable = false;
+
   String _cloudKey = '';
   String _cloudUrl = '';
 
@@ -257,6 +261,8 @@ class LinkController extends StateNotifier<LinkState>
 
   Future<void> init() async {
     _channel.bind();
+    _sppAvailable =
+        Platform.isAndroid || await _channel.sppSupported();
     onBackgroundNowPlaying = (title, artist) {
       _channel.notifyNowPlaying(title, artist);
     };
@@ -475,8 +481,8 @@ class LinkController extends StateNotifier<LinkState>
         state.phase == LinkPhase.connecting) {
       return;
     }
-    // ohos（华为表）无 RFCOMM native 实现，connect 静默无事件：直接走云。
-    if (!Platform.isAndroid) {
+    // 无 SPP 原生通道（ohos 低版本设备/其他平台）：直接走云。
+    if (!_sppAvailable) {
       if (_cloudKey.isNotEmpty) _tryCloud();
       return;
     }
@@ -652,9 +658,8 @@ class LinkController extends StateNotifier<LinkState>
     if (!state.autoEnabled) return;
     if (state.pairedAddress == null && _cloudKey.isEmpty) return;
     _reconnect?.cancel();
-    // ohos 云重试固定短间隔；安卓表整轮退避（蓝牙阶段自身不退避）。
-    final delay =
-        Platform.isAndroid ? _backoff : const Duration(seconds: 5);
+    // 无 SPP 通道（纯云链路）固定短间隔；有蓝牙链路走整轮退避。
+    final delay = _sppAvailable ? _backoff : const Duration(seconds: 5);
     _reconnect = Timer(delay, () {
       _backoff = _backoff * 2 > _maxBackoff ? _maxBackoff : _backoff * 2;
       _attemptConnect();

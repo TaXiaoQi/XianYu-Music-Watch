@@ -11,6 +11,10 @@
     {
       "name": "EntryAbility_label",
       "value": "腕上弦予"
+    },
+    {
+      "name": "bluetooth_permission_reason",
+      "value": "用于通过蓝牙直连手机控制播放（腕上联动）"
     }
   ]
 }

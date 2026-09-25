@@ -7,6 +7,7 @@ import { FlutterAbility, FlutterEngine, MethodChannel, EventChannel, EventSink, 
 import { GeneratedPluginRegistrant } from '../plugins/GeneratedPluginRegistrant';
 import { dispatchBackToFlutter } from './BackDispatcher';
 import { attachRotarySink } from './RotaryDispatcher';
+import { WatchLinkDispatcher } from './WatchLinkDispatcher';
 
 export default class EntryAbility extends FlutterAbility {
   private systemNavChannel: MethodChannel | null = null;
@@ -130,6 +131,11 @@ export default class EntryAbility extends FlutterAbility {
         }
       }
     });
+
+    // 手表联动 SPP 通道（ohos 客户端角色）：协议与安卓 WatchLinkClient.kt
+    // 一致（字节管道 + Dart 侧帧/心跳/重连），实机矩阵见 WatchLinkDispatcher。
+    WatchLinkDispatcher.attach(
+      flutterEngine.dartExecutor.getBinaryMessenger(), this.context)
   }
 
   private async startKeepAlive(): Promise<void> {

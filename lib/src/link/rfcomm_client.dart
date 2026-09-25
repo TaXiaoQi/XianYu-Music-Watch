@@ -79,6 +79,16 @@ class LinkClientChannel {
     });
   }
 
+  /// ohos 是否有 SPP 原生通道（ets WatchLinkDispatcher 实现，恒 true）。
+  /// Android 有 Kotlin 实现无需询问；iOS/其他平台 notImplemented → false。
+  Future<bool> sppSupported() async {
+    try {
+      return await _ch.invokeMethod('sppSupported') == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<List<BondedDevice>> pairedDevices() async {
     try {
       final list = await _ch.invokeMethod<List<dynamic>>('pairedDevices');
