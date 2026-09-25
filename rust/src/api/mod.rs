@@ -1855,38 +1855,3 @@ pub fn dlna_dmr_report_playback(
     };
     crate::dlna::bridge::report_playback(state, position_secs, duration_secs, volume_percent, muted);
 }
-
-// =========================================================================
-// 无损音频格式转换（纯 Rust，无需 FFmpeg）
-// =========================================================================
-
-pub async fn convert_audio_batch(
-    input_paths: Vec<String>,
-    out_dir: String,
-    options_json: String,
-) -> Result<String, String> {
-    let opts: crate::audio_convert::ConvertOptions =
-        serde_json::from_str(&options_json).map_err(|e| format!("options 解析失败：{e}"))?;
-    let results = crate::audio_convert::convert_audio(input_paths, out_dir, opts).await;
-    serde_json::to_string(&results).map_err(|e| e.to_string())
-}
-
-pub fn audio_convert_supported_inputs() -> Vec<String> {
-    vec![
-        "mp3".to_string(),
-        "flac".to_string(),
-        "m4a".to_string(),
-        "aac".to_string(),
-        "ogg".to_string(),
-        "wav".to_string(),
-        "aif".to_string(),
-        "aiff".to_string(),
-        "alac".to_string(),
-        "ape".to_string(),
-        "wv".to_string(),
-    ]
-}
-
-pub fn audio_convert_supported_outputs() -> Vec<String> {
-    vec!["wav".to_string(), "flac".to_string(), "mp3".to_string()]
-}

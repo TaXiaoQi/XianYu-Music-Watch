@@ -42,7 +42,10 @@ ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
 quick-xml = "0.39.2"
 rayon = "1.10"
 walkdir = "2"
+# 转码解码（player/transcode.rs：本地 APE/WV/冷门格式 → WAV 供 ExoPlayer 播放）
 symphonia = { version = "0.5.5", default-features = false, features = ["aac", "adpcm", "aiff", "alac", "flac", "isomp4", "mp3", "ogg", "pcm", "vorbis", "wav"] }
+ape-decoder = "0.3"
+wavicle = { version = "0.1", default-features = false, features = ["decode"] }
 uuid = { version = "1", features = ["v4"] }
 # default-features 必须关掉：默认特性含 avif（ravif→rav1e AV1 编码器）、exr、tiff 等，
 # 会让 arm64 .so 白涨约 5-8MB（封面只需 jpeg/png/webp）
@@ -54,12 +57,6 @@ url = "2"
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
 tokio-util = { version = "0.7", default-features = false, features = ["io"] }
 socket2 = "0.6"
-# APE/WV 解码（与桌面端 vendor rodio 同源 crate），转码为 WAV 供 ExoPlayer 播放
-ape-decoder = "0.3"
-wavicle = { version = "0.1", default-features = false, features = ["decode"] }
-# 纯 Rust FLAC 编码（用于 audio_convert 无损格式互转，无需 FFmpeg）
-flacenc = "0.5"
-rusty_mp3 = "0.7"
 # 本地搜索归一化：NFKC/NFKD（全角半角、变音符）+ 繁转简（对齐 BakaMusic search-matcher）
 unicode-normalization = "0.1"
 fast2s = "0.3"

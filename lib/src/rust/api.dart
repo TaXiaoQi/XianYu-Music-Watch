@@ -1317,22 +1317,6 @@ Future<void> dlnaDmrReportPlayback({
   muted: muted,
 );
 
-Future<String> convertAudioBatch({
-  required List<String> inputPaths,
-  required String outDir,
-  required String optionsJson,
-}) => RustLib.instance.api.crateApiConvertAudioBatch(
-  inputPaths: inputPaths,
-  outDir: outDir,
-  optionsJson: optionsJson,
-);
-
-Future<List<String>> audioConvertSupportedInputs() =>
-    RustLib.instance.api.crateApiAudioConvertSupportedInputs();
-
-Future<List<String>> audioConvertSupportedOutputs() =>
-    RustLib.instance.api.crateApiAudioConvertSupportedOutputs();
-
 class WebdavSourceOverrides {
   final String? baseUrl;
   final String? username;
