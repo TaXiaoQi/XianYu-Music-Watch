@@ -1,4 +1,4 @@
-# build-rust-ohos.ps1 - cross-compile libxianyu_core.so for OpenHarmony/HarmonyOS NEXT
+﻿# build-rust-ohos.ps1 - cross-compile libxianyu_core.so for OpenHarmony/HarmonyOS NEXT
 # (watch edition; crate identical to the mobile project's xianyu_core)
 #
 # Targets: aarch64-unknown-linux-ohos (real device; watch default) + optional
