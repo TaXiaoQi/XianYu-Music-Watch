@@ -1,6 +1,6 @@
 {
   "app": {
-    "bundleName": "com.xianyumusic.watch",
+    "bundleName": "com.xianyumusic.watch.next",
     "vendor": "xianyumusic",
     "versionCode": 1000000,
     "versionName": "1.0.0",

@@ -8,7 +8,7 @@
   HAP IN PLACE (space-free path). Differences vs mobile:
     - no version.ts sync step (single version source = pubspec.yaml)
     - project name xianyu_watch, archive 弦予音乐v<ver>-Watch-<arch>.hap
-    - no PoC signing-profile fallback (watch bundle com.xianyumusic.watch has
+    - no PoC signing-profile fallback (watch bundle com.xianyumusic.watch.next has
       its own AGC materials, configured later in ohos/build-profile.json5)
     - no signing materials -> canonical profile omits "signingConfig" so
       hvigor produces an UNSIGNED release HAP (compile verification OK;
@@ -133,7 +133,7 @@ try {
     }
 
     # bundle name: NO rewrite - ohos/AppScope/app.json5 is the single source
-    # of truth (com.xianyumusic.watch, set once after the first flutter create;
+    # of truth (com.xianyumusic.watch.next, set once after the first flutter create;
     # must match the AGC app registration before signing/upload).
 
     # build-profile.json5 is REWRITTEN canonically every run (signingConfigs

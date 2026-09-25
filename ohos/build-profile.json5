@@ -1,7 +1,7 @@
 
 {
   "app": {
-    "signingConfigs": [{"name":"default","type":"HarmonyOS","material":{"certpath":"C:\\Users\\小奇\\.ohos\\config\\xianyu_watch_release.cer","keyAlias":"debugKey","keyPassword":"0000001B57D6A81CE266B0C8CF9A3B6EB902AE179F8E8F2FF13D435C47C667868B996F1D25DAF850E583E5","profile":"C:\\Users\\小奇\\.ohos\\config\\xianyu_watch_release.p7b","signAlg":"SHA256withECDSA","storeFile":"C:\\Users\\小奇\\.ohos\\config\\default_ohos_qFRiZBEIRmHA4sssAF4ofZAwJYiNUbh0ljLRmTkJP2g=.p12","storePassword":"0000001BBFA3070A00A61CAEDDA9C618E9B218671B92B647618AFD478955CAC03F8FF3DCE0D2072D35EE22"}}],
+    "signingConfigs": [{"name":"default","type":"HarmonyOS","material":{"certpath":"C:\\Users\\小奇\\.ohos\\config\\xianyu_watch_release.cer","keyAlias":"debugKey","keyPassword":"0000001B57D6A81CE266B0C8CF9A3B6EB902AE179F8E8F2FF13D435C47C667868B996F1D25DAF850E583E5","profile":"C:\\Users\\小奇\\.ohos\\config\\腕上弦予Release.p7b","signAlg":"SHA256withECDSA","storeFile":"C:\\Users\\小奇\\.ohos\\config\\default_ohos_qFRiZBEIRmHA4sssAF4ofZAwJYiNUbh0ljLRmTkJP2g=.p12","storePassword":"0000001BBFA3070A00A61CAEDDA9C618E9B218671B92B647618AFD478955CAC03F8FF3DCE0D2072D35EE22"}}],
     "products": [
       {
         "name": "default",

@@ -52,7 +52,7 @@ export default class EntryAbility extends FlutterAbility {
           const appContext = this.context.getApplicationContext() as common.ApplicationContext
           try {
             const want: Want = {
-              bundleName: 'com.xianyumusic.watch',
+              bundleName: 'com.xianyumusic.watch.next',
               abilityName: 'EntryAbility'
             }
             appContext.restartApp(want)
@@ -143,7 +143,7 @@ export default class EntryAbility extends FlutterAbility {
       return
     }
     const wa = await wantAgent.getWantAgent({
-      wants: [{ bundleName: 'com.xianyumusic.watch', abilityName: 'EntryAbility' }],
+      wants: [{ bundleName: 'com.xianyumusic.watch.next', abilityName: 'EntryAbility' }],
       actionType: wantAgent.OperationType.START_ABILITY,
       requestCode: 0
     } as wantAgent.WantAgentInfo)

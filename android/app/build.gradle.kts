@@ -27,7 +27,9 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.xianyumusic.watch"
+        // 谷歌 Data Layer 未接入（国内两端均无 GMS，零覆盖），无需与手机端同包名；
+        // 加 .app 后缀与手机端 com.xianyumusic.app 品牌对齐
+        applicationId = "com.xianyumusic.watch.app"
         // Wear OS 2.1+（API 28）起，兼容无 GMS 国表（OPPO/小米 Wear OS）
         minSdk = 28
         targetSdk = 34
@@ -75,7 +77,7 @@ android {
 
     buildTypes {
         debug {
-            // debug 包名加 .debug 后缀：与正式版（com.xianyumusic.watch）共存，
+            // debug 包名加 .debug 后缀：与正式版（com.xianyumusic.watch.app）共存，
             // flutter run 不再顶掉正式安装包（与移动端同款做法）
             applicationIdSuffix = ".debug"
             // debug 显示名加「·测试」后缀，多任务/桌面与正式版一眼区分
