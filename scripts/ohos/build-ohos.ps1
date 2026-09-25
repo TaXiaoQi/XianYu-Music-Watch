@@ -325,6 +325,10 @@ try {
         if ($pubspecTxt -match '(?m)^version:\s*([0-9][^\s+]*)(\+.*)?$') { $appVersion = $Matches[1] }
         $relDir = Join-Path $ProjectRoot 'releases\ohos'
         $archSuffix = if ($targetAbi -eq 'x64') { 'x86' } else { 'arm64' }
+        # hvigor FlutterTask 的目标平台：缺省（不传 TARGET_PLATFORM）会编译全部
+        # ohos 目标并在 entry/libs 重新物化 x86_64，.app 体积翻倍（29.8MB vs
+        # 18.1MB，2026-09-25 实测）——assembleApp 必须显式传
+        $tpHvigor = if ($targetAbi -eq 'x64') { 'ohos-x64' } else { 'ohos-arm64' }
         if ($buildMode -ne 'debug') {
             New-Item -ItemType Directory -Force -Path $relDir | Out-Null
             foreach ($h in $haps) {
@@ -338,12 +342,12 @@ try {
             # assembleApp is a project-level hvigor task (no --mode module).
             Push-Location (Join-Path $MirrorDir 'ohos')
             try {
-                Write-Host "[ohos] hvigorw assembleApp (buildMode=$buildMode) ..." -ForegroundColor Cyan
-                & hvigorw assembleApp -p product=default -p buildMode=$buildMode
+                Write-Host "[ohos] hvigorw assembleApp (buildMode=$buildMode, TARGET_PLATFORM=$tpHvigor) ..." -ForegroundColor Cyan
+                & hvigorw assembleApp -p product=default -p buildMode=$buildMode -p TARGET_PLATFORM=$tpHvigor
                 if ($LASTEXITCODE -ne 0) {
                     Write-Host '[ohos] assembleApp attempt 1 failed - patch embedding and retry ...' -ForegroundColor Yellow
                     & (Join-Path $ScriptDir 'patch-embedding.ps1') -ProjectRoot $MirrorDir
-                    & hvigorw assembleApp -p product=default -p buildMode=$buildMode
+                    & hvigorw assembleApp -p product=default -p buildMode=$buildMode -p TARGET_PLATFORM=$tpHvigor
                     if ($LASTEXITCODE -ne 0) { throw "assembleApp failed ($LASTEXITCODE)" }
                 }
                 $apps = Get-ChildItem (Join-Path $MirrorDir 'ohos\build\outputs') -Recurse -Filter '*signed.app' -ErrorAction SilentlyContinue
