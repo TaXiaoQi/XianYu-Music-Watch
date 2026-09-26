@@ -221,6 +221,7 @@ abstract class RustLibApi extends BaseApi {
     required String url,
     required String destPath,
     String? ekey,
+    String? cek,
     required String headersJson,
   });
 
@@ -2127,6 +2128,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     required String url,
     required String destPath,
     String? ekey,
+    String? cek,
     required String headersJson,
   }) {
     return handler.executeNormal(
@@ -2136,6 +2138,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_String(url, serializer);
           sse_encode_String(destPath, serializer);
           sse_encode_opt_String(ekey, serializer);
+          sse_encode_opt_String(cek, serializer);
           sse_encode_String(headersJson, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
@@ -2149,7 +2152,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_String,
         ),
         constMeta: kCrateApiDownloadOnlineSongConstMeta,
-        argValues: [url, destPath, ekey, headersJson],
+        argValues: [url, destPath, ekey, cek, headersJson],
         apiImpl: this,
       ),
     );
@@ -2157,7 +2160,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiDownloadOnlineSongConstMeta => const TaskConstMeta(
     debugName: "download_online_song",
-    argNames: ["url", "destPath", "ekey", "headersJson"],
+    argNames: ["url", "destPath", "ekey", "cek", "headersJson"],
   );
 
   @override

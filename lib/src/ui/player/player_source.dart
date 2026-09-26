@@ -1,4 +1,5 @@
 import '../../player/player_provider.dart';
+import '../../player/online_quality_probe.dart';
 import '../../link/link_provider.dart';
 import '../../link/protocol.dart';
 
@@ -36,6 +37,22 @@ abstract class PlayerViewSource {
 
   bool get supportsSoundEffects;
 
+  /// 当前生效的在线播放音质；null = 当前曲目不支持切音质（本地/联动源）
+  String? get onlineQuality => null;
+
+  /// 实际生效的在线音质（探测解析后的真实档位）
+  String? get currentQuality => null;
+
+  /// 音质菜单探测是否进行中
+  bool get qualityMenuProbing => false;
+
+  /// 探测音质菜单可选档位（触发逐档解析）
+  Future<List<String>> qualityOptions() => Future.value(const []);
+
+  /// 查询各档位体积（URL HEAD / 元数据兜底）
+  Future<Map<String, QualitySizeInfo>> qualitySizes() =>
+      Future.value(const {});
+
   /// MV 加载进度提示（联动源才有）；null = 无 MV 活动态。
   String? get mvPhase => null;
 
@@ -51,6 +68,9 @@ abstract class PlayerViewSource {
   void setMode(int m);
 
   void setSpeed(double s);
+
+  /// 播放中切换在线音质（同曲续播重播）；返回是否成功。默认不支持。
+  Future<bool> switchQuality(String quality) => Future.value(false);
 }
 
 class LinkPlayerSource implements PlayerViewSource {
@@ -104,6 +124,25 @@ class LinkPlayerSource implements PlayerViewSource {
 
   @override
   bool get supportsSoundEffects => true;
+
+  @override
+  String? get onlineQuality => null;
+
+  @override
+  String? get currentQuality => null;
+
+  @override
+  bool get qualityMenuProbing => false;
+
+  @override
+  Future<List<String>> qualityOptions() => Future.value(const []);
+
+  @override
+  Future<Map<String, QualitySizeInfo>> qualitySizes() =>
+      Future.value(const {});
+
+  @override
+  Future<bool> switchQuality(String quality) => Future.value(false);
 
   @override
   String? get mvPhase => _link.mvPhase;
@@ -191,6 +230,26 @@ class LocalPlayerSource implements PlayerViewSource {
 
   @override
   bool get supportsSoundEffects => true;
+
+  @override
+  String? get onlineQuality =>
+      _ctrl.effectiveOnlineQuality(_st.current?.onlineSongJson);
+
+  @override
+  String? get currentQuality => _st.currentQuality;
+
+  @override
+  bool get qualityMenuProbing => _st.qualityMenuProbing;
+
+  @override
+  Future<List<String>> qualityOptions() => _ctrl.qualityOptions();
+
+  @override
+  Future<Map<String, QualitySizeInfo>> qualitySizes() =>
+      _ctrl.qualitySizes();
+
+  @override
+  Future<bool> switchQuality(String quality) => _ctrl.switchQuality(quality);
 
   @override
   String? get mvPhase => null;

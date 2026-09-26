@@ -856,7 +856,7 @@ class _AboutPageState extends ConsumerState<_AboutPage> {
       ),
       Center(
         child: Text(
-          '© 2026 弦予音乐 · License AGPL-3.0',
+          '© 2026 弦予音乐 · 源码可见协议 XSAL-1.0',
           textAlign: TextAlign.center,
           style: TextStyle(
               fontSize: 9.5 * s, color: Colors.white.withValues(alpha: 0.32)),
@@ -1232,7 +1232,21 @@ Future<void> _pickMinDuration(BuildContext context, AppSettings s) async {
 
 Future<void> _pickQuality(BuildContext context, AppSettings s) async {
   final container = ProviderScope.containerOf(context, listen: false);
-  const options = [('320k', '标准 320kbps'), ('flac', '无损 FLAC')];
+  // 与移动端设置页同款 12 档（kQualityLadder 全梯）
+  const options = [
+    ('mgg', '低清 · 96k 极速试听'),
+    ('128k', '普通 · 128kbps'),
+    ('192k', '中等 · 192kbps'),
+    ('320k', 'HQ · 高品质 320k'),
+    ('flac', 'SQ · 无损 FLAC'),
+    ('flac24bit', 'Hi-Res · FLAC 24bit'),
+    ('hires', '高解析度 · Hi-Res'),
+    ('vinyl', '黑胶音色 · 无损'),
+    ('dolby', '杜比全景声'),
+    ('atmos', '臻品音质 · 立体空间声场'),
+    ('atmos_plus', '臻品全景声'),
+    ('master', '臻品母带'),
+  ];
   final v = await showFullPicker<String>(
     context,
     title: '在线音质',

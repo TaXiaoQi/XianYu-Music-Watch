@@ -958,10 +958,16 @@ pub fn get_usb_exclusive_position_secs() -> f64 {
     crate::player::output::get_exclusive_position_secs()
 }
 
+/// 下载在线歌曲真实音源直链到指定路径（流式写入 + QMC2/CENC 解密），返回最终路径。
+///
+/// - `headers_json`：可选 HTTP 头 JSON（对象）
+/// - `ekey`：可选 QMC2 加密 key（base64）
+/// - `cek`：可选 CENC 内容密钥（32 位 hex，如网易 dolby 流），与 `ekey` 互斥
 pub async fn download_online_song(
     url: String,
     dest_path: String,
     ekey: Option<String>,
+    cek: Option<String>,
     headers_json: String,
 ) -> Result<String, String> {
     let headers: std::collections::HashMap<String, String> = if headers_json.trim().is_empty() {
@@ -969,7 +975,7 @@ pub async fn download_online_song(
     } else {
         serde_json::from_str(&headers_json).map_err(|e| e.to_string())?
     };
-    crate::toolbox::download_online_song(url, dest_path, ekey, Some(headers)).await
+    crate::toolbox::download_online_song(url, dest_path, ekey, cek, Some(headers)).await
 }
 
 pub fn decrypt_qmc_file_standalone(
@@ -1805,6 +1811,8 @@ pub fn dlna_update_media_token(token: String, payload_json: String) -> Result<bo
 }
 
 pub async fn dlna_enable_renderer(friendly_name: String, udn: String) -> Result<u16, String> {
+    // 宿主传入的 UDN 可能自带 "uuid:" 前缀，协议层统一裸 UUID，避免 uuid:uuid: 双前缀
+    let udn = udn.trim().trim_start_matches("uuid:").to_string();
     DlnaCore::shared()
         .enable_renderer(
             crate::dlna::RendererConfig {

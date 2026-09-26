@@ -677,15 +677,22 @@ Future<String> getUsbExclusiveDeviceInfo() =>
 Future<double> getUsbExclusivePositionSecs() =>
     RustLib.instance.api.crateApiGetUsbExclusivePositionSecs();
 
+/// 下载在线歌曲真实音源直链到指定路径（流式写入 + QMC2/CENC 解密），返回最终路径。
+///
+/// - `headers_json`：可选 HTTP 头 JSON（对象）
+/// - `ekey`：可选 QMC2 加密 key（base64）
+/// - `cek`：可选 CENC 内容密钥（32 位 hex，如网易 dolby 流），与 `ekey` 互斥
 Future<String> downloadOnlineSong({
   required String url,
   required String destPath,
   String? ekey,
+  String? cek,
   required String headersJson,
 }) => RustLib.instance.api.crateApiDownloadOnlineSong(
   url: url,
   destPath: destPath,
   ekey: ekey,
+  cek: cek,
   headersJson: headersJson,
 );
 

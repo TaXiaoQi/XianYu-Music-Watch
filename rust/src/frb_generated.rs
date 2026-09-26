@@ -1406,6 +1406,7 @@ fn wire__crate__api__download_online_song_impl(
             let api_url = <String>::sse_decode(&mut deserializer);
             let api_dest_path = <String>::sse_decode(&mut deserializer);
             let api_ekey = <Option<String>>::sse_decode(&mut deserializer);
+            let api_cek = <Option<String>>::sse_decode(&mut deserializer);
             let api_headers_json = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
@@ -1415,6 +1416,7 @@ fn wire__crate__api__download_online_song_impl(
                             api_url,
                             api_dest_path,
                             api_ekey,
+                            api_cek,
                             api_headers_json,
                         )
                         .await?;

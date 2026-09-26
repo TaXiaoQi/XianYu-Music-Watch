@@ -7,6 +7,7 @@ import 'package:wearable_rotary/wearable_rotary.dart';
 
 import '../../core/haptics.dart';
 import '../../core/watch_fit.dart';
+import '../../player/online_quality_probe.dart';
 import '../common/full_dialog.dart';
 import '../common/rotary_input.dart';
 import '../common/stepped_list.dart';
@@ -666,6 +667,55 @@ class _PlayerSettingsSheetState extends State<_PlayerSettingsSheet> {
           64.0,
         ),
       ],
+      if (src.onlineQuality != null)
+        (
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => _openQualityPage(context),
+            child: Container(
+              height: 46 * s,
+              padding: EdgeInsets.symmetric(horizontal: 12 * s),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.07),
+                borderRadius: BorderRadius.circular(23 * s),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.high_quality_rounded,
+                    size: 18 * s,
+                    color: Colors.white.withValues(alpha: 0.9),
+                  ),
+                  SizedBox(width: 10 * s),
+                  Expanded(
+                    child: Text(
+                      '播放音质',
+                      style: TextStyle(
+                        fontSize: 13 * s,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    _qualityLabel(src.currentQuality ?? src.onlineQuality),
+                    style: TextStyle(
+                      fontSize: 12 * s,
+                      fontWeight: FontWeight.w600,
+                      color: kPlayerAccent,
+                    ),
+                  ),
+                  SizedBox(width: 4 * s),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    size: 15 * s,
+                    color: Colors.white.withValues(alpha: 0.4),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          54.0,
+        ),
       if (src.supportsSoundEffects)
         (
           GestureDetector(
@@ -720,6 +770,14 @@ class _PlayerSettingsSheetState extends State<_PlayerSettingsSheet> {
     );
   }
 
+  void _openQualityPage(BuildContext context) {
+    Navigator.of(context, rootNavigator: true).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _QualityPage(sourceBuilder: widget.sourceBuilder),
+      ),
+    );
+  }
+
   Widget _sheetLabel(String text, double s) => Text(
     text,
     style: TextStyle(
@@ -755,6 +813,262 @@ class _PlayerSettingsSheetState extends State<_PlayerSettingsSheet> {
       ),
     );
   }
+}
+
+/// 在线音质全档选择页：与移动端音质菜单同构——逐档探测 + 体积显示 +
+/// 探测收尾后假音质剔除（保留当前播放档）。
+class _QualityPage extends StatefulWidget {
+  const _QualityPage({required this.sourceBuilder});
+
+  final PlayerViewSource Function() sourceBuilder;
+
+  @override
+  State<_QualityPage> createState() => _QualityPageState();
+}
+
+class _QualityPageState extends State<_QualityPage> {
+  List<String> _options = const [];
+  Map<String, QualitySizeInfo> _sizes = const {};
+  bool _probing = false;
+  bool _switching = false;
+  Timer? _pollTimer;
+  int _doneExtras = 0;
+  bool _reloadedAfterProbe = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadOptions();
+    _pollTimer = Timer.periodic(
+      const Duration(milliseconds: 600),
+      (_) => _poll(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadOptions() async {
+    final opts = await widget.sourceBuilder().qualityOptions();
+    if (!mounted) return;
+    setState(() => _options = opts);
+  }
+
+  void _poll() {
+    if (!mounted) return;
+    final src = widget.sourceBuilder();
+    final probing = src.qualityMenuProbing;
+    if (probing) {
+      _doneExtras = 0;
+    } else {
+      _doneExtras++;
+      // 探测收尾后补拉三轮体积（补探直链/HEAD 结果晚到），随后停表
+      if (_doneExtras >= 3) _pollTimer?.cancel();
+      if (!_reloadedAfterProbe) {
+        _reloadedAfterProbe = true;
+        // 后台探测可能补出了声明档之外的可用档，收尾后重拉一次档位
+        _loadOptions();
+      }
+    }
+    src.qualitySizes().then((sizes) {
+      if (!mounted) return;
+      setState(() {
+        _probing = probing;
+        _sizes = sizes;
+      });
+    });
+  }
+
+  /// 探测收尾后仍无体积的档位视为假音质（声明了但解析不出直链、
+  /// 元数据也无体积），从列表剔除，对齐移动端/桌面端规则。
+  /// 体积尚未就绪（_sizes 为空）或探测中时不过滤，避免误伤。
+  List<String> get _visibleOptions {
+    final cur = _currentQuality;
+    if (_probing || _sizes.isEmpty) return _options;
+    return _options
+        .where((q) => _sizes.containsKey(q) || q == cur)
+        .toList(growable: false);
+  }
+
+  String? get _currentQuality {
+    final src = widget.sourceBuilder();
+    return src.currentQuality ?? src.onlineQuality;
+  }
+
+  Future<void> _onPick(String q) async {
+    final cur = _currentQuality;
+    if (_switching || q == cur) return;
+    Haptics.tick();
+    setState(() => _switching = true);
+    try {
+      // 同曲续播重播，耗时数秒；轮询持续刷新当前档与体积
+      await widget.sourceBuilder().switchQuality(q);
+    } finally {
+      if (mounted) setState(() => _switching = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.watchScale();
+    final visible = _visibleOptions;
+    final cur = _currentQuality;
+    final rows = <Widget>[
+      for (final q in visible)
+        _QualityRow(
+          s: s,
+          label: _qualityLabel(q),
+          sizeSuffix: _qualitySizeSuffix(q, _sizes),
+          active: q == cur,
+          busy: _switching && q == cur,
+          onTap: () => _onPick(q),
+        ),
+      if (_probing)
+        Padding(
+          padding: EdgeInsets.symmetric(vertical: 6 * s),
+          child: Text(
+            '探测中…',
+            style: TextStyle(
+              fontSize: 11 * s,
+              color: Colors.white.withValues(alpha: 0.45),
+            ),
+          ),
+        ),
+    ];
+    return Scaffold(
+      backgroundColor: const Color(0xFF101014),
+      body: SafeArea(
+        child: SteppedListView(
+          itemCount: rows.length,
+          itemBuilder: (context, i) => rows[i],
+          header: const PageTitleHeader('播放音质'),
+        ),
+      ),
+    );
+  }
+}
+
+class _QualityRow extends StatelessWidget {
+  const _QualityRow({
+    required this.s,
+    required this.label,
+    required this.sizeSuffix,
+    required this.active,
+    required this.busy,
+    required this.onTap,
+  });
+
+  final double s;
+  final String label;
+  final String sizeSuffix;
+  final bool active;
+  final bool busy;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        height: 46 * s,
+        padding: EdgeInsets.symmetric(horizontal: 12 * s),
+        decoration: BoxDecoration(
+          color: active
+              ? kPlayerAccent.withValues(alpha: 0.18)
+              : Colors.white.withValues(alpha: 0.07),
+          borderRadius: BorderRadius.circular(23 * s),
+          border: Border.all(
+            color: active ? kPlayerAccent : Colors.transparent,
+            width: 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                '$label$sizeSuffix',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 13 * s,
+                  fontWeight: FontWeight.w600,
+                  color: active
+                      ? kPlayerAccent
+                      : Colors.white.withValues(alpha: 0.85),
+                ),
+              ),
+            ),
+            if (busy)
+              SizedBox(
+                width: 13 * s,
+                height: 13 * s,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: kPlayerAccent,
+                ),
+              )
+            else if (active)
+              Icon(
+                Icons.check_rounded,
+                size: 16 * s,
+                color: kPlayerAccent,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _qualityLabel(String? q) {
+  if (q == null || q.isEmpty) return 'HQ';
+  switch (q) {
+    case 'mgg':
+      return 'MGG';
+    case '128k':
+      return '128K';
+    case '192k':
+      return '192K';
+    case '320k':
+      return '320K';
+    case 'flac':
+      return 'FLAC';
+    case 'flac24bit':
+      return 'FLAC24';
+    case 'hires':
+      return 'Hi-Res';
+    case 'vinyl':
+      return '黑胶';
+    case 'dolby':
+      return '杜比';
+    case 'atmos':
+      return 'Atmos';
+    case 'atmos_plus':
+      return 'Atmos+';
+    case 'master':
+      return 'Master';
+    default:
+      return q.toUpperCase();
+  }
+}
+
+String _compactSize(int bytes) {
+  final mb = bytes / 1024 / 1024;
+  if (mb >= 1024) return '${(mb / 1024).toStringAsFixed(1)}G';
+  if (mb >= 1) return '${mb.toStringAsFixed(1)}M';
+  final kb = bytes / 1024;
+  if (kb >= 1) return '${kb.round()}K';
+  return '${bytes}B';
+}
+
+String _qualitySizeSuffix(String q, Map<String, QualitySizeInfo> sizes) {
+  final info = sizes[q];
+  if (info == null) return '';
+  return ' · ${_compactSize(info.bytes)}';
 }
 
 class _DislikeStrokePainter extends CustomPainter {

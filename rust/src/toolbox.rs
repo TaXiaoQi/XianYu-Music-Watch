@@ -459,6 +459,7 @@ pub async fn download_online_song(
     url: String,
     dest_path: String,
     ekey: Option<String>,
+    cek: Option<String>,
     headers: Option<std::collections::HashMap<String, String>>,
 ) -> Result<String, String> {
     use std::time::Instant;
@@ -570,6 +571,19 @@ pub async fn download_online_song(
             .await
             .map_err(|e| format!("解密任务执行失败: {e}"))?;
             decrypted.map_err(|e| format!("QMC2 解密失败: {e}"))?;
+        }
+    } else if let Some(ref ck) = cek {
+        if !ck.is_empty() {
+            // CENC 加密流（如网易 dolby 的渐进式 MP4/AES-CTR）：样本级
+            // 就地解密，非 CENC 文件为无操作，与流缓存后处理同一实现。
+            let dest_clone = dest.clone();
+            let ck_clone = ck.clone();
+            let decrypted = tokio::task::spawn_blocking(move || {
+                crate::player::stream_cache::decrypt_cenc_file(&dest_clone, &ck_clone)
+            })
+            .await
+            .map_err(|e| format!("解密任务执行失败: {e}"))?;
+            decrypted.map_err(|e| format!("CENC 解密失败: {e}"))?;
         }
     } else if let Some(extracted_ekey) = try_extract_ekey_from_file(&dest) {
         let dest_clone = dest.clone();
