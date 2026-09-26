@@ -69,3 +69,6 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# 软著申请材料不入库
+软著申请材料/
