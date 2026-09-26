@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/haptics.dart';
 import '../../core/watch_fit.dart';
 import '../../effects/sound_effect_provider.dart';
+import '../../i18n/i18n.dart';
 import '../common/full_dialog.dart';
 import '../common/stepped_list.dart';
 
@@ -28,15 +29,15 @@ class _EffectsHomePage extends ConsumerWidget {
     final sfx = ref.watch(soundEffectProvider).settings;
     final dsp = kDspPipelineSupported;
     return _FxScaffold(
-      title: '音效',
+      title: tr('音效'),
       actions: [
         FullDialogButton(
-          label: '重置全部音效',
+          label: tr('重置全部音效'),
           onPressed: () async {
             final ok = await showFullConfirm(
               context,
-              title: '重置全部音效？',
-              okLabel: '重置',
+              title: tr('重置全部音效？'),
+              okLabel: tr('重置'),
             );
             if (ok == true) {
               Haptics.tick();
@@ -47,12 +48,12 @@ class _EffectsHomePage extends ConsumerWidget {
       ],
       children: [
         if (!dsp) ...[
-          _hint(context, '当前系统不支持 DSP 音效，仅变速变调可用'),
+          _hint(context, tr('当前系统不支持 DSP 音效，仅变速变调可用')),
           SizedBox(height: 10 * s),
         ],
         _FxRow(
           icon: Icons.equalizer_rounded,
-          label: '均衡器',
+          label: tr('均衡器'),
           value: _eqValue(sfx),
           enabled: dsp,
           onTap: () => showFullDialog(
@@ -60,7 +61,7 @@ class _EffectsHomePage extends ConsumerWidget {
         ),
         _FxRow(
           icon: Icons.speed_rounded,
-          label: '变速变调',
+          label: tr('变速变调'),
           value: _speedPitchValue(sfx),
           enabled: true,
           onTap: () => showFullDialog(
@@ -68,7 +69,7 @@ class _EffectsHomePage extends ConsumerWidget {
         ),
         _FxRow(
           icon: Icons.graphic_eq_rounded,
-          label: '混响',
+          label: tr('混响'),
           value: _reverbValue(sfx),
           enabled: dsp,
           onTap: () => showFullDialog(
@@ -76,7 +77,7 @@ class _EffectsHomePage extends ConsumerWidget {
         ),
         _FxRow(
           icon: Icons.surround_sound_rounded,
-          label: '空间音效',
+          label: tr('空间音效'),
           value: _spatialValue(sfx),
           enabled: dsp,
           onTap: () => showFullDialog(
@@ -84,7 +85,7 @@ class _EffectsHomePage extends ConsumerWidget {
         ),
         _FxRow(
           icon: Icons.tune_rounded,
-          label: '高级音效',
+          label: tr('高级音效'),
           value: _advancedValue(sfx),
           enabled: dsp,
           onTap: () => showFullDialog(
@@ -96,36 +97,36 @@ class _EffectsHomePage extends ConsumerWidget {
 
   String _eqValue(SoundEffectSettings s) {
     for (final p in eqPresets) {
-      if (listEquals(p.gains, s.eqGains)) return p.name;
+      if (listEquals(p.gains, s.eqGains)) return tr(p.name);
     }
-    if (s.eqGains.any((g) => g != 0)) return '自定义';
-    return '关闭';
+    if (s.eqGains.any((g) => g != 0)) return tr('自定义');
+    return tr('关闭');
   }
 
   String _speedPitchValue(SoundEffectSettings s) =>
       (s.playbackRate - 100).abs() < 0.5 && (s.pitchShift - 100).abs() < 0.5
-          ? '默认'
+          ? tr('默认')
           : '${s.playbackRate.round()}% · ${s.pitchShift.round()}%';
 
   String _reverbValue(SoundEffectSettings s) {
-    if (s.reverbKind == 'none') return '关闭';
+    if (s.reverbKind == 'none') return tr('关闭');
     for (final p in [...reverbPresets, ...algoReverbPresets]) {
-      if (p.label == s.reverbPreset) return p.label;
+      if (p.label == s.reverbPreset) return tr(p.label);
     }
-    return '开启';
+    return tr('开启');
   }
 
   String _spatialValue(SoundEffectSettings s) => switch (s.spatialMode) {
-        'surround3d' => '3D 环绕',
+        'surround3d' => tr('3D 环绕'),
         'd8' => '8D',
         'd36' => '36D',
-        'virtual' => '虚拟环绕 ${s.virtualSurroundMode}',
-        _ => '关闭',
+        'virtual' => tr('虚拟环绕 {m}', {'m': s.virtualSurroundMode}),
+        _ => tr('关闭'),
       };
 
   String _advancedValue(SoundEffectSettings s) {
     final n = _kAdvancedFx.where((f) => f.enabled(s)).length;
-    return n == 0 ? '关闭' : '$n 项开启';
+    return n == 0 ? tr('关闭') : tr('{n} 项开启', {'n': n});
   }
 }
 
@@ -140,7 +141,7 @@ class _EqPage extends ConsumerWidget {
     final sfx = ref.watch(soundEffectProvider).settings;
     final mgr = ref.read(soundEffectProvider.notifier);
     return _FxScaffold(
-      title: '均衡器',
+      title: tr('均衡器'),
       children: _dspLocked(
         context,
         [
@@ -151,7 +152,7 @@ class _EqPage extends ConsumerWidget {
             children: [
               for (final p in eqPresets)
                 _FxChip(
-                  label: p.name,
+                  label: tr(p.name),
                   active: listEquals(p.gains, sfx.eqGains),
                   onTap: () {
                     Haptics.tick();
@@ -188,10 +189,10 @@ class _SpeedPitchPage extends ConsumerWidget {
     final sfx = ref.watch(soundEffectProvider).settings;
     final mgr = ref.read(soundEffectProvider.notifier);
     return _FxScaffold(
-      title: '变速变调',
+      title: tr('变速变调'),
       children: [
         _FxSlider(
-          label: '变调',
+          label: tr('变调'),
           value: sfx.pitchShift,
           min: 50,
           max: 200,
@@ -200,7 +201,7 @@ class _SpeedPitchPage extends ConsumerWidget {
           onChanged: (v) => mgr.set(sfx.copyWith(pitchShift: v)),
         ),
         _FxSlider(
-          label: '变速',
+          label: tr('变速'),
           value: sfx.playbackRate,
           min: 50,
           max: 200,
@@ -209,7 +210,7 @@ class _SpeedPitchPage extends ConsumerWidget {
           onChanged: (v) => mgr.set(sfx.copyWith(playbackRate: v)),
         ),
         _FxSwitchRow(
-          label: '变速时保持音调',
+          label: tr('变速时保持音调'),
           value: sfx.preservesPitch,
           onChanged: (v) {
             Haptics.tick();
@@ -219,7 +220,9 @@ class _SpeedPitchPage extends ConsumerWidget {
         SizedBox(height: 4 * s),
         _hint(
           context,
-          kDspPipelineSupported ? '效果经 DSP 引擎实时处理' : '经播放器原生变速/变调处理',
+          tr(kDspPipelineSupported
+              ? '效果经 DSP 引擎实时处理'
+              : '经播放器原生变速/变调处理'),
         ),
       ],
     );
@@ -237,7 +240,7 @@ class _ReverbPage extends ConsumerWidget {
     final sfx = ref.watch(soundEffectProvider).settings;
     final mgr = ref.read(soundEffectProvider.notifier);
     return _FxScaffold(
-      title: '混响',
+      title: tr('混响'),
       children: _dspLocked(
         context,
         [
@@ -247,7 +250,7 @@ class _ReverbPage extends ConsumerWidget {
             alignment: WrapAlignment.center,
             children: [
               _FxChip(
-                label: '关闭',
+                label: tr('关闭'),
                 active: sfx.reverbKind == 'none',
                 onTap: () {
                   Haptics.tick();
@@ -261,7 +264,7 @@ class _ReverbPage extends ConsumerWidget {
               ),
               for (final p in reverbPresets)
                 _FxChip(
-                  label: p.label,
+                  label: tr(p.label),
                   active: sfx.reverbKind == 'convolution' &&
                       sfx.reverbPreset == p.label,
                   onTap: () {
@@ -276,7 +279,7 @@ class _ReverbPage extends ConsumerWidget {
                 ),
               for (final p in algoReverbPresets)
                 _FxChip(
-                  label: p.label,
+                  label: tr(p.label),
                   active: sfx.reverbKind == 'algorithmic' &&
                       sfx.reverbPreset == p.label,
                   onTap: () {
@@ -308,7 +311,7 @@ class _SpatialPage extends ConsumerWidget {
     final sfx = ref.watch(soundEffectProvider).settings;
     final mgr = ref.read(soundEffectProvider.notifier);
     return _FxScaffold(
-      title: '空间音效',
+      title: tr('空间音效'),
       children: _dspLocked(
         context,
         [
@@ -317,12 +320,12 @@ class _SpatialPage extends ConsumerWidget {
             runSpacing: 7 * s,
             alignment: WrapAlignment.center,
             children: [
-              for (final (mode, label) in const [
-                ('none', '关闭'),
-                ('surround3d', '3D 环绕'),
+              for (final (mode, label) in [
+                ('none', tr('关闭')),
+                ('surround3d', tr('3D 环绕')),
                 ('d8', '8D'),
                 ('d36', '36D'),
-                ('virtual', '虚拟环绕'),
+                ('virtual', tr('虚拟环绕')),
               ])
                 _FxChip(
                   label: label,
@@ -337,7 +340,7 @@ class _SpatialPage extends ConsumerWidget {
           if (sfx.spatialMode == 'virtual') ...[
             SizedBox(height: 12 * s),
             _FxChip(
-              label: '5.1 声道',
+              label: tr('5.1 声道'),
               active: sfx.virtualSurroundMode == '5.1',
               onTap: () {
                 Haptics.tick();
@@ -346,7 +349,7 @@ class _SpatialPage extends ConsumerWidget {
             ),
             SizedBox(height: 7 * s),
             _FxChip(
-              label: '7.1 声道',
+              label: tr('7.1 声道'),
               active: sfx.virtualSurroundMode == '7.1',
               onTap: () {
                 Haptics.tick();
@@ -733,7 +736,7 @@ class _AdvancedPage extends ConsumerWidget {
     final sfx = ref.watch(soundEffectProvider).settings;
     final mgr = ref.read(soundEffectProvider.notifier);
     return _FxScaffold(
-      title: '高级音效',
+      title: tr('高级音效'),
       children: _dspLocked(
         context,
         [
@@ -800,7 +803,7 @@ class _AdvRow extends StatelessWidget {
                   children: [
                     Flexible(
                       child: Text(
-                        spec.label,
+                        tr(spec.label),
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 12.5 * s,
@@ -848,12 +851,12 @@ class _FxConfigPage extends ConsumerWidget {
     final sfx = ref.watch(soundEffectProvider).settings;
     final mgr = ref.read(soundEffectProvider.notifier);
     return _FxScaffold(
-      title: spec.label,
+      title: tr(spec.label),
       children: _dspLocked(
         context,
         [
           _FxSwitchRow(
-            label: '启用',
+            label: tr('启用'),
             value: spec.enabled(sfx),
             onChanged: (v) {
               Haptics.tick();
@@ -862,7 +865,7 @@ class _FxConfigPage extends ConsumerWidget {
           ),
           for (final flag in spec.flags)
             _FxSwitchRow(
-              label: flag.label,
+              label: tr(flag.label),
               value: flag.get(sfx),
               onChanged: (v) {
                 Haptics.tick();
@@ -871,7 +874,7 @@ class _FxConfigPage extends ConsumerWidget {
             ),
           for (final choice in spec.choices) ...[
             Text(
-              choice.label,
+              tr(choice.label),
               style: TextStyle(
                 fontSize: 10.5 * s,
                 fontWeight: FontWeight.w600,
@@ -886,7 +889,7 @@ class _FxConfigPage extends ConsumerWidget {
               children: [
                 for (final (value, label) in choice.options)
                   _FxChip(
-                    label: label,
+                    label: tr(label),
                     active: choice.get(sfx) == value,
                     onTap: () {
                       Haptics.tick();
@@ -899,7 +902,7 @@ class _FxConfigPage extends ConsumerWidget {
           ],
           for (final param in spec.params)
             _FxSlider(
-              label: param.label,
+              label: tr(param.label),
               value: param.get(sfx),
               min: param.min,
               max: param.max,
@@ -919,7 +922,7 @@ List<Widget> _dspLocked(BuildContext context, List<Widget> children) {
   if (kDspPipelineSupported) return children;
   final s = context.watchScale();
   return [
-    _hint(context, '当前系统不支持 DSP 音效'),
+    _hint(context, tr('当前系统不支持 DSP 音效')),
     SizedBox(height: 10 * s),
     IgnorePointer(
       child: Opacity(opacity: 0.35, child: Column(children: children)),

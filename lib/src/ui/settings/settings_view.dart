@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/app_version.dart';
 import '../../core/settings.dart';
+import '../../i18n/i18n.dart';
 import '../common/full_dialog.dart';
 import '../../core/watch_fit.dart';
 import '../../auth/auth_provider.dart';
@@ -32,8 +33,8 @@ class SettingsView extends ConsumerWidget {
         s: s,
         color: const Color(0xFFFF4D6E),
         icon: Icons.play_circle_rounded,
-        title: '播放',
-        subtitle: '常亮 / 模式 / 音质 / 缓存',
+        title: tr('播放'),
+        subtitle: tr('常亮 / 模式 / 音质 / 缓存'),
         onTap: () => Navigator.of(context).push(
           MaterialPageRoute<void>(builder: (_) => const _PlaybackPage()),
         ),
@@ -42,8 +43,8 @@ class SettingsView extends ConsumerWidget {
         s: s,
         color: const Color(0xFF4DA3B8),
         icon: Icons.lyrics_rounded,
-        title: '歌词',
-        subtitle: '翻译 / 字号 / 偏移',
+        title: tr('歌词'),
+        subtitle: tr('翻译 / 字号 / 偏移'),
         onTap: () => Navigator.of(context).push(
           MaterialPageRoute<void>(builder: (_) => const _LyricsPage()),
         ),
@@ -52,8 +53,8 @@ class SettingsView extends ConsumerWidget {
         s: s,
         color: const Color(0xFFE8A33D),
         icon: Icons.library_music_rounded,
-        title: '本地库',
-        subtitle: '扫描 / 格式 / 时长',
+        title: tr('本地库'),
+        subtitle: tr('扫描 / 格式 / 时长'),
         onTap: () => Navigator.of(context).push(
           MaterialPageRoute<void>(builder: (_) => const _LibraryPage()),
         ),
@@ -62,7 +63,7 @@ class SettingsView extends ConsumerWidget {
         s: s,
         color: const Color(0xFF9B6BD9),
         icon: Icons.extension_rounded,
-        title: '插件',
+        title: tr('插件'),
         subtitle: _pluginSubtitle(ref),
         onTap: () => Navigator.of(context).push(
           MaterialPageRoute<void>(builder: (_) => const PluginManagePage()),
@@ -72,8 +73,8 @@ class SettingsView extends ConsumerWidget {
         s: s,
         color: const Color(0xFFE8963D),
         icon: Icons.settings_backup_restore_rounded,
-        title: '备份',
-        subtitle: '推送给手机 / 保存到本地',
+        title: tr('备份'),
+        subtitle: tr('推送给手机 / 保存到本地'),
         onTap: () => Navigator.of(context).push(
           MaterialPageRoute<void>(builder: (_) => const _BackupPage()),
         ),
@@ -82,59 +83,119 @@ class SettingsView extends ConsumerWidget {
         s: s,
         color: const Color(0xFF4CA6A6),
         icon: Icons.article_outlined,
-        title: '日志',
-        subtitle: '推送给手机 / 保存到本地',
+        title: tr('日志'),
+        subtitle: tr('推送给手机 / 保存到本地'),
         onTap: () => Navigator.of(context).push(
           MaterialPageRoute<void>(builder: (_) => const _LogsPage()),
         ),
       ),
       _categoryRow(
         s: s,
+        color: const Color(0xFF6B7DE8),
+        icon: Icons.translate_rounded,
+        title: tr('语言'),
+        subtitle: _languageLabel(ref),
+        onTap: () => _pickLanguage(context, ref),
+      ),
+      _categoryRow(
+        s: s,
         color: const Color(0xFF5FA97C),
         icon: Icons.info_rounded,
-        title: '关于',
-        subtitle: 'v$kAppVersion · 弦予音乐 腕上版',
+        title: tr('关于'),
+        subtitle: 'v$kAppVersion · ${tr('弦予音乐 腕上版')}',
         onTap: () => Navigator.of(context).push(
           MaterialPageRoute<void>(builder: (_) => const _AboutPage()),
         ),
       ),
     ];
 
-    return _SteppedPage(title: '设置', rows: rows);
+    return _SteppedPage(title: tr('设置'), rows: rows);
   }
 
   String _pluginSubtitle(WidgetRef ref) {
     final plugins = ref.watch(pluginManagerProvider).sources;
-    if (plugins.isEmpty) return '未安装';
+    if (plugins.isEmpty) return tr('未安装');
     final enabled = plugins.where((p) => p.enabled).length;
-    return '$enabled/${plugins.length} 个已启用';
+    return tr('{enabled}/{total} 个已启用', {
+      'enabled': enabled,
+      'total': plugins.length,
+    });
+  }
+
+  String _languageLabel(WidgetRef ref) {
+    final v = ref.watch(
+      settingsProvider.select((s) => s.valueOrNull?.language ?? 'system'),
+    );
+    return switch (v) {
+      'zhCN' => tr('简体中文'),
+      'zhTW' => tr('繁體中文'),
+      'en' => 'English',
+      _ => tr('跟随系统'),
+    };
+  }
+}
+
+Future<void> _pickLanguage(BuildContext context, WidgetRef ref) async {
+  final container = ProviderScope.containerOf(context, listen: false);
+  final current =
+      container.read(settingsProvider).valueOrNull?.language ?? 'system';
+  const options = ['system', 'zhCN', 'zhTW', 'en'];
+  final v = await showFullPicker<String>(
+    context,
+    title: tr('语言'),
+    current: current,
+    options: [
+      for (final o in options)
+        (
+          o,
+          switch (o) {
+            'zhCN' => tr('简体中文'),
+            'zhTW' => tr('繁體中文'),
+            'en' => 'English',
+            _ => tr('跟随系统'),
+          }
+        ),
+    ],
+  );
+  if (v != null) {
+    await container.read(settingsProvider.notifier).setLanguage(v);
   }
 }
 
 class _PlaybackPage extends ConsumerWidget {
   const _PlaybackPage();
 
-  static const _playModeLabels = ['顺序循环', '单曲循环', '随机播放'];
+  static List<String> _playModeLabels() =>
+      [tr('顺序循环'), tr('单曲循环'), tr('随机播放')];
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final s = context.watchScale();
     final settings =
         ref.watch(settingsProvider).valueOrNull ?? const AppSettings();
-    return _SteppedPage(title: '播放', rows: [
+    return _SteppedPage(title: tr('播放'), rows: [
       _switchRow(
         s: s,
-        title: '保持屏幕常亮',
-        subtitle: '播放时屏幕不自动熄灭',
+        title: tr('保持屏幕常亮'),
+        subtitle: tr('播放时屏幕不自动熄灭'),
         value: settings.keepScreenOn,
         onChanged: (v) =>
             ref.read(settingsProvider.notifier).setKeepScreenOn(v),
       ),
+      _switchRow(
+        s: s,
+        title: tr('被打断后自动恢复'),
+        subtitle: tr('来电、导航语音等临时打断结束后自动继续'),
+        value: settings.autoResumeAfterInterruption,
+        onChanged: (v) => ref
+            .read(settingsProvider.notifier)
+            .setAutoResumeAfterInterruption(v),
+      ),
       _actionRow(
         s: s,
         icon: Icon(Icons.volume_up_rounded, size: 24 * s),
-        title: '默认音量',
-        subtitle: '新会话起始音量，表冠可随时微调',
+        title: tr('默认音量'),
+        subtitle: tr('新会话起始音量，表冠可随时微调'),
         trailing: Text(
           '${(settings.volume.clamp(0.0, 1.0) * 100).round()}%',
           style: TextStyle(
@@ -145,9 +206,9 @@ class _PlaybackPage extends ConsumerWidget {
       _actionRow(
         s: s,
         icon: Icon(Icons.repeat_rounded, size: 24 * s),
-        title: '播放模式',
+        title: tr('播放模式'),
         trailing: Text(
-          _playModeLabels[settings.playMode.clamp(0, 2)],
+          _playModeLabels()[settings.playMode.clamp(0, 2)],
           style: TextStyle(
               fontSize: 12 * s, color: Colors.white.withValues(alpha: 0.7)),
         ),
@@ -156,10 +217,10 @@ class _PlaybackPage extends ConsumerWidget {
       _actionRow(
         s: s,
         icon: Icon(Icons.high_quality_rounded, size: 24 * s),
-        title: '音质偏好',
-        subtitle: '在线播放音质',
+        title: tr('音质偏好'),
+        subtitle: tr('在线播放音质'),
         trailing: Text(
-          settings.onlineQuality == 'flac' ? '无损' : '320k',
+          settings.onlineQuality == 'flac' ? tr('无损') : '320k',
           style: TextStyle(
               fontSize: 12 * s, color: Colors.white.withValues(alpha: 0.7)),
         ),
@@ -168,8 +229,8 @@ class _PlaybackPage extends ConsumerWidget {
       _actionRow(
         s: s,
         icon: Icon(Icons.speed_rounded, size: 24 * s),
-        title: '播放倍速',
-        subtitle: '独立播放生效，联动由手机端自控',
+        title: tr('播放倍速'),
+        subtitle: tr('独立播放生效，联动由手机端自控'),
         trailing: Text(
           '${_speedLabel(settings.playbackSpeed)}x',
           style: TextStyle(
@@ -180,10 +241,12 @@ class _PlaybackPage extends ConsumerWidget {
       _actionRow(
         s: s,
         icon: Icon(Icons.swap_horiz_rounded, size: 24 * s),
-        title: '起播失败',
-        subtitle: '在线歌曲起播失败时的处理',
+        title: tr('起播失败'),
+        subtitle: tr('在线歌曲起播失败时的处理'),
         trailing: Text(
-          settings.onlineFailureBehavior == 'autoswitch' ? '自动换源' : '停止',
+          settings.onlineFailureBehavior == 'autoswitch'
+              ? tr('自动换源')
+              : tr('停止'),
           style: TextStyle(
               fontSize: 12 * s, color: Colors.white.withValues(alpha: 0.7)),
         ),
@@ -192,11 +255,11 @@ class _PlaybackPage extends ConsumerWidget {
       _actionRow(
         s: s,
         icon: Icon(Icons.save_alt_rounded, size: 24 * s),
-        title: '流缓存',
-        subtitle: '在线播放边下边存，重播秒开',
+        title: tr('流缓存'),
+        subtitle: tr('在线播放边下边存，重播秒开'),
         trailing: Text(
           settings.streamCacheSizeMB <= 0
-              ? '关闭'
+              ? tr('关闭')
               : '${settings.streamCacheSizeMB} MB',
           style: TextStyle(
               fontSize: 12 * s, color: Colors.white.withValues(alpha: 0.7)),
@@ -206,8 +269,8 @@ class _PlaybackPage extends ConsumerWidget {
       _actionRow(
         s: s,
         icon: Icon(Icons.cleaning_services_rounded, size: 24 * s),
-        title: '清除流缓存',
-        subtitle: '删除已缓存的在线音频',
+        title: tr('清除流缓存'),
+        subtitle: tr('删除已缓存的在线音频'),
         onTap: () => _clearStreamCache(context),
       ),
     ]);
@@ -222,7 +285,7 @@ Future<void> _pickVolume(BuildContext context, AppSettings s) async {
   var value = s.volume.clamp(0.0, 1.0);
   final ok = await showFullSlider(
     context,
-    title: '默认音量',
+    title: tr('默认音量'),
     initial: value,
     min: 0,
     max: 1,
@@ -236,10 +299,10 @@ Future<void> _pickVolume(BuildContext context, AppSettings s) async {
 
 Future<void> _pickPlayMode(BuildContext context, AppSettings s) async {
   final container = ProviderScope.containerOf(context, listen: false);
-  const labels = ['顺序循环', '单曲循环', '随机播放'];
+  final labels = _PlaybackPage._playModeLabels();
   final v = await showFullPicker<int>(
     context,
-    title: '播放模式',
+    title: tr('播放模式'),
     current: s.playMode,
     options: [for (var i = 0; i < labels.length; i++) (i, labels[i])],
   );
@@ -255,7 +318,7 @@ Future<void> _pickSpeed(BuildContext context, AppSettings s) async {
       v == v.truncateToDouble() ? v.toStringAsFixed(1) : v.toString();
   final v = await showFullPicker<double>(
     context,
-    title: '播放倍速',
+    title: tr('播放倍速'),
     current: s.playbackSpeed,
     options: [for (final step in steps) (step, '${label(step)}x')],
   );
@@ -267,18 +330,18 @@ Future<void> _pickSpeed(BuildContext context, AppSettings s) async {
 class _LyricsPage extends ConsumerWidget {
   const _LyricsPage();
 
-  static const _fontSizeLabels = ['小', '标准', '大', '特大'];
+  static List<String> _fontSizeLabels() => [tr('小'), tr('标准'), tr('大'), tr('特大')];
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final s = context.watchScale();
     final settings =
         ref.watch(settingsProvider).valueOrNull ?? const AppSettings();
-    return _SteppedPage(title: '歌词', rows: [
+    return _SteppedPage(title: tr('歌词'), rows: [
       _switchRow(
         s: s,
-        title: '显示翻译',
-        subtitle: '外语歌词下方显示译文行',
+        title: tr('显示翻译'),
+        subtitle: tr('外语歌词下方显示译文行'),
         value: settings.showLyricsTranslation,
         onChanged: (v) =>
             ref.read(settingsProvider.notifier).setShowLyricsTranslation(v),
@@ -286,9 +349,9 @@ class _LyricsPage extends ConsumerWidget {
       _actionRow(
         s: s,
         icon: Icon(Icons.format_size_rounded, size: 24 * s),
-        title: '歌词字号',
+        title: tr('歌词字号'),
         trailing: Text(
-          _fontSizeLabels[settings.lyricFontSize.clamp(0, 3)],
+          _fontSizeLabels()[settings.lyricFontSize.clamp(0, 3)],
           style: TextStyle(
               fontSize: 12 * s, color: Colors.white.withValues(alpha: 0.7)),
         ),
@@ -297,8 +360,8 @@ class _LyricsPage extends ConsumerWidget {
       _actionRow(
         s: s,
         icon: Icon(Icons.schedule_rounded, size: 24 * s),
-        title: '同步偏移',
-        subtitle: '蓝牙耳机延迟时可整体校准',
+        title: tr('同步偏移'),
+        subtitle: tr('蓝牙耳机延迟时可整体校准'),
         trailing: Text(
           _offsetLabel(settings.lyricOffsetMs),
           style: TextStyle(
@@ -315,10 +378,10 @@ class _LyricsPage extends ConsumerWidget {
 
 Future<void> _pickLyricFontSize(BuildContext context, AppSettings s) async {
   final container = ProviderScope.containerOf(context, listen: false);
-  const labels = ['小', '标准', '大', '特大'];
+  final labels = _LyricsPage._fontSizeLabels();
   final v = await showFullPicker<int>(
     context,
-    title: '歌词字号',
+    title: tr('歌词字号'),
     current: s.lyricFontSize,
     options: [for (var i = 0; i < labels.length; i++) (i, labels[i])],
   );
@@ -332,7 +395,7 @@ Future<void> _pickLyricOffset(BuildContext context, AppSettings s) async {
   var value = s.lyricOffsetMs.toDouble();
   final ok = await showFullSlider(
     context,
-    title: '同步偏移',
+    title: tr('同步偏移'),
     initial: value,
     min: -100,
     max: 100,
@@ -342,7 +405,7 @@ Future<void> _pickLyricOffset(BuildContext context, AppSettings s) async {
         : v.round() < 0
             ? '${v.round()} ms'
             : '0 ms',
-    hint: '正=歌词更晚，负=歌词更早',
+    hint: tr('正=歌词更晚，负=歌词更早'),
   );
   if (ok != null) {
     await container
@@ -353,10 +416,10 @@ Future<void> _pickLyricOffset(BuildContext context, AppSettings s) async {
 
 Future<void> _pickFailureBehavior(BuildContext context, AppSettings s) async {
   final container = ProviderScope.containerOf(context, listen: false);
-  const options = [('autoswitch', '自动换源'), ('stop', '停止播放')];
+  final options = [('autoswitch', tr('自动换源')), ('stop', tr('停止播放'))];
   final v = await showFullPicker<String>(
     context,
-    title: '起播失败',
+    title: tr('起播失败'),
     current: s.onlineFailureBehavior,
     options: options,
   );
@@ -369,10 +432,15 @@ Future<void> _pickFailureBehavior(BuildContext context, AppSettings s) async {
 
 Future<void> _pickStreamCache(BuildContext context, AppSettings s) async {
   final container = ProviderScope.containerOf(context, listen: false);
-  const options = [(0, '关闭'), (100, '100 MB'), (200, '200 MB'), (500, '500 MB')];
+  final options = [
+    (0, tr('关闭')),
+    (100, '100 MB'),
+    (200, '200 MB'),
+    (500, '500 MB')
+  ];
   final v = await showFullPicker<int>(
     context,
-    title: '流缓存',
+    title: tr('流缓存'),
     current: s.streamCacheSizeMB,
     options: options,
   );
@@ -387,7 +455,9 @@ Future<void> _clearStreamCache(BuildContext context) async {
   if (!context.mounted) return;
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
-      content: Text(sizeMB > 0 ? '已清除 ${sizeMB}MB 缓存' : '缓存为空'),
+      content: Text(sizeMB > 0
+          ? tr('已清除 {n}MB 缓存', {'n': sizeMB})
+          : tr('缓存为空')),
       duration: const Duration(seconds: 1),
     ),
   );
@@ -410,13 +480,17 @@ class _LibraryPageState extends ConsumerState<_LibraryPage> {
       await ref.read(libraryProvider.notifier).scanAllFolders();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('扫描完成'), duration: Duration(seconds: 1)),
+          SnackBar(
+              content: Text(tr('扫描完成')),
+              duration: const Duration(seconds: 1)),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('扫描失败：$e'), duration: const Duration(seconds: 2)),
+          SnackBar(
+              content: Text(tr('扫描失败：{e}', {'e': e})),
+              duration: const Duration(seconds: 2)),
         );
       }
     } finally {
@@ -429,7 +503,7 @@ class _LibraryPageState extends ConsumerState<_LibraryPage> {
     final s = context.watchScale();
     final settings =
         ref.watch(settingsProvider).valueOrNull ?? const AppSettings();
-    return _SteppedPage(title: '本地库', rows: [
+    return _SteppedPage(title: tr('本地库'), rows: [
       _actionRow(
         s: s,
         icon: _scanning
@@ -438,26 +512,26 @@ class _LibraryPageState extends ConsumerState<_LibraryPage> {
                 height: 18 * s,
                 child: CircularProgressIndicator(strokeWidth: 2 * s))
             : Icon(Icons.refresh_rounded, size: 24 * s),
-        title: '立即扫描',
+        title: tr('立即扫描'),
         onTap: _scanning ? null : _scanNow,
       ),
       _actionRow(
         s: s,
         icon: Icon(Icons.audio_file_rounded, size: 24 * s),
-        title: '扫描格式',
+        title: tr('扫描格式'),
         subtitle: settings.scanFormats.isEmpty
-            ? '未选择'
+            ? tr('未选择')
             : settings.scanFormats.join(' / '),
         onTap: () => _pickScanFormats(context, settings),
       ),
       _actionRow(
         s: s,
         icon: Icon(Icons.timer_outlined, size: 24 * s),
-        title: '最短时长',
-        subtitle: '过滤铃声等短音频',
+        title: tr('最短时长'),
+        subtitle: tr('过滤铃声等短音频'),
         trailing: Text(
           settings.libraryMinDurationSeconds <= 0
-              ? '不过滤'
+              ? tr('不过滤')
               : '${settings.libraryMinDurationSeconds}s',
           style: TextStyle(
               fontSize: 12 * s, color: Colors.white.withValues(alpha: 0.7)),
@@ -496,9 +570,9 @@ class _BackupPageState extends ConsumerState<_BackupPage> {
     try {
       final json = await _export();
       await writeWatchBackupFileLocal(json);
-      _toast('已保存到本地');
+      _toast(tr('已保存到本地'));
     } catch (e) {
-      _toast('保存失败：$e');
+      _toast(tr('保存失败：{e}', {'e': e}));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -508,7 +582,7 @@ class _BackupPageState extends ConsumerState<_BackupPage> {
     if (_busy) return;
     final link = ref.read(linkControllerProvider);
     if (link.phase != LinkPhase.connected) {
-      _toast('未连接手机，请先在「联动」连接');
+      _toast(tr('未连接手机，请先在「联动」连接'));
       return;
     }
     setState(() => _busy = true);
@@ -519,16 +593,16 @@ class _BackupPageState extends ConsumerState<_BackupPage> {
           .pushBackup(name: watchBackupFileName(), content: json);
       switch (result) {
         case LinkController.backupPushSaved:
-          _toast('已完成：手机已保存备份');
+          _toast(tr('已完成：手机已保存备份'));
         case LinkController.backupPushCancelled:
-          _toast('已取消：手机端未保存');
+          _toast(tr('已取消：手机端未保存'));
         case LinkController.backupPushTimeout:
-          _toast('推送超时，请确认手机已处理');
+          _toast(tr('推送超时，请确认手机已处理'));
         default:
-          _toast('推送失败：未收到回应');
+          _toast(tr('推送失败：未收到回应'));
       }
     } catch (e) {
-      _toast('推送失败：$e');
+      _toast(tr('推送失败：{e}', {'e': e}));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -540,23 +614,26 @@ class _BackupPageState extends ConsumerState<_BackupPage> {
     try {
       final json = await readLatestLocalBackupFile();
       if (json == null) {
-        _toast('未找到本地备份，请先「保存到本地」');
+        _toast(tr('未找到本地备份，请先「保存到本地」'));
         return;
       }
       final result = await ref.read(watchBackupProvider).importJson(json);
+      final favCount = ((result['favorites'] as num?) ?? 0).toInt();
+      final plCount = ((result['playlists'] as num?) ?? 0).toInt();
+      final pluginCount = ((result['plugins'] as num?) ?? 0).toInt();
       final parts = <String>[
-        if (((result['favorites'] as num?) ?? 0) > 0) '收藏 ${result['favorites']} 条',
-        if (((result['playlists'] as num?) ?? 0) > 0) '歌单 ${result['playlists']} 个',
-        if (((result['plugins'] as num?) ?? 0) > 0) '插件 ${result['plugins']} 个',
-        if (((result['settings'] as num?) ?? 0) > 0) '设置',
+        if (favCount > 0) tr('收藏 {n} 条', {'n': favCount}),
+        if (plCount > 0) tr('歌单 {n} 个', {'n': plCount}),
+        if (pluginCount > 0) tr('插件 {n} 个', {'n': pluginCount}),
+        if (((result['settings'] as num?) ?? 0) > 0) tr('设置'),
       ];
       if (parts.isEmpty) {
-        _toast('恢复完成：无新数据需要导入');
+        _toast(tr('恢复完成：无新数据需要导入'));
       } else {
-        _toast('已恢复 ${parts.join('、')}');
+        _toast(tr('已恢复 {items}', {'items': parts.join('、')}));
       }
     } catch (e) {
-      _toast('恢复失败：$e');
+      _toast(tr('恢复失败：{e}', {'e': e}));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -571,10 +648,12 @@ class _BackupPageState extends ConsumerState<_BackupPage> {
       _rowPill(
         s,
         leading: _iconBubble(s, const Color(0xFF4A90D9), Icons.watch_rounded),
-        title: '推送给手机',
+        title: tr('推送给手机'),
         subtitle: link.phase == LinkPhase.connected
-            ? '已连接 ${link.phoneName.isEmpty ? '手机' : link.phoneName}，发送后将等待回执'
-            : '未连接手机，请在「联动」连接后再试',
+            ? tr('已连接 {name}，发送后将等待回执', {
+                'name': link.phoneName.isEmpty ? tr('手机') : link.phoneName
+              })
+            : tr('未连接手机，请在「联动」连接后再试'),
         trailing: _busy
             ? SizedBox(
                 width: 18 * s,
@@ -589,8 +668,8 @@ class _BackupPageState extends ConsumerState<_BackupPage> {
       _rowPill(
         s,
         leading: _iconBubble(s, const Color(0xFF5FA97C), Icons.save_alt_rounded),
-        title: '保存到本地',
-        subtitle: '生成备份文件保存到腕上端文档目录',
+        title: tr('保存到本地'),
+        subtitle: tr('生成备份文件保存到腕上端文档目录'),
         trailing: Icon(Icons.chevron_right_rounded,
             size: 22 * s, color: Colors.white.withValues(alpha: 0.38)),
         onTap: _busy ? null : _saveLocal,
@@ -598,8 +677,8 @@ class _BackupPageState extends ConsumerState<_BackupPage> {
       _rowPill(
         s,
         leading: _iconBubble(s, const Color(0xFFB07EE8), Icons.settings_backup_restore_rounded),
-        title: '从本地恢复',
-        subtitle: '读取最新本地备份，恢复收藏、歌单、插件的本机设置',
+        title: tr('从本地恢复'),
+        subtitle: tr('读取最新本地备份，恢复收藏、歌单、插件的本机设置'),
         trailing: _busy
             ? SizedBox(
                 width: 18 * s,
@@ -616,7 +695,7 @@ class _BackupPageState extends ConsumerState<_BackupPage> {
       backgroundColor: Colors.black,
       body: SafeArea(
         child: SteppedListView(
-          header: const PageTitleHeader('备份', showBack: true),
+          header: PageTitleHeader(tr('备份'), showBack: true),
           itemCount: rows.length,
           rowExtent: (_) => 62 * s,
           itemBuilder: (context, i) => rows[i],
@@ -655,15 +734,15 @@ class _LogsPageState extends ConsumerState<_LogsPage> {
   Future<void> _saveLocal() async {
     if (_busy) return;
     if (AppLog.isEmpty) {
-      _toast('暂无日志');
+      _toast(tr('暂无日志'));
       return;
     }
     setState(() => _busy = true);
     try {
       await writeWatchLogFileLocal(AppLog.exportText());
-      _toast('已保存到本地');
+      _toast(tr('已保存到本地'));
     } catch (e) {
-      _toast('保存失败：$e');
+      _toast(tr('保存失败：{e}', {'e': e}));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -673,11 +752,11 @@ class _LogsPageState extends ConsumerState<_LogsPage> {
     if (_busy) return;
     final link = ref.read(linkControllerProvider);
     if (link.phase != LinkPhase.connected) {
-      _toast('未连接手机，请先在「联动」连接');
+      _toast(tr('未连接手机，请先在「联动」连接'));
       return;
     }
     if (AppLog.isEmpty) {
-      _toast('暂无日志');
+      _toast(tr('暂无日志'));
       return;
     }
     setState(() => _busy = true);
@@ -687,16 +766,16 @@ class _LogsPageState extends ConsumerState<_LogsPage> {
           .pushLogFile(name: watchLogFileName(), content: AppLog.exportText());
       switch (result) {
         case LinkController.backupPushSaved:
-          _toast('已完成：手机已收到日志');
+          _toast(tr('已完成：手机已收到日志'));
         case LinkController.backupPushCancelled:
-          _toast('已取消：手机端未处理');
+          _toast(tr('已取消：手机端未处理'));
         case LinkController.backupPushTimeout:
-          _toast('推送超时，请确认手机已处理');
+          _toast(tr('推送超时，请确认手机已处理'));
         default:
-          _toast('推送失败：未收到回应');
+          _toast(tr('推送失败：未收到回应'));
       }
     } catch (e) {
-      _toast('推送失败：$e');
+      _toast(tr('推送失败：{e}', {'e': e}));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -711,10 +790,12 @@ class _LogsPageState extends ConsumerState<_LogsPage> {
       _rowPill(
         s,
         leading: _iconBubble(s, const Color(0xFF4A90D9), Icons.watch_rounded),
-        title: '推送给手机',
+        title: tr('推送给手机'),
         subtitle: link.phase == LinkPhase.connected
-            ? '已连接 ${link.phoneName.isEmpty ? '手机' : link.phoneName}，发送后将等待回执'
-            : '未连接手机，请在「联动」连接后再试',
+            ? tr('已连接 {name}，发送后将等待回执', {
+                'name': link.phoneName.isEmpty ? tr('手机') : link.phoneName
+              })
+            : tr('未连接手机，请在「联动」连接后再试'),
         trailing: _busy
             ? SizedBox(
                 width: 18 * s,
@@ -729,8 +810,8 @@ class _LogsPageState extends ConsumerState<_LogsPage> {
       _rowPill(
         s,
         leading: _iconBubble(s, const Color(0xFF5FA97C), Icons.save_alt_rounded),
-        title: '保存到本地',
-        subtitle: '生成日志文件保存到腕上端文档目录',
+        title: tr('保存到本地'),
+        subtitle: tr('生成日志文件保存到腕上端文档目录'),
         trailing: Icon(Icons.chevron_right_rounded,
             size: 22 * s, color: Colors.white.withValues(alpha: 0.38)),
         onTap: _busy ? null : _saveLocal,
@@ -741,7 +822,7 @@ class _LogsPageState extends ConsumerState<_LogsPage> {
       backgroundColor: Colors.black,
       body: SafeArea(
         child: SteppedListView(
-          header: const PageTitleHeader('日志', showBack: true),
+          header: PageTitleHeader(tr('日志'), showBack: true),
           itemCount: rows.length,
           rowExtent: (_) => 62 * s,
           itemBuilder: (context, i) => rows[i],
@@ -784,7 +865,7 @@ class _AboutPageState extends ConsumerState<_AboutPage> {
       final latest = await fetchWatchLatest(ref);
       if (!mounted) return;
       if (latest == null || !hasNewVersion(latest)) {
-        _toast('当前已是最新版本（v$kAppVersion）');
+        _toast(tr('当前已是最新版本（v{version}）', {'version': kAppVersion}));
         return;
       }
       await showUpdatePage(context, latest,
@@ -805,8 +886,10 @@ class _AboutPageState extends ConsumerState<_AboutPage> {
         s,
         leading: Icon(Icons.system_update_alt_rounded,
             size: 24 * s, color: const Color(0xFFFF4D6E)),
-        title: '版本更新',
-        subtitle: _checking ? '正在检查…' : 'v$kAppVersion · 检查更新',
+        title: tr('版本更新'),
+        subtitle: _checking
+            ? tr('正在检查…')
+            : 'v$kAppVersion · ${tr('检查更新')}',
         trailing: _checking
             ? SizedBox(
                 width: 18 * s,
@@ -821,42 +904,44 @@ class _AboutPageState extends ConsumerState<_AboutPage> {
         _aboutLink(
           s,
           icon: Icons.language_rounded,
-          label: '前往官网',
+          label: tr('前往官网'),
           sub: cfg.officialSiteUrl,
-          onTap: () => _aboutOpenExternal(context, '前往官网'),
+          onTap: () => _aboutOpenExternal(context, tr('前往官网')),
         ),
       if (cfg.joinGroupUrl.isNotEmpty)
         _aboutLink(
           s,
           icon: Icons.group_rounded,
-          label: '加入群组',
-          sub: '与开发者和玩友交流',
-          onTap: () => _aboutOpenExternal(context, '加入群组'),
+          label: tr('加入群组'),
+          sub: tr('与开发者和玩友交流'),
+          onTap: () => _aboutOpenExternal(context, tr('加入群组')),
         ),
       _aboutLink(
         s,
         icon: Icons.code_rounded,
-        label: '项目地址',
+        label: tr('项目地址'),
         sub: kWatchProjectUrl.replaceFirst('https://', ''),
-        onTap: () => _aboutOpenExternal(context, '项目仓库'),
+        onTap: () => _aboutOpenExternal(context, tr('项目仓库')),
       ),
       _aboutLink(
         s,
         icon: Icons.favorite_rounded,
-        label: '致谢名单',
-        sub: cfg.acknowledgements.isEmpty ? '暂无致谢名单' : '感谢以下项目的贡献者',
+        label: tr('致谢名单'),
+        sub: cfg.acknowledgements.isEmpty
+            ? tr('暂无致谢名单')
+            : tr('感谢以下项目的贡献者'),
         onTap: () => _aboutShowAcknowledgements(context, cfg.acknowledgements),
       ),
       _rowPill(
         s,
         leading: Icon(Icons.verified_rounded,
             size: 24 * s, color: const Color(0xFF4A90D9)),
-        title: '开发者',
+        title: tr('开发者'),
         subtitle: 'xiaoqi',
       ),
       Center(
         child: Text(
-          '© 2026 弦予音乐 · 源码可见协议 XSAL-1.0',
+          tr('© 2026 弦予音乐 · 源码可见协议 XSAL-1.0'),
           textAlign: TextAlign.center,
           style: TextStyle(
               fontSize: 9.5 * s, color: Colors.white.withValues(alpha: 0.32)),
@@ -893,7 +978,7 @@ class _AboutPageState extends ConsumerState<_AboutPage> {
                       ),
                       SizedBox(width: 6 * s),
                       Text(
-                        '关于',
+                        tr('关于'),
                         style: TextStyle(
                           fontSize: 14 * s,
                           fontWeight: FontWeight.w700,
@@ -917,7 +1002,7 @@ class _AboutPageState extends ConsumerState<_AboutPage> {
   void _aboutOpenExternal(BuildContext context, String label) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('请在手机端打开：$label'),
+        content: Text(tr('请在手机端打开：{label}', {'label': label})),
         duration: const Duration(seconds: 2),
       ),
     );
@@ -929,10 +1014,10 @@ class _AboutPageState extends ConsumerState<_AboutPage> {
     showFullDialog<void>(
       context: context,
       builder: (context) => FullDialogScaffold(
-        title: '致谢名单',
+        title: tr('致谢名单'),
         content: acks.isEmpty
             ? Text(
-                '暂无致谢名单',
+                tr('暂无致谢名单'),
                 textAlign: TextAlign.center,
                 style: TextStyle(
                     fontSize: 12 * s,
@@ -956,7 +1041,7 @@ class _AboutPageState extends ConsumerState<_AboutPage> {
                 ],
               ),
         actions: [
-          FullDialogButton(label: '知道了', primary: true, onPressed: () => Navigator.of(context).pop()),
+          FullDialogButton(label: tr('知道了'), primary: true, onPressed: () => Navigator.of(context).pop()),
         ],
       ),
     );
@@ -1174,7 +1259,7 @@ Future<void> _pickScanFormats(BuildContext context, AppSettings s) async {
     context: context,
     builder: (context) => StatefulBuilder(
       builder: (context, setState) => FullDialogScaffold(
-        title: '扫描格式',
+        title: tr('扫描格式'),
         content: Wrap(
           spacing: 6 * sc,
           runSpacing: 8 * sc,
@@ -1192,11 +1277,11 @@ Future<void> _pickScanFormats(BuildContext context, AppSettings s) async {
         ),
         actions: [
           FullDialogButton(
-            label: '取消',
+            label: tr('取消'),
             onPressed: () => Navigator.pop(context),
           ),
           FullDialogButton(
-            label: '确定',
+            label: tr('确定'),
             primary: true,
             onPressed: () => Navigator.pop(context, true),
           ),
@@ -1216,10 +1301,15 @@ Future<void> _pickScanFormats(BuildContext context, AppSettings s) async {
 
 Future<void> _pickMinDuration(BuildContext context, AppSettings s) async {
   final container = ProviderScope.containerOf(context, listen: false);
-  const options = [(0, '不过滤'), (30, '30 秒以上'), (60, '1 分钟以上'), (120, '2 分钟以上')];
+  final options = [
+    (0, tr('不过滤')),
+    (30, tr('30 秒以上')),
+    (60, tr('1 分钟以上')),
+    (120, tr('2 分钟以上'))
+  ];
   final v = await showFullPicker<int>(
     context,
-    title: '最短时长',
+    title: tr('最短时长'),
     current: s.libraryMinDurationSeconds,
     options: options,
   );
@@ -1233,23 +1323,23 @@ Future<void> _pickMinDuration(BuildContext context, AppSettings s) async {
 Future<void> _pickQuality(BuildContext context, AppSettings s) async {
   final container = ProviderScope.containerOf(context, listen: false);
   // 与移动端设置页同款 12 档（kQualityLadder 全梯）
-  const options = [
-    ('mgg', '低清 · 96k 极速试听'),
-    ('128k', '普通 · 128kbps'),
-    ('192k', '中等 · 192kbps'),
-    ('320k', 'HQ · 高品质 320k'),
-    ('flac', 'SQ · 无损 FLAC'),
-    ('flac24bit', 'Hi-Res · FLAC 24bit'),
-    ('hires', '高解析度 · Hi-Res'),
-    ('vinyl', '黑胶音色 · 无损'),
-    ('dolby', '杜比全景声'),
-    ('atmos', '臻品音质 · 立体空间声场'),
-    ('atmos_plus', '臻品全景声'),
-    ('master', '臻品母带'),
+  final options = [
+    ('mgg', tr('低清 · 96k 极速试听')),
+    ('128k', tr('普通 · 128kbps')),
+    ('192k', tr('中等 · 192kbps')),
+    ('320k', tr('HQ · 高品质 320k')),
+    ('flac', tr('SQ · 无损 FLAC')),
+    ('flac24bit', tr('Hi-Res · FLAC 24bit')),
+    ('hires', tr('高解析度 · Hi-Res')),
+    ('vinyl', tr('黑胶音色 · 无损')),
+    ('dolby', tr('杜比全景声')),
+    ('atmos', tr('臻品音质 · 立体空间声场')),
+    ('atmos_plus', tr('臻品全景声')),
+    ('master', tr('臻品母带')),
   ];
   final v = await showFullPicker<String>(
     context,
-    title: '在线音质',
+    title: tr('在线音质'),
     current: s.onlineQuality,
     options: options,
   );

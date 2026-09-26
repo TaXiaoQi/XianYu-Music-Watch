@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/watch_fit.dart';
 import '../../favorites/favorites_provider.dart';
+import '../../i18n/i18n.dart';
 import '../../player/player_provider.dart';
 import '../common/stepped_list.dart';
 import '../home/cloud_playlists_page.dart';
@@ -15,7 +16,7 @@ class FavoritesPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final s = context.watchScale();
     final favs = ref.watch(favoritesProvider).entries;
-    final header = const PageTitleHeader('收藏', showBack: true);
+    final header = PageTitleHeader(tr('收藏'), showBack: true);
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -30,7 +31,7 @@ class FavoritesPage extends ConsumerWidget {
                   padding: EdgeInsets.all(8 * s),
                   child: Center(
                     child: Text(
-                      '暂无收藏，播放页点击红心即可收藏',
+                      tr('暂无收藏，播放页点击红心即可收藏'),
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 10 * s,
@@ -58,7 +59,7 @@ class FavoritesPage extends ConsumerWidget {
                 ),
               ),
               title: f.title,
-              subtitle: f.artist.isEmpty ? '未知歌手' : f.artist,
+              subtitle: f.artist.isEmpty ? tr('未知歌手') : f.artist,
               trailing: Icon(
                 Icons.favorite_rounded,
                 size: 18 * s,

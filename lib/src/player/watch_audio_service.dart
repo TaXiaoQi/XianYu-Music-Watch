@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:audio_service/audio_service.dart' as asrv;
 
+import '../i18n/i18n.dart';
 import 'player_provider.dart'
     show WatchAudioHandler, activePlayerNotifier, audioHandler;
 
@@ -12,9 +13,9 @@ Future<void> initWatchAudioService() {
   _started = true;
   return asrv.AudioService.init(
     builder: () => WatchAudioHandler(),
-    config: const asrv.AudioServiceConfig(
+    config: asrv.AudioServiceConfig(
       androidNotificationChannelId: 'com.xianyumusic.watch.channel.audio',
-      androidNotificationChannelName: '弦予音乐播放控制',
+      androidNotificationChannelName: tr('弦予音乐播放控制'),
       androidNotificationOngoing: false,
       androidStopForegroundOnPause: false,
       androidNotificationIcon: 'drawable/ic_notification',

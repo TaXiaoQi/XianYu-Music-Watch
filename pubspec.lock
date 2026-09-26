@@ -60,7 +60,7 @@ packages:
     source: hosted
     version: "0.1.4"
   audio_session:
-    dependency: "direct overridden"
+    dependency: "direct main"
     description:
       path: "."
       ref: "br_v0.2.2_ohos"

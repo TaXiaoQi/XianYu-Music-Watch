@@ -4,16 +4,19 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:audio_service/audio_service.dart' as asrv;
+import 'package:audio_session/audio_session.dart';
 import 'package:crypto/crypto.dart';
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../../app.dart';
 import '../auth/auth_provider.dart';
 import '../effects/sound_effect_provider.dart';
 import '../favorites/favorites_provider.dart';
+import '../i18n/i18n.dart';
 
 import '../core/db_path.dart';
 import '../core/application_logger.dart';
@@ -153,13 +156,17 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
   }
 
   final Ref _ref;
-  final AudioPlayer _player = AudioPlayer();
+  // handleInterruptions 关掉 just_audio 内置打断处理：它只会暂停 ExoPlayer，
+  // 管不到 DSP 管线；打断响应统一由 _init 里的 interruptionEventStream 接管。
+  final AudioPlayer _player = AudioPlayer(handleInterruptions: false);
   final Random _rand = Random();
   StreamSubscription<Duration?>? _posSub;
   StreamSubscription<Duration?>? _durSub;
   StreamSubscription<dynamic>? _stateSub;
   StreamSubscription<ProcessingState>? _procSub;
   StreamSubscription<dynamic>? _errSub;
+  StreamSubscription<dynamic>? _interruptionSub;
+  bool _interruptedByInterruption = false;
   bool _onTrackEndBusy = false;
   DateTime _lastPosPersist = DateTime.fromMillisecondsSinceEpoch(0);
   int _playEpoch = 0;
@@ -196,6 +203,7 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
   }
 
   Future<void> _init() async {
+    _initAudioFocus();
     _posSub = _player.positionStream.listen((pos) {
       final secs = pos.inMilliseconds / 1000.0;
       state = state.copyWith(position: secs);
@@ -1061,6 +1069,82 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     await toggle();
   }
 
+  /// 音频焦点：声明音乐媒体会话并监听打断。被其他应用占用输出时暂停当前
+  /// 出声主体（DSP 管线必须走 Pause 命令，_player 只控制 ExoPlayer）。
+  void _initAudioFocus() {
+    AudioSession.instance.then((session) async {
+      try {
+        await session.configure(const AudioSessionConfiguration.music());
+      } catch (e) {
+        AppLog.warn('audio_session', 'configure failed: $e');
+      }
+      _interruptionSub = session.interruptionEventStream.listen((event) async {
+        if (!event.begin) {
+          // 临时打断（来电/导航语音）结束：仅当打断期间暂停过且设置允许时
+          // 自动恢复。永久焦点丢失（type=unknown）不会有结束事件。
+          if (_interruptedByInterruption) {
+            _interruptedByInterruption = false;
+            final auto = _ref.read(settingsProvider).valueOrNull
+                    ?.autoResumeAfterInterruption ??
+                true;
+            if (auto && !state.isPlaying && state.current != null) {
+              await _resumeAfterInterruption();
+            }
+          }
+          return;
+        }
+        if (event.type == AudioInterruptionType.duck) return;
+        if (state.isPlaying) {
+          _interruptedByInterruption = true;
+          await _pauseForInterruption();
+        }
+      });
+    });
+  }
+
+  Future<void> _pauseForInterruption() async {
+    try {
+      if (_dspActive) {
+        await pauseUsbExclusive();
+        state = state.copyWith(isPlaying: false);
+        _syncPlaybackState();
+      } else {
+        await _player.pause();
+      }
+    } catch (e) {
+      AppLog.warn('playgate', 'interruption pause failed: $e');
+    }
+    _persistSession();
+    if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+      _notifyInterrupted();
+    }
+  }
+
+  Future<void> _resumeAfterInterruption() async {
+    try {
+      if (_dspActive) {
+        await resumeUsbExclusive();
+        state = state.copyWith(isPlaying: true);
+        _syncPlaybackState();
+      } else {
+        await _player.play();
+      }
+    } catch (e) {
+      AppLog.warn('playgate', 'interruption resume failed: $e');
+      return;
+    }
+    _persistSession();
+  }
+
+  void _notifyInterrupted() {
+    final ctx = appNavKey.currentState?.context;
+    if (ctx == null || !ctx.mounted) return;
+    ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
+      content: Text(tr('音频输出被其他应用占用，已暂停')),
+      duration: const Duration(seconds: 2),
+    ));
+  }
+
   Future<void> pauseFromSystem() async {
     if (!state.isPlaying) return;
     await toggle();
@@ -1782,6 +1866,7 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     _stateSub?.cancel();
     _procSub?.cancel();
     _errSub?.cancel();
+    _interruptionSub?.cancel();
     _stopDspPolling();
     _sfxSyncTimer?.cancel();
     unawaited(_stopDsp());

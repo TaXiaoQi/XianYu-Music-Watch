@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/watch_fit.dart';
+import '../../i18n/i18n.dart';
 import '../../plugin/plugin_catalog.dart';
 import '../../plugin/plugin_models.dart';
 import '../../plugin/plugin_provider.dart';
@@ -39,7 +40,7 @@ class _TopListPageState extends ConsumerState<TopListPage> {
       final engine = await ref.read(pluginEngineProvider.future);
       final sources = await engine.store.loadSources();
       final enabled = sources.where((s) => s.enabled).toList();
-      if (enabled.isEmpty) throw '尚未安装插件，去插件管理添加';
+      if (enabled.isEmpty) throw tr('尚未安装插件，去插件管理添加');
       final catalog = PluginCatalogService(engine, enabled);
 
       final merged = <(PluginSource, MfSheetItem)>[];
@@ -59,7 +60,7 @@ class _TopListPageState extends ConsumerState<TopListPage> {
       setState(() {
         _entries = merged;
         _loading = false;
-        if (merged.isEmpty) _error = '当前插件均不支持榜单';
+        if (merged.isEmpty) _error = tr('当前插件均不支持榜单');
       });
     } catch (e) {
       if (mounted) {
@@ -75,10 +76,10 @@ class _TopListPageState extends ConsumerState<TopListPage> {
   Widget build(BuildContext context) {
     final s = context.watchScale();
     final headerRow = PageTitleHeader(
-      '音源榜单',
+      tr('音源榜单'),
       showBack: true,
       trailing: IconButton(
-        tooltip: '刷新',
+        tooltip: tr('刷新'),
         onPressed: _loading ? null : _load,
         icon: Icon(Icons.refresh_rounded, size: 20 * s),
       ),
@@ -184,13 +185,13 @@ class _TopListDetailPageState extends ConsumerState<TopListDetailPage> {
       setState(() {
         _songs = songs;
         _loading = false;
-        if (songs.isEmpty) _error = '榜单为空';
+        if (songs.isEmpty) _error = tr('榜单为空');
       });
     } catch (e) {
       if (mounted) {
         setState(() {
           _loading = false;
-          _error = '加载失败：$e';
+          _error = tr('加载失败：{e}', {'e': e});
         });
       }
     }

@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/db_path.dart';
+import '../i18n/i18n.dart';
 import '../rust/api.dart' as rust;
 
 const defaultAuthBaseUrl = 'https://api.xianyumusic.cn/api';
@@ -210,7 +211,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
     if (code != 200) {
       throw AuthException(
-        msg.isNotEmpty ? msg : '请求失败（code $code）',
+        msg.isNotEmpty ? msg : tr('请求失败（code {code}）', {'code': code}),
         code: code,
       );
     }
@@ -247,7 +248,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       });
       final token = data['token'];
       if (token == null || token.toString().isEmpty) {
-        throw AuthException('登录响应无效');
+        throw AuthException(tr('登录响应无效'));
       }
       _token = token.toString();
       final user = AuthNotifier.mapUser(
@@ -258,7 +259,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     } on AuthException catch (e) {
       state = state.copyWith(loading: false, error: e.message);
     } catch (e) {
-      state = state.copyWith(loading: false, error: '登录失败：$e');
+      state = state.copyWith(loading: false, error: tr('登录失败：{e}', {'e': e}));
     }
   }
 
@@ -319,7 +320,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       'location': location,
     });
     final code = (data['code'] ?? '').toString();
-    if (code.isEmpty) throw AuthException('二维码内容为空');
+    if (code.isEmpty) throw AuthException(tr('二维码内容为空'));
     final expire = (data['expire_seconds'] as num?)?.toInt() ?? 300;
     return (code, expire);
   }
@@ -337,7 +338,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       onStatus?.call(status);
       if (status == 'logged_in') {
         final token = (data['token'] ?? '').toString();
-        if (token.isEmpty) throw AuthException('登录响应无效');
+        if (token.isEmpty) throw AuthException(tr('登录响应无效'));
         _token = token;
         final user = AuthNotifier.mapUser(data);
         state = AuthState(user: user);

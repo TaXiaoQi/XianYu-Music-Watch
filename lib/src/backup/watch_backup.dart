@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../core/settings.dart';
 import '../favorites/favorites_provider.dart';
+import '../i18n/i18n.dart';
 import '../plugin/plugin_models.dart';
 import '../plugin/plugin_provider.dart';
 import '../sync/playlist_store.dart';
@@ -91,14 +92,14 @@ class WatchBackupService {
     try {
       data = jsonDecode(json);
     } catch (_) {
-      throw FormatException('文件不是有效的 JSON 格式');
+      throw FormatException(tr('文件不是有效的 JSON 格式'));
     }
     if (data is! Map || data['schema'] != _kBackupSchema) {
-      throw FormatException('无法识别的备份格式');
+      throw FormatException(tr('无法识别的备份格式'));
     }
     final inner = data['data'];
     if (inner is! Map) {
-      throw FormatException('备份文件数据结构无效');
+      throw FormatException(tr('备份文件数据结构无效'));
     }
     final map = inner.cast<String, dynamic>();
 
@@ -198,6 +199,8 @@ class WatchBackupService {
         'lyricOffsetMs': s.lyricOffsetMs,
         'onlineFailureBehavior': s.onlineFailureBehavior,
         'streamCacheSizeMB': s.streamCacheSizeMB,
+        'autoResumeAfterInterruption': s.autoResumeAfterInterruption,
+        'language': s.language,
       };
 
   AppSettings _settingsFromJson(AppSettings fallback, Map<String, dynamic> j) {
@@ -221,6 +224,8 @@ class WatchBackupService {
       lyricOffsetMs: asInt('lyricOffsetMs'),
       onlineFailureBehavior: asStr('onlineFailureBehavior'),
       streamCacheSizeMB: asInt('streamCacheSizeMB'),
+      autoResumeAfterInterruption: asBool('autoResumeAfterInterruption'),
+      language: asStr('language'),
     );
   }
 }

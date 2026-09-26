@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../auth/auth_provider.dart';
+import '../i18n/i18n.dart';
 import 'player_provider.dart';
 
 class ListenStatsState {
@@ -269,10 +270,10 @@ final listenStatsProvider =
     );
 
 String formatListenDuration(int secs) {
-  if (secs < 60) return '$secs 秒';
+  if (secs < 60) return tr('{n} 秒', {'n': secs});
   final h = secs ~/ 3600;
   final m = (secs % 3600) ~/ 60;
-  if (h <= 0) return '$m 分钟';
-  if (m <= 0) return '$h 小时';
-  return '$h 小时 $m 分';
+  if (h <= 0) return tr('{n} 分钟', {'n': m});
+  if (m <= 0) return tr('{n} 小时', {'n': h});
+  return tr('{n} 小时 {m} 分', {'n': h, 'm': m});
 }

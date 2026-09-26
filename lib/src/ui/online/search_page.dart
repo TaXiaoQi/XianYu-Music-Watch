@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/watch_fit.dart';
+import '../../i18n/i18n.dart';
 import '../../player/player_provider.dart';
 import '../../plugin/plugin_models.dart';
 import '../../plugin/plugin_provider.dart';
@@ -45,14 +46,14 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
       final engine = await ref.read(pluginEngineProvider.future);
       final sources = await engine.store.loadSources();
       final enabled = sources.where((s) => s.enabled).toList();
-      if (enabled.isEmpty) throw '尚未安装插件，点右上角 + 添加';
+      if (enabled.isEmpty) throw tr('尚未安装插件，点右上角 + 添加');
       final service = PluginSearchService(engine, enabled);
       final results = await service.searchAll(kw, limit: 20);
       if (!mounted) return;
       setState(() {
         _sources = sources;
         _results = results;
-        if (results.isEmpty) _error = '没有匹配结果';
+        if (results.isEmpty) _error = tr('没有匹配结果');
       });
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
@@ -64,9 +65,9 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
   Future<void> _addPlugin() async {
     final url = await showFullInput(
       context,
-      title: '添加插件',
-      hint: '插件脚本 URL',
-      okLabel: '安装',
+      title: tr('添加插件'),
+      hint: tr('插件脚本 URL'),
+      okLabel: tr('安装'),
       keyboardType: TextInputType.url,
     );
     if (url == null || url.isEmpty || !mounted) return;
@@ -80,8 +81,10 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
         SnackBar(
           content: Text(
             result.success
-                ? '已安装 ${result.names.join('、')}'
-                : '安装失败：${result.errors.join('；')}',
+                ? tr('已安装 {names}', {'names': result.names.join('、')})
+                : tr('安装失败：{errors}', {
+                    'errors': result.errors.join('；'),
+                  }),
           ),
         ),
       );
@@ -89,7 +92,9 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('安装失败：$e')));
+        ).showSnackBar(
+          SnackBar(content: Text(tr('安装失败：{e}', {'e': e}))),
+        );
       }
     } finally {
       if (mounted) setState(() => _installing = false);
@@ -117,12 +122,12 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
     final s = context.watchScale();
     return Scaffold(
       appBar: AppBar(
-        title: Text('搜索', style: TextStyle(fontSize: 15 * s)),
+        title: Text(tr('搜索'), style: TextStyle(fontSize: 15 * s)),
         actions: [
           IconButton(
             onPressed: _installing ? null : _addPlugin,
             icon: Icon(Icons.add_link_rounded, size: 20 * s),
-            tooltip: '添加插件',
+            tooltip: tr('添加插件'),
           ),
         ],
       ),
@@ -139,7 +144,7 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
                     onSubmitted: (_) => _search(),
                     style: TextStyle(fontSize: 13 * s),
                     decoration: InputDecoration(
-                      hintText: '搜索歌曲/歌手',
+                      hintText: tr('搜索歌曲/歌手'),
                       isDense: true,
                       prefixIcon: Icon(Icons.search_rounded, size: 18 * s),
                     ),
@@ -148,7 +153,7 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
                 SizedBox(width: 8 * s),
                 FilledButton(
                   onPressed: _searching ? null : _search,
-                  child: Text(_searching ? '…' : '搜'),
+                  child: Text(_searching ? '…' : tr('搜')),
                 ),
               ],
             ),
@@ -178,7 +183,7 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
     if (_results.isEmpty) {
       return Center(
         child: Text(
-          '输入关键词搜索在线音乐',
+          tr('输入关键词搜索在线音乐'),
           style: TextStyle(fontSize: 12 * s, color: Colors.white38),
         ),
       );

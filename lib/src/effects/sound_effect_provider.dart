@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../i18n/i18n.dart';
+
 final bool kDspPipelineSupported = !kIsWeb && Platform.isAndroid;
 
 const eqFreqLabels = [
@@ -26,16 +28,16 @@ class EqPreset {
   const EqPreset(this.name, this.gains);
 }
 
-const List<EqPreset> eqPresets = <EqPreset>[
-  EqPreset('默认', [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
-  EqPreset('流行', [-1, 0, 1, 2, 2, 1, 0, -1, -1, -1]),
-  EqPreset('摇滚', [3, 2, 1, 0, -1, -1, 0, 1, 2, 3]),
-  EqPreset('爵士', [2, 1, 0, 1, 1, 0, -1, 0, 1, 2]),
-  EqPreset('古典', [2, 1, 0, -1, -1, -1, 0, 1, 2, 3]),
-  EqPreset('电子', [3, 2, 1, 0, -1, 0, 1, 2, 3, 4]),
-  EqPreset('低音增强', [4, 3, 2, 1, 0, 0, 0, 0, 0, 0]),
-  EqPreset('人声', [-1, -1, -1, 1, 2, 3, 2, 1, 0, -1]),
-  EqPreset('高音增强', [0, 0, 0, 0, 0, 1, 2, 3, 4, 4]),
+List<EqPreset> get eqPresets => <EqPreset>[
+  EqPreset(tr('默认'), [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+  EqPreset(tr('流行'), [-1, 0, 1, 2, 2, 1, 0, -1, -1, -1]),
+  EqPreset(tr('摇滚'), [3, 2, 1, 0, -1, -1, 0, 1, 2, 3]),
+  EqPreset(tr('爵士'), [2, 1, 0, 1, 1, 0, -1, 0, 1, 2]),
+  EqPreset(tr('古典'), [2, 1, 0, -1, -1, -1, 0, 1, 2, 3]),
+  EqPreset(tr('电子'), [3, 2, 1, 0, -1, 0, 1, 2, 3, 4]),
+  EqPreset(tr('低音增强'), [4, 3, 2, 1, 0, 0, 0, 0, 0, 0]),
+  EqPreset(tr('人声'), [-1, -1, -1, 1, 2, 3, 2, 1, 0, -1]),
+  EqPreset(tr('高音增强'), [0, 0, 0, 0, 0, 1, 2, 3, 4, 4]),
 ];
 
 class ReverbPreset {
@@ -45,20 +47,20 @@ class ReverbPreset {
   const ReverbPreset(this.label, this.dry, this.wet);
 }
 
-const List<ReverbPreset> reverbPresets = <ReverbPreset>[
-  ReverbPreset('大厅', 80, 40),
-  ReverbPreset('房间', 85, 30),
-  ReverbPreset('浴室', 75, 50),
-  ReverbPreset('隧道', 70, 60),
-  ReverbPreset('峡谷', 65, 55),
-  ReverbPreset('教堂', 60, 45),
+List<ReverbPreset> get reverbPresets => <ReverbPreset>[
+  ReverbPreset(tr('大厅'), 80, 40),
+  ReverbPreset(tr('房间'), 85, 30),
+  ReverbPreset(tr('浴室'), 75, 50),
+  ReverbPreset(tr('隧道'), 70, 60),
+  ReverbPreset(tr('峡谷'), 65, 55),
+  ReverbPreset(tr('教堂'), 60, 45),
 ];
 
-const List<ReverbPreset> algoReverbPresets = <ReverbPreset>[
-  ReverbPreset('算法大厅', 85, 40),
-  ReverbPreset('算法房间', 90, 30),
-  ReverbPreset('算法板式', 80, 50),
-  ReverbPreset('算法弹簧', 88, 35),
+List<ReverbPreset> get algoReverbPresets => <ReverbPreset>[
+  ReverbPreset(tr('算法大厅'), 85, 40),
+  ReverbPreset(tr('算法房间'), 90, 30),
+  ReverbPreset(tr('算法板式'), 80, 50),
+  ReverbPreset(tr('算法弹簧'), 88, 35),
 ];
 
 class SoundEffectSettings {
@@ -750,7 +752,7 @@ class CustomEqPreset {
   Map<String, dynamic> toJson() => {'name': name, 'gains': gains};
 
   factory CustomEqPreset.fromJson(Map<String, dynamic> j) => CustomEqPreset(
-    j['name'] as String? ?? '未命名',
+    j['name'] as String? ?? tr('未命名'),
     (j['gains'] as List? ?? const [])
         .map((e) => (e as num).toDouble())
         .toList(),

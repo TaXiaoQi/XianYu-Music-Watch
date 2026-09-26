@@ -28,6 +28,8 @@ dependencies:
   flutter_rust_bridge: 2.12.0
   # 本地播放
   just_audio: ^0.9.0
+  # 音频焦点/打断监听（被其他应用占用输出时暂停；ohos 走 overrides 钉的 fork）
+  audio_session: ^0.1.25
   # 后台播放保障：系统 MediaSession + 前台媒体服务（灭屏/切走不被杀）
   audio_service: ^0.18.18
   # 数据目录/路径

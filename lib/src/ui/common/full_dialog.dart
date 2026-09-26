@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/watch_fit.dart';
+import '../../i18n/i18n.dart';
 
 Future<T?> showFullDialog<T>({
   required BuildContext context,
@@ -149,8 +150,8 @@ Future<bool?> showFullConfirm(
   BuildContext context, {
   required String title,
   String? message,
-  String okLabel = '确定',
-  String? cancelLabel = '取消',
+  String? okLabel,
+  String? cancelLabel,
   bool okOnly = false,
 }) {
   final s = context.watchScale();
@@ -172,11 +173,11 @@ Future<bool?> showFullConfirm(
       actions: [
         if (!okOnly)
           FullDialogButton(
-            label: cancelLabel ?? '取消',
+            label: cancelLabel ?? tr('取消'),
             onPressed: () => Navigator.pop(context),
           ),
         FullDialogButton(
-          label: okLabel,
+          label: okLabel ?? tr('确定'),
           primary: true,
           onPressed: () => Navigator.pop(context, true),
         ),
@@ -359,11 +360,11 @@ class _FullSliderPageState extends State<_FullSliderPage> {
       ),
       actions: [
         FullDialogButton(
-          label: '取消',
+          label: tr('取消'),
           onPressed: () => Navigator.pop(context),
         ),
         FullDialogButton(
-          label: '确定',
+          label: tr('确定'),
           primary: true,
           onPressed: () => Navigator.pop(context, _value),
         ),
@@ -376,7 +377,7 @@ Future<String?> showFullInput(
   BuildContext context, {
   required String title,
   required String hint,
-  String okLabel = '确定',
+  String? okLabel,
   TextInputType? keyboardType,
 }) {
   return showFullDialog<String>(
@@ -384,7 +385,7 @@ Future<String?> showFullInput(
     builder: (context) => _FullInputPage(
       title: title,
       hint: hint,
-      okLabel: okLabel,
+      okLabel: okLabel ?? tr('确定'),
       keyboardType: keyboardType,
     ),
   );
@@ -439,7 +440,7 @@ class _FullInputPageState extends State<_FullInputPage> {
       ),
       actions: [
         FullDialogButton(
-          label: '取消',
+          label: tr('取消'),
           onPressed: () => Navigator.pop(context),
         ),
         FullDialogButton(

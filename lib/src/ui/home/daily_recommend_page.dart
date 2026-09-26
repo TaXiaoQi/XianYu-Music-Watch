@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/watch_fit.dart';
 import '../../home/daily_recommend.dart';
+import '../../i18n/i18n.dart';
 import '../account/account_view.dart';
 import '../common/stepped_list.dart';
 import '../local/local_music_hub.dart';
@@ -19,10 +20,10 @@ class DailyRecommendPage extends ConsumerWidget {
     final s = context.watchScale();
 
     final headerRow = PageTitleHeader(
-      '每日推荐',
+      tr('每日推荐'),
       showBack: true,
       trailing: IconButton(
-        tooltip: '换一批',
+        tooltip: tr('换一批'),
         onPressed: () => ref.read(dailyRecommendProvider.notifier).refresh(),
         icon: Icon(Icons.casino_rounded, size: 20 * s),
       ),
@@ -50,7 +51,7 @@ class DailyRecommendPage extends ConsumerWidget {
             _EmptyView(
               icon: Icons.cloud_off_rounded,
               text: '$e',
-              actionLabel: '重试',
+              actionLabel: tr('重试'),
               onAction: () => ref.invalidate(dailyRecommendProvider),
             ),
           ),
@@ -59,8 +60,8 @@ class DailyRecommendPage extends ConsumerWidget {
               return stateBody(
                 _EmptyView(
                   icon: Icons.lock_rounded,
-                  text: '登录后解锁每日推荐\n基于你的听歌记录，每天为你量身定制',
-                  actionLabel: '去登录',
+                  text: tr('登录后解锁每日推荐\n基于你的听歌记录，每天为你量身定制'),
+                  actionLabel: tr('去登录'),
                   onAction: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       builder: (_) => const AccountView(),
@@ -73,8 +74,8 @@ class DailyRecommendPage extends ConsumerWidget {
               return stateBody(
                 _EmptyView(
                   icon: Icons.extension_off_rounded,
-                  text: '没有可用插件，无法生成推荐',
-                  actionLabel: '去插件管理',
+                  text: tr('没有可用插件，无法生成推荐'),
+                  actionLabel: tr('去插件管理'),
                   onAction: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       builder: (_) => const PluginManagePage(),

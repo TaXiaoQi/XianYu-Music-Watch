@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/watch_fit.dart';
 import '../../favorites/favorites_provider.dart';
+import '../../i18n/i18n.dart';
 import '../../player/player_provider.dart';
 import '../../sync/playlist_source_update.dart';
 import '../../sync/playlist_store.dart';
@@ -41,7 +42,7 @@ class _CloudPlaylistsPageState extends ConsumerState<CloudPlaylistsPage> {
   @override
   Widget build(BuildContext context) {
     final s = context.watchScale();
-    final headerRow = const PageTitleHeader('歌单', showBack: true);
+    final headerRow = PageTitleHeader(tr('歌单'), showBack: true);
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
@@ -78,13 +79,13 @@ class _CloudPlaylistsPageState extends ConsumerState<CloudPlaylistsPage> {
                               size: 34 * s,
                               color: Colors.white.withValues(alpha: 0.3)),
                           SizedBox(height: 8 * s),
-                          Text('暂无云端歌单',
+                          Text(tr('暂无云端歌单'),
                               style: TextStyle(
                                   fontSize: 12 * s,
                                   color:
                                       Colors.white.withValues(alpha: 0.5))),
                           SizedBox(height: 4 * s),
-                          Text('登录并同步后，手机/桌面端的歌单会显示在这里',
+                          Text(tr('登录并同步后，手机/桌面端的歌单会显示在这里'),
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                   fontSize: 10 * s,
@@ -108,7 +109,7 @@ class _CloudPlaylistsPageState extends ConsumerState<CloudPlaylistsPage> {
                             size: 22 * s, color: const Color(0xFFFF4D6E)),
                       ),
                       title: pl.name,
-                      subtitle: '${pl.songs.length} 首',
+                      subtitle: tr('{n} 首', {'n': pl.songs.length}),
                       onTap: () async {
                         await Navigator.of(context).push(
                           MaterialPageRoute<void>(
@@ -187,7 +188,7 @@ class _CloudPlaylistDetailPageState
     final fresh = added.where((s) => !existing.contains(s.path)).toList();
     if (fresh.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('所选歌曲已在歌单中'), duration: const Duration(seconds: 2)),
+        SnackBar(content: Text(tr('所选歌曲已在歌单中')), duration: const Duration(seconds: 2)),
       );
       return;
     }
@@ -197,7 +198,7 @@ class _CloudPlaylistDetailPageState
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('已添加 ${fresh.length} 首歌曲'),
+        content: Text(tr('已添加 {n} 首歌曲', {'n': fresh.length})),
         duration: const Duration(seconds: 2),
       ),
     );
@@ -248,8 +249,8 @@ class _CloudPlaylistDetailPageState
                   child: Icon(Icons.add_rounded,
                       size: 22 * s, color: const Color(0xFFFF4D6E)),
                 ),
-                title: '添加歌曲',
-                subtitle: '从收藏中选歌到该歌单',
+                title: tr('添加歌曲'),
+                subtitle: tr('从收藏中选歌到该歌单'),
                 onTap: _addSongs,
               );
             }
@@ -270,7 +271,7 @@ class _CloudPlaylistDetailPageState
                 ),
               ),
               title: song.title,
-              subtitle: song.artist.isEmpty ? '未知歌手' : song.artist,
+              subtitle: song.artist.isEmpty ? tr('未知歌手') : song.artist,
               onTap: () => widget.onPlay?.call(_playlist, i),
             );
           },
@@ -352,12 +353,12 @@ class _AddSongsPageState extends ConsumerState<_AddSongsPage> {
       body: SafeArea(
         child: SteppedListView(
           header: PageTitleHeader(
-            '添加歌曲',
+            tr('添加歌曲'),
             showBack: true,
             trailing: TextButton(
               onPressed: count > 0 ? () => _confirm(context, s) : null,
               child: Text(
-                count > 0 ? '添加($count)' : '添加',
+                count > 0 ? tr('添加({n})', {'n': count}) : tr('添加'),
                 style: TextStyle(
                   fontSize: 13 * s,
                   fontWeight: FontWeight.w600,
@@ -376,7 +377,7 @@ class _AddSongsPageState extends ConsumerState<_AddSongsPage> {
                   padding: EdgeInsets.all(8 * s),
                   child: Center(
                     child: Text(
-                      '还没有可添加的收藏歌曲',
+                      tr('还没有可添加的收藏歌曲'),
                       style: TextStyle(
                         fontSize: 10 * s,
                         color: Colors.white.withValues(alpha: 0.4),
@@ -402,7 +403,7 @@ class _AddSongsPageState extends ConsumerState<_AddSongsPage> {
                 ),
               ),
               title: f.title,
-              subtitle: f.artist.isEmpty ? '未知歌手' : f.artist,
+              subtitle: f.artist.isEmpty ? tr('未知歌手') : f.artist,
               onTap: () => setState(() {
                 if (!_selected.add(f.path)) _selected.remove(f.path);
               }),

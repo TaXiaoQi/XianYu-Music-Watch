@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../auth/auth_provider.dart';
 import '../core/settings.dart';
+import '../i18n/i18n.dart';
 import '../player/player_provider.dart';
 import '../plugin/plugin_catalog.dart';
 import '../plugin/plugin_engine.dart';
@@ -68,7 +69,7 @@ class DailyRecommendAlgorithm {
         .where((s) => s.queries.isNotEmpty && s.weight > 0)
         .toList();
     if (strategies.isEmpty) {
-      throw FormatException('算法数据无效');
+      throw FormatException(tr('算法数据无效'));
     }
     final exclusions =
         (((j['exclusions'] as Map<String, dynamic>?)?['songs']) as List? ??

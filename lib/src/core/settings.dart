@@ -38,6 +38,8 @@ class AppSettings {
     this.lyricOffsetMs = 0,
     this.onlineFailureBehavior = 'autoswitch',
     this.streamCacheSizeMB = 200,
+    this.autoResumeAfterInterruption = true,
+    this.language = 'system',
   });
 
   final double volume;
@@ -62,6 +64,11 @@ class AppSettings {
 
   final int streamCacheSizeMB;
 
+  final bool autoResumeAfterInterruption;
+
+  /// 'system' | 'zhCN' | 'zhTW' | 'en'
+  final String language;
+
   AppSettings copyWith({
     double? volume,
     int? playMode,
@@ -76,6 +83,8 @@ class AppSettings {
     int? lyricOffsetMs,
     String? onlineFailureBehavior,
     int? streamCacheSizeMB,
+    bool? autoResumeAfterInterruption,
+    String? language,
   }) {
     return AppSettings(
       volume: volume ?? this.volume,
@@ -94,6 +103,9 @@ class AppSettings {
       onlineFailureBehavior:
           onlineFailureBehavior ?? this.onlineFailureBehavior,
       streamCacheSizeMB: streamCacheSizeMB ?? this.streamCacheSizeMB,
+      autoResumeAfterInterruption:
+          autoResumeAfterInterruption ?? this.autoResumeAfterInterruption,
+      language: language ?? this.language,
     );
   }
 }
@@ -133,6 +145,9 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
       onlineFailureBehavior:
           prefs.getString('onlineFailureBehavior') ?? 'autoswitch',
       streamCacheSizeMB: prefs.getInt('streamCacheSizeMB') ?? 200,
+      autoResumeAfterInterruption:
+          prefs.getBool('autoResumeAfterInterruption') ?? true,
+      language: prefs.getString('language') ?? 'system',
     );
   }
 
@@ -153,6 +168,9 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
       prefs.setInt('lyricOffsetMs', next.lyricOffsetMs),
       prefs.setString('onlineFailureBehavior', next.onlineFailureBehavior),
       prefs.setInt('streamCacheSizeMB', next.streamCacheSizeMB),
+      prefs.setBool('autoResumeAfterInterruption',
+          next.autoResumeAfterInterruption),
+      prefs.setString('language', next.language),
     ]);
   }
 
@@ -182,6 +200,12 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
       _save((await _current()).copyWith(onlineFailureBehavior: v));
   Future<void> setStreamCacheSizeMB(int v) async =>
       _save((await _current()).copyWith(streamCacheSizeMB: v.clamp(0, 2000)));
+
+  Future<void> setAutoResumeAfterInterruption(bool v) async =>
+      _save((await _current()).copyWith(autoResumeAfterInterruption: v));
+
+  Future<void> setLanguage(String v) async =>
+      _save((await _current()).copyWith(language: v));
 
   Future<void> saveAll(AppSettings next) => _save(next);
 }

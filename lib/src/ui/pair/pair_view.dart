@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/watch_fit.dart';
+import '../../i18n/i18n.dart';
 import '../../link/link_provider.dart';
 import '../../link/rfcomm_client.dart';
 import '../common/stepped_list.dart';
@@ -73,14 +74,14 @@ class _PairViewState extends ConsumerState<PairView> {
                       ),
                       SizedBox(height: 10 * s),
                       Text(
-                        '需要蓝牙权限\n以连接手机',
+                        tr('需要蓝牙权限\n以连接手机'),
                         textAlign: TextAlign.center,
                         style: TextStyle(fontSize: 13 * s, height: 1.4),
                       ),
                       SizedBox(height: 14 * s),
                       FilledButton(
                         onPressed: _requestPermission,
-                        child: const Text('授予权限'),
+                        child: Text(tr('授予权限')),
                       ),
                     ],
                   ),
@@ -88,7 +89,7 @@ class _PairViewState extends ConsumerState<PairView> {
               : (_devices ?? const []).isEmpty
               ? Center(
                   child: Text(
-                    '暂无已配对设备\n请先在系统设置中配对手机',
+                    tr('暂无已配对设备\n请先在系统设置中配对手机'),
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 13 * s,
@@ -99,7 +100,7 @@ class _PairViewState extends ConsumerState<PairView> {
                 )
               : SteppedListView(
                   itemCount: _devices!.length,
-                  header: const PageTitleHeader('选择手机'),
+                  header: PageTitleHeader(tr('选择手机')),
                   itemBuilder: (context, i) {
                     final dev = _devices![i];
                     return SteppedTile(

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/watch_fit.dart';
+import '../../i18n/i18n.dart';
 import '../../library/library_provider.dart';
 import '../../library/scan_settings_provider.dart';
 import '../common/full_dialog.dart';
@@ -34,9 +35,9 @@ class _LocalLibraryViewState extends ConsumerState<LocalLibraryView> {
       // 腕上不使用小弹窗：改为完整窗口，并提供去授权入口
       final goSettings = await showFullConfirm(
         context,
-        title: '需要存储权限',
-        message: '需要存储权限才能扫描本地音乐',
-        okLabel: '去授权',
+        title: tr('需要存储权限'),
+        message: tr('需要存储权限才能扫描本地音乐'),
+        okLabel: tr('去授权'),
       );
       if (goSettings == true) await openAppSettings();
       return;
@@ -55,7 +56,7 @@ class _LocalLibraryViewState extends ConsumerState<LocalLibraryView> {
       if (mounted) {
         await showFullConfirm(
           context,
-          title: '扫描失败',
+          title: tr('扫描失败'),
           message: '$e',
           okOnly: true,
         );
@@ -83,7 +84,7 @@ class _LocalLibraryViewState extends ConsumerState<LocalLibraryView> {
       backgroundColor: Colors.black,
       body: SafeArea(
         child: SteppedListView(
-          header: PageTitleHeader('本地音乐', showBack: false),
+          header: PageTitleHeader(tr('本地音乐'), showBack: false),
           itemCount: songs.length + 1,
           itemBuilder: (context, i) {
             if (i == 0) {
@@ -96,8 +97,8 @@ class _LocalLibraryViewState extends ConsumerState<LocalLibraryView> {
                     color: Colors.white,
                   ),
                 ),
-                title: '搜索',
-                subtitle: '插件在线音源',
+                title: tr('搜索'),
+                subtitle: tr('插件在线音源'),
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) => const OnlineSearchPage(),
@@ -123,7 +124,7 @@ class _LocalLibraryViewState extends ConsumerState<LocalLibraryView> {
                 ),
               ),
               title: song.title,
-              subtitle: song.artist.isEmpty ? '未知歌手' : song.artist,
+              subtitle: song.artist.isEmpty ? tr('未知歌手') : song.artist,
               onTap: () async {
                 await ref.read(libraryProvider.notifier).playFrom(i);
                 if (!context.mounted) return;
@@ -162,12 +163,12 @@ class _EmptyView extends StatelessWidget {
             ),
             SizedBox(height: 12 * s),
             Text(
-              '本地音乐',
+              tr('本地音乐'),
               style: TextStyle(fontSize: 15 * s, fontWeight: FontWeight.w600),
             ),
             SizedBox(height: 4 * s),
             Text(
-              '扫描手机/手表中的音乐文件',
+              tr('扫描手机/手表中的音乐文件'),
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 12 * s,
@@ -184,7 +185,7 @@ class _EmptyView extends StatelessWidget {
                       child: CircularProgressIndicator(strokeWidth: 2 * s),
                     )
                   : Icon(Icons.search_rounded, size: 18 * s),
-              label: Text(scanning ? '扫描中…' : '扫描本地音乐'),
+              label: Text(scanning ? tr('扫描中…') : tr('扫描本地音乐')),
             ),
           ],
         ),

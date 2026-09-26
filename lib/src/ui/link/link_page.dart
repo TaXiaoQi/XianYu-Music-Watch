@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/app_mode.dart';
 import '../../core/settings.dart';
 import '../../core/watch_fit.dart';
+import '../../i18n/i18n.dart';
 import '../../link/link_provider.dart';
 import '../common/full_dialog.dart';
 import '../common/stepped_list.dart';
@@ -31,15 +32,17 @@ class LinkEntryTile extends ConsumerWidget {
 
     String subtitle;
     if (!settings.watchLinkageEnabled) {
-      subtitle = '已关闭';
+      subtitle = tr('已关闭');
     } else {
       switch (link.phase) {
         case LinkPhase.connected:
-          subtitle = '已连接 ${link.pairedName ?? ''}';
+          subtitle = tr('已连接 {name}', {'name': link.pairedName ?? ''});
         case LinkPhase.connecting:
-          subtitle = '正在连接…';
+          subtitle = tr('正在连接…');
         case LinkPhase.disconnected:
-          subtitle = link.pairedAddress == null ? '点此配对手机' : '未连接，点此连接设备';
+          subtitle = link.pairedAddress == null
+              ? tr('点此配对手机')
+              : tr('未连接，点此连接设备');
       }
     }
 
@@ -57,7 +60,7 @@ class LinkEntryTile extends ConsumerWidget {
           color: Colors.white,
         ),
       ),
-      title: '联动',
+      title: tr('联动'),
       subtitle: subtitle,
       trailing: Icon(
         Icons.chevron_right_rounded,
@@ -86,8 +89,10 @@ class LinkagePage extends ConsumerWidget {
     final rows = <Widget>[
       _switchRow(
         s: s,
-        title: '联动',
-        subtitle: settings.watchLinkageEnabled ? '连接手机后可远程控制播放' : '已关闭，不自动连接手机',
+        title: tr('联动'),
+        subtitle: settings.watchLinkageEnabled
+            ? tr('连接手机后可远程控制播放')
+            : tr('已关闭，不自动连接手机'),
         value: settings.watchLinkageEnabled,
         onChanged: (v) =>
             ref.read(settingsProvider.notifier).setWatchLinkageEnabled(v),
@@ -100,7 +105,7 @@ class LinkagePage extends ConsumerWidget {
         child: Stack(
           children: [
             SteppedListView(
-              header: const PageTitleHeader('联动'),
+              header: PageTitleHeader(tr('联动')),
               headerExtent: 46,
               itemCount: rows.length,
               itemBuilder: (context, i) => rows[i],
@@ -137,8 +142,8 @@ List<Widget> _linkRows(
                 color: Colors.white,
               ),
             ),
-            title: '未连接 ${link.pairedName ?? ''}',
-            subtitle: '点此连接设备',
+            title: tr('未连接 {name}', {'name': link.pairedName ?? ''}),
+            subtitle: tr('点此连接设备'),
             trailing: Icon(
               Icons.chevron_right_rounded,
               size: 22 * s,
@@ -157,8 +162,8 @@ List<Widget> _linkRows(
                 color: Colors.white,
               ),
             ),
-            title: '更换设备',
-            subtitle: '连接到另一台手机',
+            title: tr('更换设备'),
+            subtitle: tr('连接到另一台手机'),
             trailing: Icon(
               Icons.chevron_right_rounded,
               size: 22 * s,
@@ -180,8 +185,8 @@ List<Widget> _linkRows(
                 color: Colors.white,
               ),
             ),
-            title: '选择设备',
-            subtitle: '点击配对连接手机',
+            title: tr('选择设备'),
+            subtitle: tr('点击配对连接手机'),
             trailing: Icon(
               Icons.chevron_right_rounded,
               size: 22 * s,
@@ -203,8 +208,8 @@ Widget _toLinkModeRow(BuildContext context, WidgetRef ref, double s) {
       color: const Color(0xFF3DB98A),
       child: Icon(Icons.watch_rounded, size: 22 * s, color: Colors.white),
     ),
-    title: '切换到联动模式',
-    subtitle: '轻量联动 · 保存后重启生效',
+    title: tr('切换到联动模式'),
+    subtitle: tr('轻量联动 · 保存后重启生效'),
     trailing: Icon(
       Icons.chevron_right_rounded,
       size: 22 * s,
@@ -217,11 +222,12 @@ Widget _toLinkModeRow(BuildContext context, WidgetRef ref, double s) {
 Future<void> _switchToLinkMode(BuildContext context, WidgetRef ref) async {
   final ok = await showFullConfirm(
     context,
-    title: '切换到联动模式',
-    message:
-        '将进入轻量联动模式。该模式更省电、常驻后台，手机一播放即可'
-        '推送到手表；独立播放功能需在联动页切换回来。',
-    okLabel: '立即切换',
+    title: tr('切换到联动模式'),
+    message: tr(
+      '将进入轻量联动模式。该模式更省电、常驻后台，手机一播放即可'
+      '推送到手表；独立播放功能需在联动页切换回来。',
+    ),
+    okLabel: tr('立即切换'),
   );
   if (ok != true || !context.mounted) return;
   await ref.read(appModeProvider.notifier).change(appModeLink);
@@ -233,8 +239,10 @@ Widget _connectedRow(BuildContext context, LinkState link, double s) {
       color: const Color(0xFF3DB98A),
       child: Icon(Icons.watch_rounded, size: 22 * s, color: Colors.white),
     ),
-    title: '已连接 ${link.pairedName ?? ''}',
-    subtitle: link.viaCloud ? '云中继 · 点击进入设备管理' : '蓝牙连接 · 点击进入设备管理',
+    title: tr('已连接 {name}', {'name': link.pairedName ?? ''}),
+    subtitle: link.viaCloud
+        ? tr('云中继 · 点击进入设备管理')
+        : tr('蓝牙连接 · 点击进入设备管理'),
     trailing: Icon(
       Icons.chevron_right_rounded,
       size: 22 * s,
@@ -266,7 +274,7 @@ Widget _connectingRow(
           SizedBox(width: 12 * s),
           Expanded(
             child: Text(
-              '正在连接 ${link.pairedName ?? ''}',
+              tr('正在连接 {name}', {'name': link.pairedName ?? ''}),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(fontSize: 14 * s),
@@ -279,7 +287,7 @@ Widget _connectingRow(
               minimumSize: Size(0, 32 * s),
               textStyle: TextStyle(fontSize: 12 * s),
             ),
-            child: const Text('取消'),
+            child: Text(tr('取消')),
           ),
         ],
       ),
@@ -302,8 +310,8 @@ class LinkDevicePage extends ConsumerWidget {
           color: const Color(0xFF3DB98A),
           child: Icon(Icons.watch_rounded, size: 22 * s, color: Colors.white),
         ),
-        title: '已连接 ${link.pairedName ?? ''}',
-        subtitle: link.viaCloud ? '云中继连接' : '蓝牙连接',
+        title: tr('已连接 {name}', {'name': link.pairedName ?? ''}),
+        subtitle: link.viaCloud ? tr('云中继连接') : tr('蓝牙连接'),
       ),
       SteppedTile(
         leading: SteppedLeadCircle(
@@ -314,8 +322,8 @@ class LinkDevicePage extends ConsumerWidget {
             color: Colors.white,
           ),
         ),
-        title: '播放控制',
-        subtitle: '远程控制手机播放',
+        title: tr('播放控制'),
+        subtitle: tr('远程控制手机播放'),
         trailing: Icon(
           Icons.chevron_right_rounded,
           size: 22 * s,
@@ -334,8 +342,8 @@ class LinkDevicePage extends ConsumerWidget {
             color: Colors.white,
           ),
         ),
-        title: '断开连接',
-        subtitle: '停止联动并回到未连接',
+        title: tr('断开连接'),
+        subtitle: tr('停止联动并回到未连接'),
         trailing: Icon(
           Icons.chevron_right_rounded,
           size: 22 * s,
@@ -355,8 +363,8 @@ class LinkDevicePage extends ConsumerWidget {
             color: Colors.white,
           ),
         ),
-        title: '更换设备',
-        subtitle: '连接到另一台手机',
+        title: tr('更换设备'),
+        subtitle: tr('连接到另一台手机'),
         trailing: Icon(
           Icons.chevron_right_rounded,
           size: 22 * s,
@@ -372,7 +380,7 @@ class LinkDevicePage extends ConsumerWidget {
         child: Stack(
           children: [
             SteppedListView(
-              header: const PageTitleHeader('联动'),
+              header: PageTitleHeader(tr('联动')),
               headerExtent: 46,
               itemCount: rows.length,
               itemBuilder: (context, i) => rows[i],

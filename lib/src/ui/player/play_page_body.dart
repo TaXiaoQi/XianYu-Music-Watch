@@ -7,6 +7,7 @@ import 'package:wearable_rotary/wearable_rotary.dart';
 
 import '../../core/haptics.dart';
 import '../../core/watch_fit.dart';
+import '../../i18n/i18n.dart';
 import '../../player/online_quality_probe.dart';
 import '../common/full_dialog.dart';
 import '../common/rotary_input.dart';
@@ -247,7 +248,7 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                           SizedBox(
                             width: double.infinity,
                             child: _MarqueeText(
-                              widget.emptyText,
+                              tr(widget.emptyText),
                               style: TextStyle(
                                 fontSize: 13 * s,
                                 fontWeight: FontWeight.w700,
@@ -266,7 +267,7 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                               minimumSize: Size(0, 30 * s),
                             ),
                             child: Text(
-                              widget.emptyActionLabel!,
+                              tr(widget.emptyActionLabel!),
                               style: TextStyle(fontSize: 12 * s),
                             ),
                           ),
@@ -400,7 +401,7 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                                 ? kPlayerAccent
                                 : Colors.white.withValues(alpha: 0.85),
                             onTap: src.like,
-                            tooltip: '喜欢',
+                            tooltip: tr('喜欢'),
                           ),
                         if (src.fromDaily)
                           _bottomBtn(
@@ -424,12 +425,14 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                               if (!context.mounted) return;
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
-                                  content: Text(ok ? '已减少此类推荐' : '请先登录后使用每日推荐'),
+                                  content: Text(ok
+                                      ? tr('已减少此类推荐')
+                                      : tr('请先登录后使用每日推荐')),
                                   duration: const Duration(seconds: 1),
                                 ),
                               );
                             },
-                            tooltip: '不喜欢',
+                            tooltip: tr('不喜欢'),
                           ),
                         _bottomBtn(
                           s: s,
@@ -449,13 +452,13 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                               ),
                             ),
                           ),
-                          tooltip: '音量',
+                          tooltip: tr('音量'),
                         ),
                         _bottomBtn(
                           s: s,
                           icon: Icons.apps_rounded,
                           onTap: _openMoreSheet,
-                          tooltip: '更多（播放模式/倍速）',
+                          tooltip: tr('更多（播放模式/倍速）'),
                         ),
                       ],
                     ),
@@ -575,9 +578,9 @@ class _PlayerSettingsSheetState extends State<_PlayerSettingsSheet> {
       s == s.roundToDouble() ? '${s.toStringAsFixed(1)}x' : '${s}x';
 
   static String _modeLabel(int m) => switch (m) {
-    1 => '单曲循环',
-    2 => '随机播放',
-    _ => '列表循环',
+    1 => tr('单曲循环'),
+    2 => tr('随机播放'),
+    _ => tr('列表循环'),
   };
 
   static IconData _modeIcon(int m) => switch (m) {
@@ -591,7 +594,7 @@ class _PlayerSettingsSheetState extends State<_PlayerSettingsSheet> {
     final s = context.watchScale();
     final src = widget.sourceBuilder();
     final rows = <(Widget, double)>[
-      (_sheetLabel('播放模式', s), 30.0),
+      (_sheetLabel(tr('播放模式'), s), 30.0),
       (
         Wrap(
           spacing: 7 * s,
@@ -635,7 +638,7 @@ class _PlayerSettingsSheetState extends State<_PlayerSettingsSheet> {
         64.0,
       ),
       if (src.speed != null) ...[
-        (_sheetLabel('倍速', s), 30.0),
+        (_sheetLabel(tr('倍速'), s), 30.0),
         (
           Wrap(
             spacing: 7 * s,
@@ -689,7 +692,7 @@ class _PlayerSettingsSheetState extends State<_PlayerSettingsSheet> {
                   SizedBox(width: 10 * s),
                   Expanded(
                     child: Text(
-                      '播放音质',
+                      tr('播放音质'),
                       style: TextStyle(
                         fontSize: 13 * s,
                         fontWeight: FontWeight.w600,
@@ -738,7 +741,7 @@ class _PlayerSettingsSheetState extends State<_PlayerSettingsSheet> {
                   SizedBox(width: 10 * s),
                   Expanded(
                     child: Text(
-                      '均衡器 · 音效调节',
+                      tr('均衡器 · 音效调节'),
                       style: TextStyle(
                         fontSize: 13 * s,
                         fontWeight: FontWeight.w600,
@@ -764,7 +767,7 @@ class _PlayerSettingsSheetState extends State<_PlayerSettingsSheet> {
           itemCount: rows.length,
           itemBuilder: (context, i) => rows[i].$1,
           rowExtent: (i) => rows[i].$2,
-          header: const PageTitleHeader('播放设置'),
+          header: PageTitleHeader(tr('播放设置')),
         ),
       ),
     );
@@ -930,7 +933,7 @@ class _QualityPageState extends State<_QualityPage> {
         Padding(
           padding: EdgeInsets.symmetric(vertical: 6 * s),
           child: Text(
-            '探测中…',
+            tr('探测中…'),
             style: TextStyle(
               fontSize: 11 * s,
               color: Colors.white.withValues(alpha: 0.45),
@@ -944,7 +947,7 @@ class _QualityPageState extends State<_QualityPage> {
         child: SteppedListView(
           itemCount: rows.length,
           itemBuilder: (context, i) => rows[i],
-          header: const PageTitleHeader('播放音质'),
+          header: PageTitleHeader(tr('播放音质')),
         ),
       ),
     );
@@ -1042,9 +1045,9 @@ String _qualityLabel(String? q) {
     case 'hires':
       return 'Hi-Res';
     case 'vinyl':
-      return '黑胶';
+      return tr('黑胶');
     case 'dolby':
-      return '杜比';
+      return tr('杜比');
     case 'atmos':
       return 'Atmos';
     case 'atmos_plus':
@@ -1302,7 +1305,7 @@ class _VolumePageState extends State<_VolumePage> {
         child: Column(
           children: [
             Text(
-              '音量',
+              tr('音量'),
               style: TextStyle(
                 fontSize: 12.5 * s,
                 color: Colors.white.withValues(alpha: 0.55),

@@ -8,6 +8,7 @@ import 'src/core/app_mode.dart';
 import 'src/core/keep_alive.dart' show LinkKeepAlive;
 import 'src/core/settings.dart';
 import 'src/core/watch_fit.dart';
+import 'src/i18n/i18n.dart';
 import 'src/auth/auth_provider.dart';
 import 'src/link/link_provider.dart';
 import 'src/sync/sync_provider.dart';
@@ -22,8 +23,11 @@ class XianYuWatchApp extends ConsumerStatefulWidget {
   ConsumerState<XianYuWatchApp> createState() => _XianYuWatchAppState();
 }
 
+/// 全局导航 key：供无 BuildContext 的服务层（播放器打断提示等）弹 UI。
+final appNavKey = GlobalKey<NavigatorState>();
+
 class _XianYuWatchAppState extends ConsumerState<XianYuWatchApp> {
-  final GlobalKey<NavigatorState> _navKey = GlobalKey<NavigatorState>();
+  final GlobalKey<NavigatorState> _navKey = appNavKey;
   ProviderSubscription<String>? _modeSub;
   ProviderSubscription<AsyncValue<AppSettings>>? _settingsSub;
 
@@ -76,7 +80,12 @@ class _XianYuWatchAppState extends ConsumerState<XianYuWatchApp> {
 
   @override
   Widget build(BuildContext context) {
+    final language =
+        ref.watch(settingsProvider.select((s) => s.valueOrNull?.language)) ??
+            'system';
+    I18n.setMode(_i18nModeFor(language));
     return MaterialApp(
+      key: ValueKey('app-${I18n.mode.name}'),
       title: kDebugMode ? '腕上弦予·测试' : '腕上弦予',
       debugShowCheckedModeBanner: false,
       navigatorKey: _navKey,
@@ -139,6 +148,34 @@ class _XianYuWatchAppState extends ConsumerState<XianYuWatchApp> {
         },
       ),
     );
+  }
+
+  I18nMode _i18nModeFor(String lang) => switch (lang) {
+        'zhCN' => I18nMode.zhCn,
+        'zhTW' => I18nMode.zhTw,
+        'en' => I18nMode.en,
+        _ => _modeForSystemLocale(),
+      };
+
+  /// 繁体命中链：zh-Hant（无地区码）/ zh-TW / zh-HK / zh-MO，与移动端一致。
+  I18nMode _modeForSystemLocale() {
+    final locales = WidgetsBinding.instance.platformDispatcher.locales;
+    if (locales.isEmpty) return I18nMode.zhCn;
+    final first = locales.first;
+    switch (first.languageCode) {
+      case 'en':
+        return I18nMode.en;
+      case 'zh':
+        final cc = first.countryCode;
+        if (first.scriptCode == 'Hant' ||
+            cc == 'TW' ||
+            cc == 'HK' ||
+            cc == 'MO') {
+          return I18nMode.zhTw;
+        }
+        return I18nMode.zhCn;
+    }
+    return I18nMode.zhCn;
   }
 }
 
@@ -235,7 +272,7 @@ class _PairRequestHostState extends ConsumerState<_PairRequestHost> {
                   ),
                   SizedBox(height: 12 * s),
                   Text(
-                    '配对请求',
+                    tr('配对请求'),
                     style: TextStyle(
                       fontSize: 18 * s,
                       fontWeight: FontWeight.bold,
@@ -243,7 +280,9 @@ class _PairRequestHostState extends ConsumerState<_PairRequestHost> {
                   ),
                   SizedBox(height: 8 * s),
                   Text(
-                    '「${name.isEmpty ? '手机' : name}」请求连接腕上弦予',
+                    tr('「{name}」请求连接腕上弦予', {
+                      'name': name.isEmpty ? tr('手机') : name,
+                    }),
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 13 * s,
@@ -269,7 +308,7 @@ class _PairRequestHostState extends ConsumerState<_PairRequestHost> {
                           minimumSize: Size(0, 36 * s),
                           textStyle: TextStyle(fontSize: 13.5 * s),
                         ),
-                        child: const Text('允许'),
+                        child: Text(tr('允许')),
                       ),
                       SizedBox(width: 12 * s),
                       OutlinedButton(
@@ -284,7 +323,7 @@ class _PairRequestHostState extends ConsumerState<_PairRequestHost> {
                           minimumSize: Size(0, 36 * s),
                           textStyle: TextStyle(fontSize: 13.5 * s),
                         ),
-                        child: const Text('拒绝'),
+                        child: Text(tr('拒绝')),
                       ),
                     ],
                   ),

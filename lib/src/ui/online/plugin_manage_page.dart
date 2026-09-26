@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/watch_fit.dart';
+import '../../i18n/i18n.dart';
 import '../../plugin/plugin_models.dart';
 import '../../plugin/plugin_provider.dart';
 import '../../plugin/plugin_subscriptions.dart';
@@ -46,7 +47,11 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(count > 0 ? '发现 $count 个插件可更新' : '所有插件均为最新版本'),
+          content: Text(
+            count > 0
+                ? tr('发现 {count} 个插件可更新', {'count': count})
+                : tr('所有插件均为最新版本'),
+          ),
           duration: const Duration(seconds: 2),
         ),
       );
@@ -55,7 +60,7 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('检查更新失败：$e'),
+            content: Text(tr('检查更新失败：{e}', {'e': e})),
             duration: const Duration(seconds: 2),
           ),
         );
@@ -74,9 +79,9 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
       if (r == null || !r.hasUpdate) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('已经是最新版本'),
-            duration: Duration(seconds: 1),
+          SnackBar(
+            content: Text(tr('已经是最新版本')),
+            duration: const Duration(seconds: 1),
           ),
         );
         await ref
@@ -97,7 +102,7 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('更新失败：$e'),
+            content: Text(tr('更新失败：{e}', {'e': e})),
             duration: const Duration(seconds: 2),
           ),
         );
@@ -121,9 +126,9 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
   Future<void> _addPlugin() async {
     final url = await showFullInput(
       context,
-      title: '添加插件',
-      hint: '插件脚本/订阅 URL',
-      okLabel: '安装',
+      title: tr('添加插件'),
+      hint: tr('插件脚本/订阅 URL'),
+      okLabel: tr('安装'),
       keyboardType: TextInputType.url,
     );
     if (url == null || url.isEmpty || !mounted) return;
@@ -136,8 +141,10 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
         SnackBar(
           content: Text(
             result.success
-                ? '已安装 ${result.names.join('、')}'
-                : '安装失败：${result.errors.join('；')}',
+                ? tr('已安装 {names}', {'names': result.names.join('、')})
+                : tr('安装失败：{errors}', {
+                    'errors': result.errors.join('；'),
+                  }),
           ),
           duration: const Duration(seconds: 2),
         ),
@@ -146,7 +153,9 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('安装失败：$e')));
+        ).showSnackBar(
+          SnackBar(content: Text(tr('安装失败：{e}', {'e': e}))),
+        );
       }
     }
   }
@@ -168,7 +177,7 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
               const BackButton(),
               SizedBox(width: 2 * s),
               Text(
-                '插件管理',
+                tr('插件管理'),
                 style: TextStyle(
                   fontSize: 15 * s,
                   fontWeight: FontWeight.w700,
@@ -177,7 +186,7 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
               ),
               const Spacer(),
               IconButton(
-                tooltip: '检测全部更新',
+                tooltip: tr('检测全部更新'),
                 onPressed: _checking ? null : _checkAllUpdates,
                 icon: _checking
                     ? SizedBox(
@@ -188,7 +197,7 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
                     : Icon(Icons.sync_rounded, size: 20 * s),
               ),
               IconButton(
-                tooltip: '添加插件',
+                tooltip: tr('添加插件'),
                 onPressed: _addPlugin,
                 icon: Icon(Icons.add_circle_outline_rounded, size: 22 * s),
               ),
@@ -213,7 +222,7 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
                   padding: EdgeInsets.symmetric(vertical: 6 * s),
                 ),
                 child: Text(
-                  '一键更新 $updateCount 个插件',
+                  tr('一键更新 {count} 个插件', {'count': updateCount}),
                   style: TextStyle(fontSize: 12 * s),
                 ),
               ),
@@ -229,7 +238,7 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
           Expanded(
             child: Center(
               child: Text(
-                '暂无插件\n点右上角 + 添加在线音源',
+                tr('暂无插件\n点右上角 + 添加在线音源'),
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 12 * s,
@@ -288,7 +297,9 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
           ),
         ),
         subtitle: Text(
-          hasUpdate ? '有更新 v${src.version} → 检测到新版本' : 'v${src.version}',
+          hasUpdate
+              ? tr('有更新 v{version} → 检测到新版本', {'version': src.version})
+              : 'v${src.version}',
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
@@ -315,7 +326,7 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
                         minimumSize: Size(0, 30 * s),
                       ),
                       child: Text(
-                        '更新',
+                        tr('更新'),
                         style: TextStyle(
                           fontSize: 12 * s,
                           color: const Color(0xFFFF6B81),
@@ -331,7 +342,7 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
                   .toggleEnabled(src.id),
             ),
             IconButton(
-              tooltip: '删除',
+              tooltip: tr('删除'),
               icon: Icon(
                 Icons.delete_outline_rounded,
                 size: 20 * s,

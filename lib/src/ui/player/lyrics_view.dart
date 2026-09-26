@@ -9,6 +9,7 @@ import 'package:wearable_rotary/wearable_rotary.dart';
 import '../../core/ambient.dart';
 import '../../core/settings.dart';
 import '../../core/watch_fit.dart';
+import '../../i18n/i18n.dart';
 import '../../lyrics/lyric_model.dart';
 import '../../core/haptics.dart';
 import 'play_page_body.dart' show kPlayerAccent;
@@ -162,10 +163,31 @@ class _LyricsViewState extends ConsumerState<LyricsView>
   }
 
   void _syncLines() {
-    _lines = widget.lines;
+    _lines = _localizedLines(widget.lines);
     _navigator = _lines.isEmpty ? null : TimingNavigator(_lines);
     _currentIndex = -1;
     _hapticRow = 0;
+  }
+
+  /// 歌词原文渲染入口：繁体模式下原文行（含逐字词）统一过一遍简→繁
+  /// 转换；译文行（translation/romaji）不动，时间轴数据原样保留。
+  List<LyricLine> _localizedLines(List<LyricLine> lines) {
+    if (lines.isEmpty) return lines;
+    return [
+      for (final l in lines)
+        l.copyWith(
+          text: localizeLyricText(l.text),
+          words: [
+            for (final w in l.words)
+              LyricWord(
+                text: localizeLyricText(w.text),
+                start: w.start,
+                end: w.end,
+                romaji: w.romaji,
+              ),
+          ],
+        ),
+    ];
   }
 
   void _applyPosition() {
@@ -217,7 +239,7 @@ class _LyricsViewState extends ConsumerState<LyricsView>
     if (_lines.isEmpty) {
       return Center(
         child: Text(
-          widget.emptyText,
+          tr(widget.emptyText),
           style: TextStyle(
             fontSize: 12 * s,
             color: Colors.white.withValues(alpha: 0.4),

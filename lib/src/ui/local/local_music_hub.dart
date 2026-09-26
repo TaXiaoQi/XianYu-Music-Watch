@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../favorites/favorites_provider.dart';
+import '../../i18n/i18n.dart';
 import '../../lyrics/lyric_model.dart';
 import '../../lyrics/lyrics_repository.dart';
 import '../../player/player_provider.dart';
@@ -128,7 +129,7 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
       (
         const Color(0xFFFF4D6E),
         Icons.library_music_rounded,
-        '本地音乐',
+        tr('本地音乐'),
         () => Navigator.of(context).push(
           MaterialPageRoute<void>(builder: (_) => const LocalLibraryView()),
         ),
@@ -136,7 +137,7 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
       (
         const Color(0xFFFF4D6E),
         Icons.favorite_rounded,
-        '收藏',
+        tr('收藏'),
         () => Navigator.of(context).push(
           MaterialPageRoute<void>(builder: (_) => const FavoritesPage()),
         ),
@@ -144,7 +145,7 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
       (
         const Color(0xFFD94A8C),
         Icons.queue_music_rounded,
-        '歌单',
+        tr('歌单'),
         () => Navigator.of(context).push(
           MaterialPageRoute<void>(builder: (_) => const CloudPlaylistsPage()),
         ),
@@ -152,7 +153,7 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
       (
         const Color(0xFFE8A33D),
         Icons.account_circle_rounded,
-        '账号',
+        tr('账号'),
         () => Navigator.of(
           context,
         ).push(MaterialPageRoute<void>(builder: (_) => const AccountView())),
@@ -161,7 +162,7 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
         (
           const Color(0xFFE8694D),
           Icons.recommend_rounded,
-          '每日推荐',
+          tr('每日推荐'),
           () => Navigator.of(context).push(
             MaterialPageRoute<void>(builder: (_) => const DailyRecommendPage()),
           ),
@@ -169,7 +170,7 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
         (
           const Color(0xFF4A90D9),
           Icons.leaderboard_rounded,
-          '音源榜单',
+          tr('音源榜单'),
           () => Navigator.of(
             context,
           ).push(MaterialPageRoute<void>(builder: (_) => const TopListPage())),
@@ -178,7 +179,7 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
       (
         const Color(0xFF4A90D9),
         Icons.travel_explore_rounded,
-        '搜索',
+        tr('搜索'),
         () => Navigator.of(context).push(
           MaterialPageRoute<void>(builder: (_) => const OnlineSearchPage()),
         ),
@@ -186,7 +187,7 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
       (
         const Color(0xFF5FA97C),
         Icons.settings_rounded,
-        '设置',
+        tr('设置'),
         () => Navigator.of(
           context,
         ).push(MaterialPageRoute<void>(builder: (_) => const SettingsView())),
@@ -199,7 +200,7 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
       body: SafeArea(
         child: SteppedListView(
           itemCount: specs.length + 1,
-          header: const PageTitleHeader('功能'),
+          header: PageTitleHeader(tr('功能')),
           rotaryGuard: () => ref.read(localHubPageProvider) == 0,
           itemBuilder: (context, i) {
             if (i == 0) {
@@ -246,8 +247,8 @@ class _LocalPlayPage extends ConsumerWidget {
     return PlayPageBody(
       sourceBuilder: () =>
           LocalPlayerSource(st, ref.read(playerProvider.notifier), vol, liked),
-      emptyText: '还没有在播的歌',
-      emptyActionLabel: '无音乐，去选歌',
+      emptyText: tr('还没有在播的歌'),
+      emptyActionLabel: tr('无音乐，去选歌'),
       onEmptyAction: () => ref.read(localHubPageProvider.notifier).state = 0,
       rotaryGuard: () => ref.read(localHubPageProvider) == 1,
     );

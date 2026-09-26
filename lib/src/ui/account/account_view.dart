@@ -7,6 +7,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../core/watch_fit.dart';
 import '../../auth/auth_provider.dart';
+import '../../i18n/i18n.dart';
 import '../../player/listen_stats.dart';
 import '../../sync/sync_provider.dart';
 import '../common/full_dialog.dart';
@@ -32,9 +33,9 @@ class _AccountViewState extends ConsumerState<AccountView> {
         if (!mounted) return;
         if (!ref.read(authProvider).sessionExpired) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('登录已过期，请重新登录'),
-            duration: Duration(seconds: 2),
+          SnackBar(
+            content: Text(tr('登录已过期，请重新登录')),
+            duration: const Duration(seconds: 2),
           ),
         );
         ref.read(authProvider.notifier).consumeSessionExpired();
@@ -46,7 +47,7 @@ class _AccountViewState extends ConsumerState<AccountView> {
         child: auth.isLoggedIn
             ? SteppedListView(
                 itemCount: 5,
-                header: const PageTitleHeader('账号', showBack: true),
+                header: PageTitleHeader(tr('账号'), showBack: true),
                 rowExtent: (i) => const [96.0, 100.0, 178.0, 48.0, 42.0][i],
                 itemBuilder: (context, i) => switch (i) {
                   0 => _identityCard(auth.user!),
@@ -78,7 +79,7 @@ class _AccountViewState extends ConsumerState<AccountView> {
                               const BackButton(),
                               SizedBox(width: 4 * s),
                               Text(
-                                '账号',
+                                tr('账号'),
                                 style: TextStyle(
                                   fontSize: 15 * s,
                                   fontWeight: FontWeight.w700,
@@ -97,7 +98,7 @@ class _AccountViewState extends ConsumerState<AccountView> {
                             onPressed: () =>
                                 setState(() => _passwordMode = true),
                             child: Text(
-                              '使用密码登录',
+                              tr('使用密码登录'),
                               style: TextStyle(
                                 fontSize: 12 * s,
                                 color: Color(0xFFFF8FA3),
@@ -140,7 +141,7 @@ class _AccountViewState extends ConsumerState<AccountView> {
         ),
         SizedBox(height: 2 * _identityS),
         Text(
-          '弦予号 ${user.ciyuanxiId ?? user.username}',
+          tr('弦予号 {id}', {'id': user.ciyuanxiId ?? user.username}),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
@@ -172,9 +173,9 @@ class _AccountViewState extends ConsumerState<AccountView> {
           await ref.read(authProvider.notifier).logout();
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('已退出登录'),
-                duration: Duration(seconds: 1),
+              SnackBar(
+                content: Text(tr('已退出登录')),
+                duration: const Duration(seconds: 1),
               ),
             );
           }
@@ -185,7 +186,7 @@ class _AccountViewState extends ConsumerState<AccountView> {
           padding: EdgeInsets.symmetric(horizontal: 22 * s, vertical: 6 * s),
         ),
         icon: Icon(Icons.logout_rounded, size: 16 * s),
-        label: Text('退出登录', style: TextStyle(fontSize: 13 * s)),
+        label: Text(tr('退出登录'), style: TextStyle(fontSize: 13 * s)),
       ),
     );
   }
@@ -196,7 +197,7 @@ class _AccountViewState extends ConsumerState<AccountView> {
       child: TextButton(
         onPressed: _showDeleteAccountGuide,
         child: Text(
-          '注销账号',
+          tr('注销账号'),
           style: TextStyle(
             fontSize: 11 * s,
             color: Colors.white.withValues(alpha: 0.45),
@@ -209,10 +210,11 @@ class _AccountViewState extends ConsumerState<AccountView> {
   void _showDeleteAccountGuide() {
     showFullConfirm(
       context,
-      title: '注销账号',
-      message:
-          '注销需密码和邮箱验证码双重确认，请到手机端或桌面端操作：\n\n手机端 · 账号页 → 注销账号\n桌面端 · 账号设置 → 注销账号',
-      okLabel: '知道了',
+      title: tr('注销账号'),
+      message: tr(
+        '注销需密码和邮箱验证码双重确认，请到手机端或桌面端操作：\n\n手机端 · 账号页 → 注销账号\n桌面端 · 账号设置 → 注销账号',
+      ),
+      okLabel: tr('知道了'),
       okOnly: true,
     );
   }
@@ -257,7 +259,7 @@ class _ListenStatsCardState extends ConsumerState<_ListenStatsCard> {
               ),
               SizedBox(width: 6 * s),
               Text(
-                '听歌时长',
+                tr('听歌时长'),
                 style: TextStyle(fontSize: 13 * s, fontWeight: FontWeight.w600),
               ),
             ],
@@ -265,9 +267,9 @@ class _ListenStatsCardState extends ConsumerState<_ListenStatsCard> {
           SizedBox(height: 8 * s),
           Row(
             children: [
-              _statItem('今日', formatListenDuration(stats.displayDaily), s),
-              _statItem('本周', formatListenDuration(stats.displayWeekly), s),
-              _statItem('累计', formatListenDuration(stats.displayTotal), s),
+              _statItem(tr('今日'), formatListenDuration(stats.displayDaily), s),
+              _statItem(tr('本周'), formatListenDuration(stats.displayWeekly), s),
+              _statItem(tr('累计'), formatListenDuration(stats.displayTotal), s),
             ],
           ),
         ],
@@ -329,12 +331,12 @@ class _SyncCard extends ConsumerWidget {
               ),
               SizedBox(width: 6 * s),
               Text(
-                '云同步',
+                tr('云同步'),
                 style: TextStyle(fontSize: 13 * s, fontWeight: FontWeight.w600),
               ),
               const Spacer(),
               Text(
-                '自动同步',
+                tr('自动同步'),
                 style: TextStyle(
                   fontSize: 11 * s,
                   color: Colors.white.withValues(alpha: 0.55),
@@ -368,7 +370,7 @@ class _SyncCard extends ConsumerWidget {
                 ),
                 SizedBox(width: 6 * s),
                 Text(
-                  '同步中…',
+                  tr('同步中…'),
                   style: TextStyle(
                     fontSize: 11 * s,
                     color: const Color(0xFFFF8FA3),
@@ -378,8 +380,10 @@ class _SyncCard extends ConsumerWidget {
                 Expanded(
                   child: Text(
                     sync.lastSyncAt == null
-                        ? '尚未同步'
-                        : '上次同步 ${_fmtTime(sync.lastSyncAt!)}',
+                        ? tr('尚未同步')
+                        : tr('上次同步 {time}', {
+                            'time': _fmtTime(sync.lastSyncAt!),
+                          }),
                     style: TextStyle(
                       fontSize: 11 * s,
                       color: Colors.white.withValues(alpha: 0.55),
@@ -427,7 +431,7 @@ class _SyncCard extends ConsumerWidget {
                       padding: EdgeInsets.symmetric(horizontal: 6 * s),
                     ),
                     icon: Icon(Icons.cloud_download_rounded, size: 15 * s),
-                    label: Text('手动下载', style: TextStyle(fontSize: 11 * s)),
+                    label: Text(tr('手动下载'), style: TextStyle(fontSize: 11 * s)),
                   ),
                 ),
               ),
@@ -445,7 +449,7 @@ class _SyncCard extends ConsumerWidget {
                       padding: EdgeInsets.symmetric(horizontal: 6 * s),
                     ),
                     icon: Icon(Icons.cloud_upload_rounded, size: 15 * s),
-                    label: Text('手动上传', style: TextStyle(fontSize: 11 * s)),
+                    label: Text(tr('手动上传'), style: TextStyle(fontSize: 11 * s)),
                   ),
                 ),
               ),
@@ -453,7 +457,7 @@ class _SyncCard extends ConsumerWidget {
           ),
           SizedBox(height: 6 * s),
           Text(
-            '自动同步：登录后全量一次，之后每小时上传一次',
+            tr('自动同步：登录后全量一次，之后每小时上传一次'),
             style: TextStyle(
               fontSize: 9.5 * s,
               color: Colors.white.withValues(alpha: 0.35),
@@ -559,7 +563,7 @@ class _PasswordLoginFormState extends ConsumerState<_PasswordLoginForm> {
       setState(() {
         _captcha = null;
         _configLoading = false;
-        _captchaError = '验证题加载失败，请稍后重试';
+        _captchaError = tr('验证题加载失败，请稍后重试');
       });
     }
   }
@@ -569,7 +573,7 @@ class _PasswordLoginFormState extends ConsumerState<_PasswordLoginForm> {
     final id = _idCtrl.text.trim();
     final pwd = _pwdCtrl.text;
     if (id.isEmpty || pwd.isEmpty) {
-      ref.read(authProvider.notifier).setFormError('请输入弦予号和密码');
+      ref.read(authProvider.notifier).setFormError(tr('请输入弦予号和密码'));
       return;
     }
     final captcha = _captcha;
@@ -577,7 +581,7 @@ class _PasswordLoginFormState extends ConsumerState<_PasswordLoginForm> {
     if (captcha != null && captcha.captchaId.isNotEmpty) {
       final answer = _answerCtrl.text.trim();
       if (answer.isEmpty) {
-        ref.read(authProvider.notifier).setFormError('请输入验证答案');
+        ref.read(authProvider.notifier).setFormError(tr('请输入验证答案'));
         return;
       }
       payload = HumanCaptchaPayload(
@@ -682,7 +686,7 @@ class _PasswordLoginFormState extends ConsumerState<_PasswordLoginForm> {
                   ),
                 )
               : Text(
-                  '登录',
+                  tr('登录'),
                   style: TextStyle(
                     fontSize: 15 * s,
                     fontWeight: FontWeight.w700,
@@ -705,7 +709,7 @@ class _PasswordLoginFormState extends ConsumerState<_PasswordLoginForm> {
         field: TextField(
           controller: _idCtrl,
           style: TextStyle(fontSize: 14 * s),
-          decoration: _bareField('弦予号'),
+          decoration: _bareField(tr('弦予号')),
           textInputAction: TextInputAction.next,
         ),
       ),
@@ -717,7 +721,7 @@ class _PasswordLoginFormState extends ConsumerState<_PasswordLoginForm> {
           controller: _pwdCtrl,
           obscureText: true,
           style: TextStyle(fontSize: 14 * s),
-          decoration: _bareField('密码'),
+          decoration: _bareField(tr('密码')),
           textInputAction: TextInputAction.done,
           onSubmitted: (_) => _submit(),
         ),
@@ -740,7 +744,7 @@ class _PasswordLoginFormState extends ConsumerState<_PasswordLoginForm> {
       rows.add(
         _centerRow(
           Text(
-            '服务端启用了网页人机验证，腕上端不支持。\n请返回使用扫码登录。',
+            tr('服务端启用了网页人机验证，腕上端不支持。\n请返回使用扫码登录。'),
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 11 * s,
@@ -759,7 +763,7 @@ class _PasswordLoginFormState extends ConsumerState<_PasswordLoginForm> {
             child: Icon(Icons.help_rounded, size: 20 * s, color: Colors.white),
           ),
           child: Text(
-            _captcha?.question ?? '验证题加载失败',
+            _captcha?.question ?? tr('验证题加载失败'),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
@@ -781,7 +785,7 @@ class _PasswordLoginFormState extends ConsumerState<_PasswordLoginForm> {
             keyboardType: TextInputType.number,
             style: TextStyle(fontSize: 14 * s),
             textAlign: TextAlign.center,
-            decoration: _bareField('答案'),
+            decoration: _bareField(tr('答案')),
             onSubmitted: (_) => _submit(),
           ),
         ),
@@ -796,7 +800,7 @@ class _PasswordLoginFormState extends ConsumerState<_PasswordLoginForm> {
     rows.add(
       _centerRow(
         Text(
-          '没有账号？请在手机端注册',
+          tr('没有账号？请在手机端注册'),
           style: TextStyle(
             fontSize: 10 * s,
             color: Colors.white.withValues(alpha: 0.35),
@@ -813,7 +817,7 @@ class _PasswordLoginFormState extends ConsumerState<_PasswordLoginForm> {
           child: TextButton(
             onPressed: widget.onSwitchMode,
             child: Text(
-              '使用扫码登录',
+              tr('使用扫码登录'),
               style: TextStyle(fontSize: 12 * s, color: const Color(0xFFFF8FA3)),
             ),
           ),
@@ -821,7 +825,7 @@ class _PasswordLoginFormState extends ConsumerState<_PasswordLoginForm> {
       ),
     );
     return SteppedListView(
-      header: const PageTitleHeader('账号', showBack: true),
+      header: PageTitleHeader(tr('账号'), showBack: true),
       itemCount: rows.length,
       itemBuilder: (context, i) => rows[i],
     );
@@ -919,7 +923,9 @@ class _QrLoginPanelState extends ConsumerState<_QrLoginPanel> {
           t.cancel();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('登录成功，欢迎 ${user.nickname}'),
+              content: Text(
+                tr('登录成功，欢迎 {name}', {'name': user.nickname}),
+              ),
               duration: const Duration(seconds: 2),
             ),
           );
@@ -934,11 +940,11 @@ class _QrLoginPanelState extends ConsumerState<_QrLoginPanel> {
   Widget build(BuildContext context) {
     final s = context.watchScale();
     final hint = switch (_status) {
-      'loading' => '二维码生成中…',
-      'pending' => '打开手机端 弦予音乐 扫码',
-      'scanned' => '已扫码，请在手机上确认登录',
-      'expired' => '二维码已过期',
-      _ => '二维码获取失败',
+      'loading' => tr('二维码生成中…'),
+      'pending' => tr('打开手机端 弦予音乐 扫码'),
+      'scanned' => tr('已扫码，请在手机上确认登录'),
+      'expired' => tr('二维码已过期'),
+      _ => tr('二维码获取失败'),
     };
     return Column(
       children: [
@@ -976,7 +982,7 @@ class _QrLoginPanelState extends ConsumerState<_QrLoginPanel> {
                         vertical: 4 * s,
                       ),
                     ),
-                    child: Text('刷新二维码', style: TextStyle(fontSize: 11 * s)),
+                    child: Text(tr('刷新二维码'), style: TextStyle(fontSize: 11 * s)),
                   ),
                 ],
               ),
@@ -990,7 +996,7 @@ class _QrLoginPanelState extends ConsumerState<_QrLoginPanel> {
                   ),
                   SizedBox(height: 6 * s),
                   Text(
-                    '已扫描',
+                    tr('已扫描'),
                     style: TextStyle(
                       fontSize: 14 * s,
                       fontWeight: FontWeight.w700,
@@ -999,7 +1005,7 @@ class _QrLoginPanelState extends ConsumerState<_QrLoginPanel> {
                   ),
                   SizedBox(height: 3 * s),
                   Text(
-                    '等待手机端确认登录',
+                    tr('等待手机端确认登录'),
                     style: TextStyle(
                       fontSize: 10.5 * s,
                       color: Colors.black.withValues(alpha: 0.45),

@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../auth/auth_provider.dart';
 import '../core/app_version.dart';
 import '../core/watch_fit.dart';
+import '../i18n/i18n.dart';
 import '../ui/common/full_dialog.dart';
 
 const String kWatchUpdatePromptKey = 'watch_app_update_last_prompt_date';
@@ -84,7 +85,7 @@ Future<void> showUpdatePage(
     builder: (ctx) {
       final s = context.watchScale();
       return FullDialogScaffold(
-        title: '发现新版本',
+        title: tr('发现新版本'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -96,7 +97,7 @@ Future<void> showUpdatePage(
                     style: TextStyle(
                         fontSize: 16 * s, fontWeight: FontWeight.w700)),
                 const SizedBox(width: 6),
-                _badge(ctx, '腕上版'),
+                _badge(ctx, tr('腕上版')),
               ],
             ),
             SizedBox(height: 10 * s),
@@ -111,7 +112,7 @@ Future<void> showUpdatePage(
               )
             else
               Text(
-                '更新内容暂无说明',
+                tr('更新内容暂无说明'),
                 textAlign: TextAlign.center,
                 style: TextStyle(
                     fontSize: 12 * s,
@@ -121,11 +122,11 @@ Future<void> showUpdatePage(
         ),
         actions: [
           FullDialogButton(
-            label: '暂不更新',
+            label: tr('暂不更新'),
             onPressed: () => Navigator.pop(ctx),
           ),
           FullDialogButton(
-            label: '去更新',
+            label: tr('去更新'),
             primary: true,
             onPressed: () {
               Navigator.pop(ctx);
@@ -161,5 +162,5 @@ void _toast(BuildContext context, String msg) {
 }
 
 void toastUpdateOnPhone(BuildContext context) {
-  _toast(context, '请在手机端下载最新版腕上应用');
+  _toast(context, tr('请在手机端下载最新版腕上应用'));
 }

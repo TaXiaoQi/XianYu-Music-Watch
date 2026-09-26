@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../auth/auth_provider.dart';
 import '../core/db_path.dart';
 import '../favorites/favorites_provider.dart';
+import '../i18n/i18n.dart';
 import '../plugin/plugin_provider.dart';
 import '../plugin/plugin_subscriptions.dart';
 import '../plugin/plugin_sync_crypto.dart';
@@ -127,7 +128,7 @@ class SyncNotifier extends StateNotifier<SyncState> {
     Map<String, dynamic> body,
   ) async {
     if (!_ref.read(authProvider).isLoggedIn) {
-      throw AuthException('请先登录');
+      throw AuthException(tr('请先登录'));
     }
     return _ref.read(authProvider.notifier).requestAction(action, body);
   }
@@ -145,7 +146,9 @@ class SyncNotifier extends StateNotifier<SyncState> {
       try {
         await run();
       } catch (e) {
-        errors.add('$label：${e is AuthException ? e.message : e}');
+        errors.add(
+          tr('{label}：{e}', {'label': label, 'e': e is AuthException ? e.message : e}),
+        );
       }
     }
     final prefs = await SharedPreferences.getInstance();
@@ -155,28 +158,30 @@ class SyncNotifier extends StateNotifier<SyncState> {
     state = state.copyWith(
       syncing: false,
       lastSyncAt: DateTime.now(),
-      lastSummary: errors.isEmpty ? doneLabel : '部分完成（${errors.join('；')}）',
+      lastSummary: errors.isEmpty
+          ? doneLabel
+          : tr('部分完成（{e}）', {'e': errors.join('；')}),
       error: errors.isEmpty ? null : errors.join('；'),
     );
   }
 
-  Future<void> syncDownload() => _runSteps('下载完成', [
-    ('收藏下载', _syncFavoritesDownload),
-    ('插件下载', _syncPluginsDownload),
-    ('歌单下载', _syncPlaylistsDownload),
+  Future<void> syncDownload() => _runSteps(tr('下载完成'), [
+    (tr('收藏下载'), _syncFavoritesDownload),
+    (tr('插件下载'), _syncPluginsDownload),
+    (tr('歌单下载'), _syncPlaylistsDownload),
   ]);
 
-  Future<void> syncUpload() => _runSteps('上传完成', [
-    ('收藏上传', _syncFavoritesUpload),
-    ('插件上传', _syncPluginsUpload),
+  Future<void> syncUpload() => _runSteps(tr('上传完成'), [
+    (tr('收藏上传'), _syncFavoritesUpload),
+    (tr('插件上传'), _syncPluginsUpload),
   ]);
 
-  Future<void> syncAll() => _runSteps('全量同步完成', [
-    ('收藏下载', _syncFavoritesDownload),
-    ('插件下载', _syncPluginsDownload),
-    ('歌单下载', _syncPlaylistsDownload),
-    ('收藏上传', _syncFavoritesUpload),
-    ('插件上传', _syncPluginsUpload),
+  Future<void> syncAll() => _runSteps(tr('全量同步完成'), [
+    (tr('收藏下载'), _syncFavoritesDownload),
+    (tr('插件下载'), _syncPluginsDownload),
+    (tr('歌单下载'), _syncPlaylistsDownload),
+    (tr('收藏上传'), _syncFavoritesUpload),
+    (tr('插件上传'), _syncPluginsUpload),
   ]);
 
   // ─── 收藏 ───────────────────────────────────────────────
@@ -458,7 +463,7 @@ class SyncNotifier extends StateNotifier<SyncState> {
       playlists.add(
         CloudPlaylist(
           cloudId: (pl['cloudId'] ?? pl['id'] ?? '').toString(),
-          name: (pl['name'] ?? '未命名歌单').toString(),
+          name: (pl['name'] ?? tr('未命名歌单')).toString(),
           songs: visible,
           sourcePluginId: (pl['sourcePluginId'] as String?)?.isNotEmpty == true
               ? pl['sourcePluginId'] as String
