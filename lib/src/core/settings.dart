@@ -23,6 +23,40 @@ List<String> _mergeScanFormats(List<String>? saved) {
   return saved;
 }
 
+/// 功能页入口 id 与默认顺序（当前磁盘默认：账号 → 每日推荐 → 音源榜单 →
+/// 收藏 → 歌单 → 本地音乐 → 搜索 → 设置；对齐桌面端「侧边栏管理」的
+/// DEFAULT_SIDEBAR_ORDER 设计）
+const kDefaultHubEntryOrder = <String>[
+  'account',
+  'daily',
+  'toplist',
+  'favorites',
+  'playlists',
+  'local',
+  'search',
+  'settings',
+];
+
+/// 归一化已保存的功能页顺序（与桌面端 normalizeSidebarOrder 同策略）：
+/// 非列表/为空回落默认；未知 id、重复 id 丢弃；缺失 id 按默认相对顺序
+/// 追加末尾（新增入口默认排在最后）
+List<String> normalizeHubEntryOrder(List<String>? saved) {
+  if (saved == null || saved.isEmpty) {
+    return List<String>.from(kDefaultHubEntryOrder);
+  }
+  final known = kDefaultHubEntryOrder.toSet();
+  final seen = <String>{};
+  final result = <String>[];
+  for (final id in saved) {
+    if (!known.contains(id) || !seen.add(id)) continue;
+    result.add(id);
+  }
+  for (final id in kDefaultHubEntryOrder) {
+    if (!seen.contains(id)) result.add(id);
+  }
+  return result;
+}
+
 class AppSettings {
   const AppSettings({
     this.volume = 1.0,
@@ -40,6 +74,7 @@ class AppSettings {
     this.streamCacheSizeMB = 200,
     this.autoResumeAfterInterruption = true,
     this.language = 'system',
+    this.hubEntryOrder = kDefaultHubEntryOrder,
   });
 
   final double volume;
@@ -69,6 +104,9 @@ class AppSettings {
   /// 'system' | 'zhCN' | 'zhTW' | 'en'
   final String language;
 
+  /// 功能页（独立模式首页）入口显示顺序，元素为 kDefaultHubEntryOrder 的 id
+  final List<String> hubEntryOrder;
+
   AppSettings copyWith({
     double? volume,
     int? playMode,
@@ -85,6 +123,7 @@ class AppSettings {
     int? streamCacheSizeMB,
     bool? autoResumeAfterInterruption,
     String? language,
+    List<String>? hubEntryOrder,
   }) {
     return AppSettings(
       volume: volume ?? this.volume,
@@ -106,6 +145,7 @@ class AppSettings {
       autoResumeAfterInterruption:
           autoResumeAfterInterruption ?? this.autoResumeAfterInterruption,
       language: language ?? this.language,
+      hubEntryOrder: hubEntryOrder ?? this.hubEntryOrder,
     );
   }
 }
@@ -148,6 +188,8 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
       autoResumeAfterInterruption:
           prefs.getBool('autoResumeAfterInterruption') ?? true,
       language: prefs.getString('language') ?? 'system',
+      hubEntryOrder:
+          normalizeHubEntryOrder(prefs.getStringList('hubEntryOrder')),
     );
   }
 
@@ -171,6 +213,7 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
       prefs.setBool('autoResumeAfterInterruption',
           next.autoResumeAfterInterruption),
       prefs.setString('language', next.language),
+      prefs.setStringList('hubEntryOrder', next.hubEntryOrder),
     ]);
   }
 
@@ -206,6 +249,9 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
 
   Future<void> setLanguage(String v) async =>
       _save((await _current()).copyWith(language: v));
+
+  Future<void> setHubEntryOrder(List<String> v) async =>
+      _save((await _current()).copyWith(hubEntryOrder: v));
 
   Future<void> saveAll(AppSettings next) => _save(next);
 }

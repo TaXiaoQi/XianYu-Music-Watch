@@ -58,6 +58,9 @@ class _LyricsViewState extends ConsumerState<LyricsView>
 
   DateTime _manualUntil = DateTime.fromMillisecondsSinceEpoch(0);
 
+  /// 当前滚动会话是否由用户拖拽发起（区分拖拽与程序化 animateTo）
+  bool _userScrolling = false;
+
   int _offsetMs = 0;
 
   bool _showTranslation = true;
@@ -250,14 +253,24 @@ class _LyricsViewState extends ConsumerState<LyricsView>
 
     return NotificationListener<ScrollNotification>(
       onNotification: (n) {
-        final manual = (n is ScrollUpdateNotification &&
-                n.dragDetails != null) ||
-            n is ScrollEndNotification;
-        if (manual) {
-          _manualUntil = DateTime.now().add(const Duration(seconds: 4));
-        }
-        return false;
-      },
+          // 仅用户拖拽发起的滚动会话才算手动滚动；程序化 animateTo 完成
+          // 也会派发 ScrollEndNotification（dragDetails 为 null），若不区分
+          // 会在每次自动居中后误置 4s 锁定，导致后续 1~2 行不跟随居中。
+          if (n is ScrollStartNotification) {
+            _userScrolling = n.dragDetails != null;
+          } else if (n is ScrollUpdateNotification) {
+            if (n.dragDetails != null) {
+              _userScrolling = true;
+              _manualUntil = DateTime.now().add(const Duration(seconds: 4));
+            }
+          } else if (n is ScrollEndNotification) {
+            if (_userScrolling) {
+              _userScrolling = false;
+              _manualUntil = DateTime.now().add(const Duration(seconds: 4));
+            }
+          }
+          return false;
+        },
       child: ShaderMask(
       shaderCallback: (rect) => const LinearGradient(
         begin: Alignment.topCenter,

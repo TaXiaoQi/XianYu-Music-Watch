@@ -23,9 +23,11 @@ class DailyRecommendPage extends ConsumerWidget {
       tr('每日推荐'),
       showBack: true,
       trailing: IconButton(
-        tooltip: tr('换一批'),
-        onPressed: () => ref.read(dailyRecommendProvider.notifier).refresh(),
-        icon: Icon(Icons.casino_rounded, size: 20 * s),
+        tooltip: tr('刷新'),
+        onPressed: async.isLoading
+            ? null
+            : () => ref.read(dailyRecommendProvider.notifier).refresh(),
+        icon: Icon(Icons.refresh_rounded, size: 20 * s),
       ),
     );
     Widget stateBody(Widget child) => Column(

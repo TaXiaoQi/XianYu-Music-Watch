@@ -175,6 +175,13 @@ class LinkController extends StateNotifier<LinkState>
   /// 安卓表整轮重试退避封顶（蓝牙 60s 阶段之间的间隔）。
   static const _maxBackoff = Duration(seconds: 15);
 
+  /// 云上回探蓝牙：首次 20s（手机刚回来时尽快升级），之后每 60s 一轮。
+  static const _btProbeFirstDelay = Duration(seconds: 20);
+
+  static const _btProbeInterval = Duration(seconds: 60);
+
+  static const _btProbeTimeoutOf = Duration(seconds: 15);
+
   final List<StreamSubscription<dynamic>> _subs = [];
   Timer? _heartbeat;
   Timer? _interpolate;
@@ -199,6 +206,15 @@ class LinkController extends StateNotifier<LinkState>
   String _cloudUrl = '';
 
   bool _cloudTryActive = false;
+
+  /// 云上回探蓝牙：正在试一轮蓝牙（成功即升级，失败当没发生）。
+  bool _btProbing = false;
+
+  Timer? _btProbeTimer;
+
+  /// 单轮回探的收口超时：sppConnect 可能永不回调，不收口会让原生单飞
+  /// 标志（ohos connecting / 安卓 connecting+socket）永久卡住。
+  Timer? _btProbeTimeout;
 
   bool _disposed = false;
 
@@ -301,6 +317,7 @@ class LinkController extends StateNotifier<LinkState>
     _interpolate?.cancel();
     _reconnect?.cancel();
     _connectWatchdog?.cancel();
+    _stopBtProbe();
     _cloud.close();
     _channel.disconnect();
     super.dispose();
@@ -328,6 +345,7 @@ class LinkController extends StateNotifier<LinkState>
   Future<void> disconnectManually() async {
     _reconnect?.cancel();
     _stopAlive();
+    _stopBtProbe();
     _viaCloud = false;
     _cloudTryActive = false;
     state = state.copyWith(
@@ -381,6 +399,25 @@ class LinkController extends StateNotifier<LinkState>
     _backoff = _minBackoff;
     _btPhaseStart = null;
     state = state.copyWith(phase: LinkPhase.disconnected);
+    _attemptConnect();
+  }
+
+  /// 回到前台时主动重查链路，对齐手机端「启动就重连」的行为。
+  ///
+  /// 手表此前只有两条刷新路径：冷启动 init() 和断连事件回调。一旦卡在
+  /// connected（见 _startAlive 注释）或退避计时器还没到期，回到前台不会
+  /// 有任何动作，只能靠划掉重启 —— 这正是「腕上端过程中不更新状态」的来源。
+  void refreshOnResume() {
+    if (_disposed || !state.autoEnabled) return;
+    if (state.phase == LinkPhase.connected) return;
+    if (_cloudTryActive) return; // 云正在握手中，让它走完
+    _reconnect?.cancel();
+    _connectWatchdog?.cancel();
+    _backoff = _minBackoff;
+    _btPhaseStart = null;
+    if (state.phase == LinkPhase.connecting) {
+      state = state.copyWith(phase: LinkPhase.disconnected);
+    }
     _attemptConnect();
   }
 
@@ -541,9 +578,14 @@ class LinkController extends StateNotifier<LinkState>
   void _onConnection(LinkConnectionEvent evt) {
     _reconnect?.cancel();
     _connectWatchdog?.cancel();
+    _cancelBtProbeTimeout();
+    _btProbing = false;
     state = state.copyWith(incomingName: '', incomingAddress: '');
     if (evt.connected) {
       _onLinkUp(name: evt.name, viaCloud: false);
+    } else if (_viaCloud && state.phase == LinkPhase.connected) {
+      // 云在通，蓝牙不是当前管道：它的成败一律不影响连接态。
+      // 回探失败（或回探中被关掉的旧套接字上报）在这里被吞掉。
     } else {
       final wasConnected = state.phase == LinkPhase.connected;
       _stopAlive();
@@ -575,6 +617,53 @@ class LinkController extends StateNotifier<LinkState>
     }
   }
 
+  // ---- 云上回探蓝牙并升级 ----
+
+  /// 云兜底连着时定期试一轮蓝牙，连上就升级到蓝牙（并关掉云）。
+  ///
+  /// 关键约束：探测不得扰动已连接的 UI 与心跳——不置 connecting、不动
+  /// `_lastFrame`；失败时由 `_onConnection` 的云分支吞掉，绝不拆云链路。
+  void _startBtProbe() {
+    _stopBtProbe();
+    _btProbeTimer = Timer(_btProbeFirstDelay, () {
+      _runBtProbe();
+      _btProbeTimer = Timer.periodic(_btProbeInterval, (_) => _runBtProbe());
+    });
+  }
+
+  void _stopBtProbe() {
+    _btProbeTimer?.cancel();
+    _btProbeTimer = null;
+    _cancelBtProbeTimeout();
+    // 正在回探中的连接必须收口：否则安卓侧 socket/connecting 一直挂着，
+    // 之后的正常重连会被原生单飞守卫静默吞掉。
+    if (_btProbing) _channel.disconnect();
+    _btProbing = false;
+  }
+
+  void _cancelBtProbeTimeout() {
+    _btProbeTimeout?.cancel();
+    _btProbeTimeout = null;
+  }
+
+  void _runBtProbe() {
+    if (_disposed) return;
+    if (!_viaCloud || state.phase != LinkPhase.connected) return;
+    if (_btProbing) return;
+    final addr = state.pairedAddress;
+    if (addr == null || addr.isEmpty || !_sppAvailable) return;
+    _btProbing = true;
+    _channel.connect(addr);
+    _cancelBtProbeTimeout();
+    _btProbeTimeout = Timer(_btProbeTimeoutOf, () {
+      if (!_btProbing) return;
+      _btProbing = false;
+      // sppConnect 可能永不回调：主动收口，否则原生单飞标志永久卡死，
+      // 之后的回探和真正的重连都会被静默吞掉。
+      _channel.disconnect();
+    });
+  }
+
   // ---- 云端兜底传输 ----
 
   void _tryCloud() {
@@ -593,6 +682,12 @@ class LinkController extends StateNotifier<LinkState>
   void _onCloudEvent(CloudLinkEvent evt) {
     switch (evt.kind) {
       case CloudLinkEvent.ready:
+        // 蓝牙已在通：云只是兜底，既不抢占也不并存（蓝牙优先），直接关掉。
+        if (!_viaCloud && state.phase == LinkPhase.connected) {
+          _cloudTryActive = false;
+          _cloud.close();
+          break;
+        }
         _onLinkUp(name: evt.peerName, viaCloud: true);
       case CloudLinkEvent.peerLost:
         if (_viaCloud) _killLink(reschedule: true);
@@ -609,6 +704,14 @@ class LinkController extends StateNotifier<LinkState>
   }
 
   void _onLinkUp({required String name, required bool viaCloud}) {
+    // 通道独占：采纳一条就关掉另一条。两条管道同时通着时，手表按 _viaCloud
+    // 往云发、手机按 _connected 往蓝牙发，双方各说各话 —— 表现就是「连着
+    // 但没反应」，且被弃用的一侧套接字再没人回收。
+    if (viaCloud) {
+      _channel.disconnect();
+    } else {
+      _cloud.close();
+    }
     _cloudTryActive = false;
     _viaCloud = viaCloud;
     _btPhaseStart = null;
@@ -628,10 +731,17 @@ class LinkController extends StateNotifier<LinkState>
       LinkMessage.hello(ver: kLinkProtocolVersion, role: 'watch', name: '弦予腕上'),
     );
     _startAlive();
+    // 走云时开回探（争取升级回蓝牙），走蓝牙时停掉。
+    if (viaCloud) {
+      _startBtProbe();
+    } else {
+      _stopBtProbe();
+    }
   }
 
   void _killLink({required bool reschedule}) {
     _stopAlive();
+    _stopBtProbe();
     final wasCloud = _viaCloud;
     _viaCloud = false;
     _cloudTryActive = false;
@@ -679,11 +789,19 @@ class LinkController extends StateNotifier<LinkState>
         }),
       );
       if (DateTime.now().difference(_lastFrame) > _deadAfter) {
-        if (_viaCloud) {
-          _killLink(reschedule: true);
+        // 判死后必须 Dart 自愈：两端原生 disconnect() 都不回传
+        // onConnection(false)（ohos 甚至没有断连信号，sppRead 无 EOF），
+        // 若这里只调 _channel.disconnect() 干等事件，phase 会永久停在
+        // connected —— 表现就是「显示已连接但完全没反应」，只能手动断开重连。
+        // 覆盖安装新版本杀掉对端进程是这一路径最常见的触发场景。
+        _killLink(reschedule: false);
+        // 蓝牙刚被判死，再烧满 60s 蓝牙窗口只会让状态迟迟不刷新；
+        // 有云 key 就立刻走云兜底，云也不通再退回蓝牙退避重连。
+        if (_cloudKey.isNotEmpty && state.autoEnabled) {
+          _btPhaseStart = null;
+          _tryCloud();
         } else {
-          _wasExpectingConnect = true;
-          _channel.disconnect();
+          _scheduleReconnect();
         }
       }
     });

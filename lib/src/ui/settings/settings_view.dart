@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:wearable_rotary/wearable_rotary.dart';
 
 import '../../core/app_version.dart';
+import '../../core/haptics.dart';
 import '../../core/settings.dart';
 import '../../i18n/i18n.dart';
 import '../common/full_dialog.dart';
@@ -12,6 +14,7 @@ import '../../auth/auth_provider.dart';
 import '../../library/library_provider.dart';
 import '../../player/stream_cache.dart';
 import '../common/stepped_list.dart';
+import '../player/play_page_body.dart';
 import '../online/plugin_manage_page.dart';
 import '../../plugin/plugin_provider.dart';
 import '../../backup/watch_backup.dart';
@@ -71,6 +74,16 @@ class SettingsView extends ConsumerWidget {
       ),
       _categoryRow(
         s: s,
+        color: const Color(0xFF5B8DEF),
+        icon: Icons.palette_rounded,
+        title: tr('外观设置'),
+        subtitle: tr('功能页排序'),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const _AppearancePage()),
+        ),
+      ),
+      _categoryRow(
+        s: s,
         color: const Color(0xFFE8963D),
         icon: Icons.settings_backup_restore_rounded,
         title: tr('备份'),
@@ -95,7 +108,9 @@ class SettingsView extends ConsumerWidget {
         icon: Icons.translate_rounded,
         title: tr('语言'),
         subtitle: _languageLabel(ref),
-        onTap: () => _pickLanguage(context, ref),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const _LanguagePage()),
+        ),
       ),
       _categoryRow(
         s: s,
@@ -135,30 +150,31 @@ class SettingsView extends ConsumerWidget {
   }
 }
 
-Future<void> _pickLanguage(BuildContext context, WidgetRef ref) async {
-  final container = ProviderScope.containerOf(context, listen: false);
-  final current =
-      container.read(settingsProvider).valueOrNull?.language ?? 'system';
-  const options = ['system', 'zhCN', 'zhTW', 'en'];
-  final v = await showFullPicker<String>(
-    context,
-    title: tr('语言'),
-    current: current,
-    options: [
-      for (final o in options)
-        (
-          o,
-          switch (o) {
-            'zhCN' => tr('简体中文'),
-            'zhTW' => tr('繁體中文'),
-            'en' => 'English',
-            _ => tr('跟随系统'),
-          }
+/// 语言设置：标准阶梯列表 + 选择行（替代原自绘弹窗选项列表）
+class _LanguagePage extends ConsumerWidget {
+  const _LanguagePage();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings =
+        ref.watch(settingsProvider).valueOrNull ?? const AppSettings();
+    final options = <(String, String)>[
+      ('system', tr('跟随系统')),
+      ('zhCN', tr('简体中文')),
+      ('zhTW', tr('繁體中文')),
+      ('en', 'English'),
+    ];
+    return _SteppedPage(title: tr('语言'), rows: [
+      for (final (value, label) in options)
+        _SettingsChoiceRow(
+          title: label,
+          selected: settings.language == value,
+          onTap: () {
+            Haptics.tick();
+            ref.read(settingsProvider.notifier).setLanguage(value);
+          },
         ),
-    ],
-  );
-  if (v != null) {
-    await container.read(settingsProvider.notifier).setLanguage(v);
+    ]);
   }
 }
 
@@ -201,7 +217,7 @@ class _PlaybackPage extends ConsumerWidget {
           style: TextStyle(
               fontSize: 12 * s, color: Colors.white.withValues(alpha: 0.7)),
         ),
-        onTap: () => _pickVolume(context, settings),
+        onTap: () => _openDefaultVolume(context, ref, settings),
       ),
       _actionRow(
         s: s,
@@ -212,7 +228,9 @@ class _PlaybackPage extends ConsumerWidget {
           style: TextStyle(
               fontSize: 12 * s, color: Colors.white.withValues(alpha: 0.7)),
         ),
-        onTap: () => _pickPlayMode(context, settings),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const _PlayModePage()),
+        ),
       ),
       _actionRow(
         s: s,
@@ -224,7 +242,9 @@ class _PlaybackPage extends ConsumerWidget {
           style: TextStyle(
               fontSize: 12 * s, color: Colors.white.withValues(alpha: 0.7)),
         ),
-        onTap: () => _pickQuality(context, settings),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const _QualityPage()),
+        ),
       ),
       _actionRow(
         s: s,
@@ -236,7 +256,9 @@ class _PlaybackPage extends ConsumerWidget {
           style: TextStyle(
               fontSize: 12 * s, color: Colors.white.withValues(alpha: 0.7)),
         ),
-        onTap: () => _pickSpeed(context, settings),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const _SpeedPage()),
+        ),
       ),
       _actionRow(
         s: s,
@@ -250,7 +272,10 @@ class _PlaybackPage extends ConsumerWidget {
           style: TextStyle(
               fontSize: 12 * s, color: Colors.white.withValues(alpha: 0.7)),
         ),
-        onTap: () => _pickFailureBehavior(context, settings),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+              builder: (_) => const _FailureBehaviorPage()),
+        ),
       ),
       _actionRow(
         s: s,
@@ -264,7 +289,9 @@ class _PlaybackPage extends ConsumerWidget {
           style: TextStyle(
               fontSize: 12 * s, color: Colors.white.withValues(alpha: 0.7)),
         ),
-        onTap: () => _pickStreamCache(context, settings),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const _StreamCachePage()),
+        ),
       ),
       _actionRow(
         s: s,
@@ -280,50 +307,118 @@ class _PlaybackPage extends ConsumerWidget {
       v == v.truncateToDouble() ? v.toStringAsFixed(1) : v.toString();
 }
 
-Future<void> _pickVolume(BuildContext context, AppSettings s) async {
-  final container = ProviderScope.containerOf(context, listen: false);
-  var value = s.volume.clamp(0.0, 1.0);
-  final ok = await showFullSlider(
-    context,
-    title: tr('默认音量'),
-    initial: value,
-    min: 0,
-    max: 1,
-    divisions: 20,
-    label: (v) => '${(v * 100).round()}%',
+/// 默认音量：直接复用播放页的音量调节页（PlayerVolumePage）。
+/// 拖动回调按播放页同款 250ms 防抖写入（_save 为全量落盘，逐帧写太重），
+/// 关页时补写最终值，保证最后一次调整不丢。
+Future<void> _openDefaultVolume(
+  BuildContext context,
+  WidgetRef ref,
+  AppSettings settings,
+) async {
+  final notifier = ref.read(settingsProvider.notifier);
+  Timer? saveTimer;
+  double? pending;
+  await Navigator.of(context).push<void>(
+    MaterialPageRoute<void>(
+      builder: (_) => PlayerVolumePage(
+        initial: settings.volume.clamp(0.0, 1.0),
+        onChanged: (v) {
+          pending = v;
+          saveTimer?.cancel();
+          saveTimer = Timer(const Duration(milliseconds: 250), () {
+            notifier.setVolume(v);
+          });
+        },
+      ),
+    ),
   );
-  if (ok != null) {
-    await container.read(settingsProvider.notifier).setVolume(ok);
+  saveTimer?.cancel();
+  final last = pending;
+  if (last != null) {
+    await notifier.setVolume(last);
   }
 }
 
-Future<void> _pickPlayMode(BuildContext context, AppSettings s) async {
-  final container = ProviderScope.containerOf(context, listen: false);
-  final labels = _PlaybackPage._playModeLabels();
-  final v = await showFullPicker<int>(
-    context,
-    title: tr('播放模式'),
-    current: s.playMode,
-    options: [for (var i = 0; i < labels.length; i++) (i, labels[i])],
-  );
-  if (v != null) {
-    await container.read(settingsProvider.notifier).setPlayMode(v);
+/// 播放模式：标准阶梯列表 + 选择行（替代原自绘弹窗选项列表）
+class _PlayModePage extends ConsumerWidget {
+  const _PlayModePage();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings =
+        ref.watch(settingsProvider).valueOrNull ?? const AppSettings();
+    final labels = _PlaybackPage._playModeLabels();
+    return _SteppedPage(title: tr('播放模式'), rows: [
+      for (var i = 0; i < labels.length; i++)
+        _SettingsChoiceRow(
+          title: labels[i],
+          selected: settings.playMode.clamp(0, 2) == i,
+          onTap: () {
+            Haptics.tick();
+            ref.read(settingsProvider.notifier).setPlayMode(i);
+          },
+        ),
+    ]);
   }
 }
 
-Future<void> _pickSpeed(BuildContext context, AppSettings s) async {
-  final container = ProviderScope.containerOf(context, listen: false);
-  const steps = [0.75, 1.0, 1.25, 1.5, 2.0];
-  String label(double v) =>
-      v == v.truncateToDouble() ? v.toStringAsFixed(1) : v.toString();
-  final v = await showFullPicker<double>(
-    context,
-    title: tr('播放倍速'),
-    current: s.playbackSpeed,
-    options: [for (final step in steps) (step, '${label(step)}x')],
-  );
-  if (v != null) {
-    await container.read(settingsProvider.notifier).setPlaybackSpeed(v);
+/// 音质偏好：标准阶梯列表 + 选择行（替代原自绘弹窗选项列表）
+class _QualityPage extends ConsumerWidget {
+  const _QualityPage();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings =
+        ref.watch(settingsProvider).valueOrNull ?? const AppSettings();
+    // 与移动端设置页同款 12 档（kQualityLadder 全梯）
+    return _SteppedPage(title: tr('在线音质'), rows: [
+      for (final (value, label) in const [
+        ('mgg', '低清 · 96k 极速试听'),
+        ('128k', '普通 · 128kbps'),
+        ('192k', '中等 · 192kbps'),
+        ('320k', 'HQ · 高品质 320k'),
+        ('flac', 'SQ · 无损 FLAC'),
+        ('flac24bit', 'Hi-Res · FLAC 24bit'),
+        ('hires', '高解析度 · Hi-Res'),
+        ('vinyl', '黑胶音色 · 无损'),
+        ('dolby', '杜比全景声'),
+        ('atmos', '臻品音质 · 立体空间声场'),
+        ('atmos_plus', '臻品全景声'),
+        ('master', '臻品母带'),
+      ])
+        _SettingsChoiceRow(
+          title: tr(label),
+          selected: settings.onlineQuality == value,
+          onTap: () {
+            Haptics.tick();
+            ref.read(settingsProvider.notifier).setOnlineQuality(value);
+          },
+        ),
+    ]);
+  }
+}
+
+/// 播放倍速：标准阶梯列表 + 选择行（替代原自绘弹窗选项列表）
+class _SpeedPage extends ConsumerWidget {
+  const _SpeedPage();
+
+  static const List<double> _steps = [0.75, 1.0, 1.25, 1.5, 2.0];
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings =
+        ref.watch(settingsProvider).valueOrNull ?? const AppSettings();
+    return _SteppedPage(title: tr('播放倍速'), rows: [
+      for (final step in _steps)
+        _SettingsChoiceRow(
+          title: '${_PlaybackPage._speedLabel(step)}x',
+          selected: settings.playbackSpeed == step,
+          onTap: () {
+            Haptics.tick();
+            ref.read(settingsProvider.notifier).setPlaybackSpeed(step);
+          },
+        ),
+    ]);
   }
 }
 
@@ -414,38 +509,55 @@ Future<void> _pickLyricOffset(BuildContext context, AppSettings s) async {
   }
 }
 
-Future<void> _pickFailureBehavior(BuildContext context, AppSettings s) async {
-  final container = ProviderScope.containerOf(context, listen: false);
-  final options = [('autoswitch', tr('自动换源')), ('stop', tr('停止播放'))];
-  final v = await showFullPicker<String>(
-    context,
-    title: tr('起播失败'),
-    current: s.onlineFailureBehavior,
-    options: options,
-  );
-  if (v != null) {
-    await container
-        .read(settingsProvider.notifier)
-        .setOnlineFailureBehavior(v);
+/// 起播失败行为：标准阶梯列表 + 选择行（替代原自绘弹窗选项列表）
+class _FailureBehaviorPage extends ConsumerWidget {
+  const _FailureBehaviorPage();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings =
+        ref.watch(settingsProvider).valueOrNull ?? const AppSettings();
+    return _SteppedPage(title: tr('起播失败'), rows: [
+      for (final (value, label) in [
+        ('autoswitch', tr('自动换源')),
+        ('stop', tr('停止播放')),
+      ])
+        _SettingsChoiceRow(
+          title: label,
+          selected: settings.onlineFailureBehavior == value,
+          onTap: () {
+            Haptics.tick();
+            ref.read(settingsProvider.notifier).setOnlineFailureBehavior(value);
+          },
+        ),
+    ]);
   }
 }
 
-Future<void> _pickStreamCache(BuildContext context, AppSettings s) async {
-  final container = ProviderScope.containerOf(context, listen: false);
-  final options = [
-    (0, tr('关闭')),
-    (100, '100 MB'),
-    (200, '200 MB'),
-    (500, '500 MB')
-  ];
-  final v = await showFullPicker<int>(
-    context,
-    title: tr('流缓存'),
-    current: s.streamCacheSizeMB,
-    options: options,
-  );
-  if (v != null) {
-    await container.read(settingsProvider.notifier).setStreamCacheSizeMB(v);
+/// 流缓存上限：标准阶梯列表 + 选择行（替代原自绘弹窗选项列表）
+class _StreamCachePage extends ConsumerWidget {
+  const _StreamCachePage();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings =
+        ref.watch(settingsProvider).valueOrNull ?? const AppSettings();
+    return _SteppedPage(title: tr('流缓存'), rows: [
+      for (final (value, label) in [
+        (0, tr('关闭')),
+        (100, '100 MB'),
+        (200, '200 MB'),
+        (500, '500 MB'),
+      ])
+        _SettingsChoiceRow(
+          title: label,
+          selected: settings.streamCacheSizeMB == value,
+          onTap: () {
+            Haptics.tick();
+            ref.read(settingsProvider.notifier).setStreamCacheSizeMB(value);
+          },
+        ),
+    ]);
   }
 }
 
@@ -539,6 +651,196 @@ class _LibraryPageState extends ConsumerState<_LibraryPage> {
         onTap: () => _pickMinDuration(context, settings),
       ),
     ]);
+  }
+}
+
+/// 功能页入口 id → 展示文案（与 local_music_hub 的入口一一对应）
+const Map<String, String> _kHubEntryLabels = {
+  'account': '账号',
+  'daily': '每日推荐',
+  'toplist': '音源榜单',
+  'favorites': '收藏',
+  'playlists': '歌单',
+  'local': '本地音乐',
+  'search': '搜索',
+  'settings': '设置',
+};
+
+/// 外观设置：承载「功能页排序」，长按条目拖动调整顺序，改动即时保存
+/// （对齐桌面端「外观 → 侧边栏管理」的即时生效行为）
+class _AppearancePage extends ConsumerStatefulWidget {
+  const _AppearancePage();
+
+  @override
+  ConsumerState<_AppearancePage> createState() => _AppearancePageState();
+}
+
+class _AppearancePageState extends ConsumerState<_AppearancePage> {
+  final ScrollController _scroll = ScrollController();
+  StreamSubscription<RotaryEvent>? _rotarySub;
+
+  /// 拖动进行中时暂停表冠滚动，避免与拖动自动滚动互相抢占
+  bool _dragging = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _rotarySub = rotaryEvents.listen(_onRotary);
+  }
+
+  @override
+  void dispose() {
+    _rotarySub?.cancel();
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _onRotary(RotaryEvent event) {
+    if (!mounted || !_scroll.hasClients || _dragging) return;
+    if (ModalRoute.of(context)?.isCurrent != true) return;
+    final s = context.watchScale();
+    final dir = event.direction == RotaryDirection.clockwise ? 1.0 : -1.0;
+    final m = ((event.magnitude ?? 48).clamp(0.0, 64.0)).toDouble();
+    final target = (_scroll.offset + dir * m * s)
+        .clamp(0.0, _scroll.position.maxScrollExtent);
+    if ((target - _scroll.offset).abs() < 0.5) return;
+    _scroll.jumpTo(target);
+    Haptics.tick();
+  }
+
+  void _onReorder(int oldIndex, int newIndex) {
+    // onReorderItem 的 newIndex 已自动校正下移场景，无需手动 -1
+    final ids = normalizeHubEntryOrder(
+      ref.read(settingsProvider).valueOrNull?.hubEntryOrder,
+    );
+    if (oldIndex < 0 ||
+        oldIndex >= ids.length ||
+        newIndex < 0 ||
+        newIndex >= ids.length ||
+        oldIndex == newIndex) {
+      return;
+    }
+    final moved = ids.removeAt(oldIndex);
+    ids.insert(newIndex, moved);
+    Haptics.tick();
+    // 即时保存，与桌面端 applyOrder 行为一致
+    ref.read(settingsProvider.notifier).setHubEntryOrder(ids);
+  }
+
+  Future<void> _restoreDefault() async {
+    await ref
+        .read(settingsProvider.notifier)
+        .setHubEntryOrder(List<String>.from(kDefaultHubEntryOrder));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+          content: Text(tr('已恢复默认顺序')),
+          duration: const Duration(seconds: 1)),
+    );
+  }
+
+  Widget _proxyDecorator(Widget child, int index, Animation<double> animation) {
+    return AnimatedBuilder(
+      animation: animation,
+      child: child,
+      builder: (context, child) {
+        final t = Curves.easeOut.transform(animation.value);
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            color: const Color(0xFFFF4D6E).withValues(alpha: 0.10 * t),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: const Color(0xFFFF4D6E).withValues(alpha: 0.45 * t),
+              width: 1.5,
+            ),
+          ),
+          child: child,
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.watchScale();
+    final ids = normalizeHubEntryOrder(
+      ref.watch(settingsProvider).valueOrNull?.hubEntryOrder,
+    );
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        child: Stack(
+          children: [
+            ReorderableListView.builder(
+              scrollController: _scroll,
+              buildDefaultDragHandles: true,
+              padding: EdgeInsets.fromLTRB(6 * s, 4 * s, 6 * s, 10 * s),
+              header: Column(
+                children: [
+                  PageTitleHeader(tr('外观设置')),
+                  SizedBox(height: 2 * s),
+                  Text(
+                    tr('长按拖动调整顺序'),
+                    style: TextStyle(
+                      fontSize: 11 * s,
+                      color: Colors.white.withValues(alpha: 0.45),
+                    ),
+                  ),
+                ],
+              ),
+              footer: Padding(
+                padding: EdgeInsets.only(top: 4 * s),
+                child: SteppedTile(
+                  leading: Icon(Icons.restart_alt_rounded,
+                      size: 22 * s, color: const Color(0xFFFF4D6E)),
+                  title: tr('恢复默认顺序'),
+                  onTap: _restoreDefault,
+                ),
+              ),
+              itemCount: ids.length,
+              onReorderStart: (_) => _dragging = true,
+              onReorderEnd: (_) => _dragging = false,
+              onReorderItem: _onReorder,
+              proxyDecorator: _proxyDecorator,
+              itemBuilder: (context, i) {
+                final id = ids[i];
+                return KeyedSubtree(
+                  key: ValueKey<String>(id),
+                  child: Container(
+                    margin: EdgeInsets.symmetric(vertical: 3 * s),
+                    height: 50 * s,
+                    child: SteppedTile(
+                      leading: SteppedLeadCircle(
+                        color: const Color(0xFF3A3A42),
+                        child: Text(
+                          '${i + 1}',
+                          style: TextStyle(
+                            fontSize: 15 * s,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white.withValues(alpha: 0.7),
+                          ),
+                        ),
+                      ),
+                      title: tr(_kHubEntryLabels[id] ?? id),
+                      trailing: Icon(
+                        Icons.drag_handle_rounded,
+                        size: 20 * s,
+                        color: Colors.white.withValues(alpha: 0.35),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+            Positioned(
+              top: 2 * s,
+              left: 2 * s,
+              child: _backChip(s),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -1251,6 +1553,69 @@ Widget _actionRow({
   );
 }
 
+/// 标准选择行：选中态沿用 effects_page _FxChoiceRow 的视觉语言
+/// （accent 底 + 边框 + 对勾），未选中回落统一深灰胶囊
+class _SettingsChoiceRow extends StatelessWidget {
+  const _SettingsChoiceRow({
+    required this.title,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String title;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.watchScale();
+    const accent = Color(0xFFFF4D6E);
+    return Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: selected ? accent.withValues(alpha: 0.18) : kSteppedTileBg,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: selected ? accent : Colors.transparent,
+              width: 1,
+            ),
+          ),
+          child: SizedBox(
+            height: 48 * s,
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16 * s),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 16 * s,
+                        fontWeight: FontWeight.w600,
+                        color: selected
+                            ? accent
+                            : Colors.white.withValues(alpha: 0.9),
+                      ),
+                    ),
+                  ),
+                  if (selected)
+                    Icon(Icons.check_rounded, size: 17 * s, color: accent),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 Future<void> _pickScanFormats(BuildContext context, AppSettings s) async {
   final sc = context.watchScale();
   final container = ProviderScope.containerOf(context, listen: false);
@@ -1317,33 +1682,5 @@ Future<void> _pickMinDuration(BuildContext context, AppSettings s) async {
     await container
         .read(settingsProvider.notifier)
         .setLibraryMinDurationSeconds(v);
-  }
-}
-
-Future<void> _pickQuality(BuildContext context, AppSettings s) async {
-  final container = ProviderScope.containerOf(context, listen: false);
-  // 与移动端设置页同款 12 档（kQualityLadder 全梯）
-  final options = [
-    ('mgg', tr('低清 · 96k 极速试听')),
-    ('128k', tr('普通 · 128kbps')),
-    ('192k', tr('中等 · 192kbps')),
-    ('320k', tr('HQ · 高品质 320k')),
-    ('flac', tr('SQ · 无损 FLAC')),
-    ('flac24bit', tr('Hi-Res · FLAC 24bit')),
-    ('hires', tr('高解析度 · Hi-Res')),
-    ('vinyl', tr('黑胶音色 · 无损')),
-    ('dolby', tr('杜比全景声')),
-    ('atmos', tr('臻品音质 · 立体空间声场')),
-    ('atmos_plus', tr('臻品全景声')),
-    ('master', tr('臻品母带')),
-  ];
-  final v = await showFullPicker<String>(
-    context,
-    title: tr('在线音质'),
-    current: s.onlineQuality,
-    options: options,
-  );
-  if (v != null) {
-    await container.read(settingsProvider.notifier).setOnlineQuality(v);
   }
 }

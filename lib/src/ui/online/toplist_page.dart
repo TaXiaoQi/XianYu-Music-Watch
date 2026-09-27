@@ -124,7 +124,7 @@ class _TopListPageState extends ConsumerState<TopListPage> {
             itemBuilder: (context, i) {
               final (src, it) = _entries[i];
               return SteppedTile(
-                leading: _SheetCover(url: it.coverUrl),
+                leading: ClipOval(child: _SheetCover(url: it.coverUrl)),
                 title: it.title,
                 subtitle: src.name,
                 trailing: Icon(

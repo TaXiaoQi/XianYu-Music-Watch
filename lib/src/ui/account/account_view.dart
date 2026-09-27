@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:wearable_rotary/wearable_rotary.dart';
 
 import '../../core/watch_fit.dart';
 import '../../auth/auth_provider.dart';
@@ -22,6 +23,42 @@ class AccountView extends ConsumerStatefulWidget {
 
 class _AccountViewState extends ConsumerState<AccountView> {
   bool _passwordMode = false;
+
+  /// 扫码登录页是本页唯一的裸 ListView（登录态/密码登录走 SteppedListView，
+  /// 表冠滚动由其内建处理），这里单独接表冠。
+  final ScrollController _qrScroll = ScrollController();
+  StreamSubscription<RotaryEvent>? _rotarySub;
+  double _rotaryAcc = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _rotarySub = rotaryEvents.listen(_onRotary);
+  }
+
+  @override
+  void dispose() {
+    _rotarySub?.cancel();
+    _qrScroll.dispose();
+    super.dispose();
+  }
+
+  /// 表冠旋转滚动扫码页：增量换算与歌词页 _onRotary 同源（顺时针=向下滚）。
+  /// 未登录/密码态下 _qrScroll 无挂载（hasClients=false），事件自然忽略。
+  void _onRotary(RotaryEvent event) {
+    if (!mounted || !_qrScroll.hasClients) return;
+    if (ModalRoute.of(context)?.isCurrent != true) return;
+    final dir = event.direction == RotaryDirection.clockwise ? 1.0 : -1.0;
+    final m = (event.magnitude ?? 48).clamp(0.0, 64.0).toDouble();
+    if (dir * _rotaryAcc < 0) _rotaryAcc = 0;
+    _rotaryAcc += dir * m;
+    final delta = _rotaryAcc * 0.5;
+    _rotaryAcc = 0;
+    final target = (_qrScroll.offset + delta)
+        .clamp(0.0, _qrScroll.position.maxScrollExtent);
+    if ((target - _qrScroll.offset).abs() < 0.5) return;
+    _qrScroll.jumpTo(target);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -69,6 +106,7 @@ class _AccountViewState extends ConsumerState<AccountView> {
                       )
                     : ListView(
                         key: const ValueKey('qr'),
+                        controller: _qrScroll,
                         padding: EdgeInsets.symmetric(
                           horizontal: 22 * s,
                           vertical: 6 * s,

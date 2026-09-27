@@ -183,7 +183,7 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
     if (_results.isEmpty) {
       return Center(
         child: Text(
-          tr('输入关键词搜索在线音乐'),
+          tr('输入关键词搜索音乐'),
           style: TextStyle(fontSize: 12 * s, color: Colors.white38),
         ),
       );

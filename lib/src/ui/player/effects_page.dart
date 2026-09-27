@@ -236,7 +236,6 @@ class _ReverbPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final s = context.watchScale();
     final sfx = ref.watch(soundEffectProvider).settings;
     final mgr = ref.read(soundEffectProvider.notifier);
     return _FxScaffold(
@@ -244,56 +243,52 @@ class _ReverbPage extends ConsumerWidget {
       children: _dspLocked(
         context,
         [
-          Wrap(
-            spacing: 7 * s,
-            runSpacing: 7 * s,
-            alignment: WrapAlignment.center,
-            children: [
-              _FxChip(
-                label: tr('关闭'),
-                active: sfx.reverbKind == 'none',
-                onTap: () {
-                  Haptics.tick();
-                  mgr.set(sfx.copyWith(
-                    reverbKind: 'none',
-                    reverbPreset: '',
-                    reverbDry: 0,
-                    reverbWet: 0,
-                  ));
-                },
-              ),
-              for (final p in reverbPresets)
-                _FxChip(
-                  label: tr(p.label),
-                  active: sfx.reverbKind == 'convolution' &&
-                      sfx.reverbPreset == p.label,
-                  onTap: () {
-                    Haptics.tick();
-                    mgr.set(sfx.copyWith(
-                      reverbKind: 'convolution',
-                      reverbPreset: p.label,
-                      reverbDry: p.dry / 100,
-                      reverbWet: p.wet / 100,
-                    ));
-                  },
-                ),
-              for (final p in algoReverbPresets)
-                _FxChip(
-                  label: tr(p.label),
-                  active: sfx.reverbKind == 'algorithmic' &&
-                      sfx.reverbPreset == p.label,
-                  onTap: () {
-                    Haptics.tick();
-                    mgr.set(sfx.copyWith(
-                      reverbKind: 'algorithmic',
-                      reverbPreset: p.label,
-                      reverbDry: p.dry / 100,
-                      reverbWet: p.wet / 100,
-                    ));
-                  },
-                ),
-            ],
+          // 标准阶梯列表形态：一行一个预设，替代圆屏上折行难控的 chip 网格
+          _FxChoiceRow(
+            label: tr('关闭'),
+            active: sfx.reverbKind == 'none',
+            onTap: () {
+              Haptics.tick();
+              mgr.set(sfx.copyWith(
+                reverbKind: 'none',
+                reverbPreset: '',
+                reverbDry: 0,
+                reverbWet: 0,
+              ));
+            },
           ),
+          _FxSectionLabel(tr('卷积采样')),
+          for (final p in reverbPresets)
+            _FxChoiceRow(
+              label: tr(p.label),
+              active: sfx.reverbKind == 'convolution' &&
+                  sfx.reverbPreset == p.label,
+              onTap: () {
+                Haptics.tick();
+                mgr.set(sfx.copyWith(
+                  reverbKind: 'convolution',
+                  reverbPreset: p.label,
+                  reverbDry: p.dry / 100,
+                  reverbWet: p.wet / 100,
+                ));
+              },
+            ),
+          _FxSectionLabel(tr('算法合成')),
+          for (final p in algoReverbPresets)
+            _FxChoiceRow(
+              label: tr(p.label),
+              active: sfx.reverbKind == 'algorithmic' &&
+                  sfx.reverbPreset == p.label,
+              onTap: () {
+                Haptics.tick();
+                mgr.set(sfx.copyWith(
+                  reverbKind: 'algorithmic',
+                  reverbPreset: p.label,
+                  reverbDry: p.dry / 100,
+                  reverbWet: p.wet / 100,
+                ));
+              },
+            ),
         ],
       ),
     );
@@ -307,7 +302,6 @@ class _SpatialPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final s = context.watchScale();
     final sfx = ref.watch(soundEffectProvider).settings;
     final mgr = ref.read(soundEffectProvider.notifier);
     return _FxScaffold(
@@ -315,31 +309,25 @@ class _SpatialPage extends ConsumerWidget {
       children: _dspLocked(
         context,
         [
-          Wrap(
-            spacing: 7 * s,
-            runSpacing: 7 * s,
-            alignment: WrapAlignment.center,
-            children: [
-              for (final (mode, label) in [
-                ('none', tr('关闭')),
-                ('surround3d', tr('3D 环绕')),
-                ('d8', '8D'),
-                ('d36', '36D'),
-                ('virtual', tr('虚拟环绕')),
-              ])
-                _FxChip(
-                  label: label,
-                  active: sfx.spatialMode == mode,
-                  onTap: () {
-                    Haptics.tick();
-                    mgr.set(sfx.copyWith(spatialMode: mode));
-                  },
-                ),
-            ],
-          ),
+          // 标准阶梯列表形态：一行一个模式，替代圆屏上折行难控的 chip 网格
+          for (final (mode, label) in [
+            ('none', tr('关闭')),
+            ('surround3d', tr('3D 环绕')),
+            ('d8', '8D'),
+            ('d36', '36D'),
+            ('virtual', tr('虚拟环绕')),
+          ])
+            _FxChoiceRow(
+              label: label,
+              active: sfx.spatialMode == mode,
+              onTap: () {
+                Haptics.tick();
+                mgr.set(sfx.copyWith(spatialMode: mode));
+              },
+            ),
           if (sfx.spatialMode == 'virtual') ...[
-            SizedBox(height: 12 * s),
-            _FxChip(
+            _FxSectionLabel(tr('声道布局')),
+            _FxChoiceRow(
               label: tr('5.1 声道'),
               active: sfx.virtualSurroundMode == '5.1',
               onTap: () {
@@ -347,8 +335,7 @@ class _SpatialPage extends ConsumerWidget {
                 mgr.set(sfx.copyWith(virtualSurroundMode: '5.1'));
               },
             ),
-            SizedBox(height: 7 * s),
-            _FxChip(
+            _FxChoiceRow(
               label: tr('7.1 声道'),
               active: sfx.virtualSurroundMode == '7.1',
               onTap: () {
@@ -949,22 +936,76 @@ class _FxScaffold extends StatelessWidget {
   final List<Widget> children;
   final List<Widget> actions;
 
-  static double _extentOf(Widget w) {
+  static double _extentOf(
+    Widget w, {
+    required double rowW,
+    required double s,
+    required BuildContext context,
+  }) {
     if (w is _FxSlider) return 50;
     if (w is _FxRow || w is _AdvRow) return 54;
     if (w is _FxSwitchRow) return 50;
+    if (w is _FxChoiceRow) return 54;
+    if (w is _FxSectionLabel) return 28;
+    if (w is Wrap) return _wrapExtent(w, rowW: rowW, s: s, context: context);
     return 54;
+  }
+
+  /// Wrap（预设 chip 组）折行后的实际高度：chip 宽度按真实字体测量、
+  /// 模拟 Wrap 折行取行数。阶梯列表槽高定距且子树允许溢出绘制，
+  /// 低估会把折行后的 chip 画进后续行（圆屏均衡器页预设与滑杆
+  /// 叠在一起的根因）。
+  static double _wrapExtent(
+    Wrap wrap, {
+    required double rowW,
+    required double s,
+    required BuildContext context,
+  }) {
+    const font = 12.0;
+    final chipH = (8 * 2 + font * 1.4) * s + 2;
+    final gap = 7 * s;
+    var x = 0.0;
+    var rows = 0;
+    for (final c in wrap.children) {
+      if (c is! _FxChip) continue;
+      final w = _measureText(c.label, font * s, context) + 26 * s + 2;
+      if (x > 0 && x + w > rowW) {
+        rows++;
+        x = 0;
+      }
+      x += w + gap;
+    }
+    if (rows == 0) return 54;
+    rows++;
+    return rows * chipH + (rows - 1) * gap + 4 * s;
+  }
+
+  static double _measureText(String text, double font, BuildContext context) {
+    final tp = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: TextStyle(fontSize: font, fontWeight: FontWeight.w600),
+      ),
+      textDirection: Directionality.of(context),
+    )..layout();
+    final w = tp.width;
+    tp.dispose();
+    return w;
   }
 
   @override
   Widget build(BuildContext context) {
+    final s = context.watchScale();
+    // 与 SteppedListView 内部同源：槽内可用宽 = 屏宽 - 2×行留白
+    final rowW = MediaQuery.sizeOf(context).width -
+        2 * (context.isRoundWatch ? 4.0 : 6.0) * s;
     final rows = <Widget>[];
     final extents = <double>[];
     for (final c in children) {
       // 纯留白 SizedBox 交给阶梯列表的行距节奏，避免出现空槽行
       if (c is SizedBox && c.child == null) continue;
       rows.add(c);
-      extents.add(_extentOf(c));
+      extents.add(_extentOf(c, rowW: rowW, s: s, context: context));
     }
     if (actions.isNotEmpty) {
       rows.add(
@@ -1106,6 +1147,92 @@ class _FxChip extends StatelessWidget {
             color: active
                 ? _accent
                 : Colors.white.withValues(alpha: 0.85),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 标准选择行：一行一个预设，选中态沿用 chip 的 accent 视觉语言
+class _FxChoiceRow extends StatelessWidget {
+  const _FxChoiceRow({
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.watchScale();
+    return Padding(
+      padding: EdgeInsets.only(bottom: 8 * s),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          height: 46 * s,
+          padding: EdgeInsets.symmetric(horizontal: 12 * s),
+          decoration: BoxDecoration(
+            color: active
+                ? _accent.withValues(alpha: 0.18)
+                : Colors.white.withValues(alpha: 0.07),
+            borderRadius: BorderRadius.circular(23 * s),
+            border: Border.all(
+              color: active ? _accent : Colors.transparent,
+              width: 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13 * s,
+                    fontWeight: FontWeight.w600,
+                    color: active
+                        ? _accent
+                        : Colors.white.withValues(alpha: 0.85),
+                  ),
+                ),
+              ),
+              if (active)
+                Icon(Icons.check_rounded, size: 17 * s, color: _accent),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 分组小标题（非交互行）
+class _FxSectionLabel extends StatelessWidget {
+  const _FxSectionLabel(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.watchScale();
+    return Padding(
+      padding: EdgeInsets.only(top: 4 * s, bottom: 8 * s, left: 12 * s),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(
+          text,
+          style: TextStyle(
+            fontSize: 11 * s,
+            fontWeight: FontWeight.w600,
+            color: Colors.white.withValues(alpha: 0.45),
           ),
         ),
       ),

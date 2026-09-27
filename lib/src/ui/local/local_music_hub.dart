@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../favorites/favorites_provider.dart';
+import '../../core/settings.dart';
 import '../../i18n/i18n.dart';
 import '../../lyrics/lyric_model.dart';
 import '../../lyrics/lyrics_repository.dart';
@@ -26,6 +27,12 @@ import 'local_library_view.dart';
 import 'favorites_page.dart';
 
 final localHubPageProvider = StateProvider<int>((ref) => 1);
+
+/// 条件入口：每日推荐/音源榜单需启用插件，其余常驻。
+/// 条件项隐藏后其余项按自定义顺序紧缩排列（对齐桌面端
+/// SidebarNavigation「先排序后过滤可见性」的消费逻辑）
+bool _hubEntryEnabled(String id, bool hasPlugins) =>
+    (id == 'daily' || id == 'toplist') ? hasPlugins : true;
 
 final _localLyricsProvider = FutureProvider.autoDispose<List<LyricLine>>((
   ref,
@@ -125,32 +132,11 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
         .watch(pluginManagerProvider)
         .sources
         .any((p) => p.enabled);
-    final specs = <(Color, IconData, String, VoidCallback)>[
-      (
-        const Color(0xFFFF4D6E),
-        Icons.library_music_rounded,
-        tr('本地音乐'),
-        () => Navigator.of(context).push(
-          MaterialPageRoute<void>(builder: (_) => const LocalLibraryView()),
-        ),
-      ),
-      (
-        const Color(0xFFFF4D6E),
-        Icons.favorite_rounded,
-        tr('收藏'),
-        () => Navigator.of(context).push(
-          MaterialPageRoute<void>(builder: (_) => const FavoritesPage()),
-        ),
-      ),
-      (
-        const Color(0xFFD94A8C),
-        Icons.queue_music_rounded,
-        tr('歌单'),
-        () => Navigator.of(context).push(
-          MaterialPageRoute<void>(builder: (_) => const CloudPlaylistsPage()),
-        ),
-      ),
-      (
+    final order = normalizeHubEntryOrder(
+      ref.watch(settingsProvider).valueOrNull?.hubEntryOrder,
+    );
+    final entries = <String, (Color, IconData, String, VoidCallback)>{
+      'account': (
         const Color(0xFFE8A33D),
         Icons.account_circle_rounded,
         tr('账号'),
@@ -158,25 +144,47 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
           context,
         ).push(MaterialPageRoute<void>(builder: (_) => const AccountView())),
       ),
-      if (hasPlugins) ...[
-        (
-          const Color(0xFFE8694D),
-          Icons.recommend_rounded,
-          tr('每日推荐'),
-          () => Navigator.of(context).push(
-            MaterialPageRoute<void>(builder: (_) => const DailyRecommendPage()),
-          ),
+      'daily': (
+        const Color(0xFFE8694D),
+        Icons.recommend_rounded,
+        tr('每日推荐'),
+        () => Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const DailyRecommendPage()),
         ),
-        (
-          const Color(0xFF4A90D9),
-          Icons.leaderboard_rounded,
-          tr('音源榜单'),
-          () => Navigator.of(
-            context,
-          ).push(MaterialPageRoute<void>(builder: (_) => const TopListPage())),
+      ),
+      'toplist': (
+        const Color(0xFF4A90D9),
+        Icons.leaderboard_rounded,
+        tr('音源榜单'),
+        () => Navigator.of(
+          context,
+        ).push(MaterialPageRoute<void>(builder: (_) => const TopListPage())),
+      ),
+      'favorites': (
+        const Color(0xFFFF4D6E),
+        Icons.favorite_rounded,
+        tr('收藏'),
+        () => Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const FavoritesPage()),
         ),
-      ],
-      (
+      ),
+      'playlists': (
+        const Color(0xFFD94A8C),
+        Icons.queue_music_rounded,
+        tr('歌单'),
+        () => Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const CloudPlaylistsPage()),
+        ),
+      ),
+      'local': (
+        const Color(0xFFFF4D6E),
+        Icons.library_music_rounded,
+        tr('本地音乐'),
+        () => Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const LocalLibraryView()),
+        ),
+      ),
+      'search': (
         const Color(0xFF4A90D9),
         Icons.travel_explore_rounded,
         tr('搜索'),
@@ -184,7 +192,7 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
           MaterialPageRoute<void>(builder: (_) => const OnlineSearchPage()),
         ),
       ),
-      (
+      'settings': (
         const Color(0xFF5FA97C),
         Icons.settings_rounded,
         tr('设置'),
@@ -192,6 +200,12 @@ class _SourcePickerPageState extends ConsumerState<_SourcePickerPage> {
           context,
         ).push(MaterialPageRoute<void>(builder: (_) => const SettingsView())),
       ),
+    };
+    // 按用户自定义顺序渲染（prefs 'hubEntryOrder'，缺省为磁盘默认顺序）
+    final specs = <(Color, IconData, String, VoidCallback)>[
+      for (final id in order)
+        if (entries[id] case final e? when _hubEntryEnabled(id, hasPlugins))
+          e,
     ];
     // 功能条统一配色：深灰实底胶囊 + 白字 + 彩色圆标（kSteppedTileBg）
     const tileFg = Color(0xFFFFFFFF);

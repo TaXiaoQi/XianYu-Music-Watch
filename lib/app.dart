@@ -26,7 +26,8 @@ class XianYuWatchApp extends ConsumerStatefulWidget {
 /// 全局导航 key：供无 BuildContext 的服务层（播放器打断提示等）弹 UI。
 final appNavKey = GlobalKey<NavigatorState>();
 
-class _XianYuWatchAppState extends ConsumerState<XianYuWatchApp> {
+class _XianYuWatchAppState extends ConsumerState<XianYuWatchApp>
+    with WidgetsBindingObserver {
   final GlobalKey<NavigatorState> _navKey = appNavKey;
   ProviderSubscription<String>? _modeSub;
   ProviderSubscription<AsyncValue<AppSettings>>? _settingsSub;
@@ -34,6 +35,7 @@ class _XianYuWatchAppState extends ConsumerState<XianYuWatchApp> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _modeSub = ref.listenManual(appModeProvider, (prev, next) {
       if (prev != null && prev != next) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -55,9 +57,19 @@ class _XianYuWatchAppState extends ConsumerState<XianYuWatchApp> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _modeSub?.close();
     _settingsSub?.close();
     super.dispose();
+  }
+
+  /// 回到前台立刻重查联动链路：手机端每次启动都会重连（云端中继无条件
+  /// 建链），手表端却只在冷启动与断连事件时才刷新，导致手机回来了而手表
+  /// 状态纹丝不动。这里补上「回前台即重查」。
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    ref.read(linkControllerProvider.notifier).refreshOnResume();
   }
 
   /// 启动后静默拉取服务端下发的最新版本，有新版且在当天未提示过则弹出整页更新页。

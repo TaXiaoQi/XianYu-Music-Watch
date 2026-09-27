@@ -55,6 +55,15 @@ class _PlayPageBodyState extends State<PlayPageBody> {
   bool _volumePageOpen = false;
 
   double? _scrubTarget;
+
+  /// 圆环拖拽防抖：pan 起点与激活标记，位移过阈值才进入进度调节
+  Offset? _panOrigin;
+  bool _scrubActive = false;
+  static const double _ringScrubSlop = 8;
+
+  /// 按下视觉反馈（放大动画），与 [_scrubActive] 分档
+  bool _ringPressed = false;
+
   bool _longSeeking = false;
   bool _longSeekForward = true;
   Timer? _seekSendTimer;
@@ -89,7 +98,7 @@ class _PlayPageBodyState extends State<PlayPageBody> {
     Navigator.of(context)
         .push(
           MaterialPageRoute<void>(
-            builder: (_) => _VolumePage(
+            builder: (_) => PlayerVolumePage(
               initial: (_volume ?? src.volume).clamp(0.0, 1.0),
               onChanged: _onVolumePageChanged,
             ),
@@ -123,20 +132,38 @@ class _PlayPageBodyState extends State<PlayPageBody> {
   }
 
   void _onRingPanStart(DragStartDetails d, double size) {
-    if (widget.sourceBuilder().duration <= 0) return;
-    final pos = _angleToProgress(d.localPosition, size);
-    setState(() => _scrubTarget = pos);
-    _sendSeekThrottled(pos);
+    setState(() => _ringPressed = true);
+    // 防抖：起始只记录按点，不立即把进度跳到按点角度——轻扫/掠过圆环
+    // 不应触发进度拉动，位移过阈值后才以按点角度进入调节
+    _panOrigin = d.localPosition;
   }
 
   void _onRingPanUpdate(DragUpdateDetails d, double size) {
-    if (_scrubTarget == null) return;
+    final origin = _panOrigin;
+    if (origin == null) return;
+    if (!_scrubActive) {
+      if ((d.localPosition - origin).distance < _ringScrubSlop) return;
+      if (widget.sourceBuilder().duration <= 0) return;
+      Haptics.tick();
+      final pos = _angleToProgress(origin, size);
+      setState(() {
+        _scrubActive = true;
+        _scrubTarget = pos;
+      });
+      _sendSeekThrottled(pos);
+      return;
+    }
     final pos = _angleToProgress(d.localPosition, size);
     setState(() => _scrubTarget = pos);
     _sendSeekThrottled(pos);
   }
 
   void _onRingPanEnd() {
+    setState(() {
+      _ringPressed = false;
+      _scrubActive = false;
+      _panOrigin = null;
+    });
     _seekSendTimer?.cancel();
     _seekSendTimer = null;
     final target = _scrubTarget;
@@ -144,10 +171,27 @@ class _PlayPageBodyState extends State<PlayPageBody> {
     if (target != null) _sendSeek(target);
   }
 
+  /// pan/tap/长按被其它手势（如翻页）抢占时的复位；scrub 态残留会让
+  /// 进度环卡在拖拽值不再跟随播放
+  void _onRingPanCancel() {
+    _seekSendTimer?.cancel();
+    _seekSendTimer = null;
+    setState(() {
+      _scrubActive = false;
+      _panOrigin = null;
+      _scrubTarget = null;
+      // 长按接力场景按下反馈由长按自身管理
+      if (!_longSeeking) _ringPressed = false;
+    });
+  }
+
   void _onRingLongPressStart(LongPressStartDetails d, double size) {
     if (widget.sourceBuilder().duration <= 0) return;
     _longSeekForward = d.localPosition.dx >= size / 2;
-    setState(() => _longSeeking = true);
+    setState(() {
+      _ringPressed = true;
+      _longSeeking = true;
+    });
     _startLongSeek();
   }
 
@@ -162,7 +206,12 @@ class _PlayPageBodyState extends State<PlayPageBody> {
   void _onRingLongPressEnd() {
     _longSeekTimer?.cancel();
     _longSeekTimer = null;
-    if (mounted) setState(() => _longSeeking = false);
+    if (mounted) {
+      setState(() {
+        _longSeeking = false;
+        _ringPressed = false;
+      });
+    }
   }
 
   void _startLongSeek() {
@@ -330,46 +379,72 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                         child: Center(
                           child: GestureDetector(
                             onTap: src.toggle,
+                            onTapDown: (_) =>
+                                setState(() => _ringPressed = true),
+                            onTapUp: (_) =>
+                                setState(() => _ringPressed = false),
+                            onTapCancel: _onRingPanCancel,
                             onPanStart: (d) => _onRingPanStart(d, ringSize),
                             onPanUpdate: (d) => _onRingPanUpdate(d, ringSize),
                             onPanEnd: (_) => _onRingPanEnd(),
+                            onPanCancel: _onRingPanCancel,
                             onLongPressStart: (d) =>
                                 _onRingLongPressStart(d, ringSize),
                             onLongPressMoveUpdate: (d) =>
                                 _onRingLongPressMoveUpdate(d, ringSize),
                             onLongPressEnd: (_) => _onRingLongPressEnd(),
+                            onLongPressCancel: _onRingPanCancel,
                             child: SizedBox(
                               width: ringSize,
                               height: ringSize,
-                              child: CustomPaint(
-                                painter: _RingPainter(
-                                  progress: displayProgress,
-                                  strokeWidth: 4.5 * s,
-                                ),
-                                child: Padding(
-                                  padding: EdgeInsets.all(2.5 * s),
-                                  child: Stack(
-                                    alignment: Alignment.center,
-                                    children: [
-                                      ClipOval(child: _cover(src.cover)),
-                                      Icon(
-                                        src.isPlaying
-                                            ? Icons.pause_rounded
-                                            : Icons.play_arrow_rounded,
-                                        size: ringSize * 0.42,
-                                        color: Colors.white,
-                                        shadows: [
-                                          Shadow(
-                                            color: Colors.black.withValues(
-                                              alpha: 0.5,
-                                            ),
-                                            blurRadius: 10 * s,
-                                          ),
-                                        ],
+                              // 只缩放进度圆环：封面/图标放在独立层不参与缩放；
+                              // 关闭 Stack 裁剪，放大后的圆环可超出原边界
+                              child: Stack(
+                                fit: StackFit.expand,
+                                clipBehavior: Clip.none,
+                                children: [
+                                  AnimatedScale(
+                                    scale: _scrubActive
+                                        ? 1.12
+                                        : _ringPressed
+                                            ? 1.06
+                                            : 1.0,
+                                    duration:
+                                        const Duration(milliseconds: 160),
+                                    curve: Curves.easeOutCubic,
+                                    child: CustomPaint(
+                                      painter: _RingPainter(
+                                        progress: displayProgress,
+                                        strokeWidth:
+                                            (_scrubActive ? 6.0 : 4.5) * s,
                                       ),
-                                    ],
+                                    ),
                                   ),
-                                ),
+                                  Padding(
+                                    padding: EdgeInsets.all(2.5 * s),
+                                    child: Stack(
+                                      alignment: Alignment.center,
+                                      children: [
+                                        ClipOval(child: _cover(src.cover)),
+                                        Icon(
+                                          src.isPlaying
+                                              ? Icons.pause_rounded
+                                              : Icons.play_arrow_rounded,
+                                          size: ringSize * 0.42,
+                                          color: Colors.white,
+                                          shadows: [
+                                            Shadow(
+                                              color: Colors.black.withValues(
+                                                alpha: 0.5,
+                                              ),
+                                              blurRadius: 10 * s,
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ),
@@ -443,7 +518,7 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                               : Icons.volume_up_rounded,
                           onTap: () => Navigator.of(context).push(
                             MaterialPageRoute<void>(
-                              builder: (_) => _VolumePage(
+                              builder: (_) => PlayerVolumePage(
                                 initial: (_volume ?? src.volume).clamp(
                                   0.0,
                                   1.0,
@@ -1238,17 +1313,21 @@ class _MarqueeTextState extends State<_MarqueeText>
   }
 }
 
-class _VolumePage extends StatefulWidget {
-  const _VolumePage({required this.initial, required this.onChanged});
+class PlayerVolumePage extends StatefulWidget {
+  const PlayerVolumePage({
+    super.key,
+    required this.initial,
+    required this.onChanged,
+  });
 
   final double initial;
   final ValueChanged<double> onChanged;
 
   @override
-  State<_VolumePage> createState() => _VolumePageState();
+  State<PlayerVolumePage> createState() => _PlayerVolumePageState();
 }
 
-class _VolumePageState extends State<_VolumePage> {
+class _PlayerVolumePageState extends State<PlayerVolumePage> {
   static const _crownStep = 0.04;
 
   late double _v = widget.initial.clamp(0.0, 1.0).toDouble();
