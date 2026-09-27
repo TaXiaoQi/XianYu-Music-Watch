@@ -27,8 +27,14 @@
     <application
         android:label="${appLabel}"
         android:networkSecurityConfig="@xml/network_security_config"
+        android:requestLegacyExternalStorage="true"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <!-- legacy 外部存储视图：华为 WATCH 3 系鸿蒙 4 基于 Android 10（API 29），
+             scoped storage 最严一档——即使授予 READ_EXTERNAL_STORAGE，非 legacy
+             应用 File API 裸路径访问共享存储也被拒，本地音乐扫描 read_dir 全部
+             EACCES。API 29 设备上此标志生效恢复完整文件视图；API 30+ 上对
+             targetSdk>=30 应用被系统忽略，无害。 -->
         <!-- ambient 共享库（仅真 Wear OS 设备存在；required=false 允许手机/无 GMS 设备缺失，
              MainActivity 已按库探测结果决定是否注册 AmbientLifecycleObserver） -->
         <uses-library android:name="com.google.android.wearable" android:required="false" />

@@ -1970,4 +1970,11 @@ class WatchAudioHandler extends asrv.BaseAudioHandler with asrv.SeekHandler {
   @override
   Future<void> seek(Duration position) =>
       _notifier?.seek(position.inMilliseconds / 1000.0) ?? Future.value();
+
+  @override
+  Future<void> onTaskRemoved() async {
+    await _notifier?.pauseFromSystem();
+    await super.stop();
+    exit(0);
+  }
 }

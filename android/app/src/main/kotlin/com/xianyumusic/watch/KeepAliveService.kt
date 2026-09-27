@@ -56,6 +56,13 @@ class KeepAliveService : Service() {
         return START_STICKY
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+        android.os.Process.killProcess(android.os.Process.myPid())
+    }
+
     private fun buildNotification(): Notification {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val nm = getSystemService(NotificationManager::class.java)

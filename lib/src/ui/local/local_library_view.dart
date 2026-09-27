@@ -23,6 +23,14 @@ class LocalLibraryView extends ConsumerStatefulWidget {
 class _LocalLibraryViewState extends ConsumerState<LocalLibraryView> {
   bool _scanning = false;
 
+  /// 无扫描目录时的默认候选：手表侧音乐常见落点
+  static const _defaultDirs = [
+    '/storage/emulated/0/Music',
+    '/storage/emulated/0/Download',
+    '/storage/emulated/0/DCIM/Music',
+    '/storage/emulated/0/Bluetooth',
+  ];
+
   Future<bool> _ensurePermission() async {
     if (await Permission.audio.request().isGranted) return true;
     if (await Permission.storage.request().isGranted) return true;
@@ -46,12 +54,32 @@ class _LocalLibraryViewState extends ConsumerState<LocalLibraryView> {
     try {
       final folders = await ref.read(scanFoldersProvider.future);
       if (folders.isEmpty) {
-        const musicDir = '/storage/emulated/0/Music';
-        if (Directory(musicDir).existsSync()) {
-          await ref.read(scanFoldersProvider.notifier).addFolder(musicDir);
+        var added = 0;
+        for (final dir in _defaultDirs) {
+          if (Directory(dir).existsSync()) {
+            await ref.read(scanFoldersProvider.notifier).addFolder(dir);
+            added++;
+          }
+        }
+        if (added == 0 && mounted) {
+          await showFullConfirm(
+            context,
+            title: tr('未找到音乐目录'),
+            message: tr('请将音乐文件放入手表的 Music 或 Download 文件夹后重试'),
+            okOnly: true,
+          );
+          return;
         }
       }
-      await ref.read(libraryProvider.notifier).scanAllFolders();
+      final total = await ref.read(libraryProvider.notifier).scanAllFolders();
+      if (total == 0 && mounted) {
+        await showFullConfirm(
+          context,
+          title: tr('未找到音乐文件'),
+          message: tr('已扫描的目录中没有音乐，可将文件放入 Music 或 Download 后重试'),
+          okOnly: true,
+        );
+      }
     } catch (e) {
       if (mounted) {
         await showFullConfirm(
@@ -98,7 +126,6 @@ class _LocalLibraryViewState extends ConsumerState<LocalLibraryView> {
                   ),
                 ),
                 title: tr('搜索'),
-                subtitle: tr('插件在线音源'),
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) => const OnlineSearchPage(),
