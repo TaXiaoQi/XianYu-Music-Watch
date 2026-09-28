@@ -8,6 +8,7 @@ import '../../plugin/plugin_models.dart';
 import '../../plugin/plugin_provider.dart';
 import '../../plugin/plugin_search.dart';
 import '../common/full_dialog.dart';
+import '../common/source_tag.dart';
 import '../common/stepped_list.dart';
 import '../local/local_music_hub.dart';
 
@@ -231,6 +232,7 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
             ),
             title: r.name,
             subtitle: quality.isEmpty ? r.singer : '${r.singer} · $quality',
+            trailing: SourceSubTag(pluginId: src.id),
             onTap: () => _play(gi, ri),
           ),
         );

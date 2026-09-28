@@ -7,6 +7,7 @@ import '../../core/watch_fit.dart';
 import '../../home/daily_recommend.dart';
 import '../../i18n/i18n.dart';
 import '../account/account_view.dart';
+import '../common/source_tag.dart';
 import '../common/stepped_list.dart';
 import '../local/local_music_hub.dart';
 import '../online/plugin_manage_page.dart';
@@ -134,6 +135,7 @@ class _RecommendList extends ConsumerWidget {
           subtitle: it.reason.isNotEmpty
               ? '${it.artist} · ${it.reason}'
               : it.artist,
+          trailing: SourceSubTag(pluginId: it.pluginId),
           onTap: () async {
             await ref.read(dailyRecommendProvider.notifier).play(i);
             if (!context.mounted) return;

@@ -9,6 +9,7 @@ import '../../plugin/plugin_subscriptions.dart';
 import '../../plugin/plugin_updates.dart';
 import '../common/full_dialog.dart';
 import '../common/stepped_list.dart';
+import '../common/source_tag.dart';
 
 class PluginManagePage extends ConsumerStatefulWidget {
   const PluginManagePage({super.key});
@@ -263,6 +264,7 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
 
   Widget _pluginTile(PluginSource src, {required double s}) {
     final hasUpdate = src.updateAvailable;
+    final subTag = pluginSubTag(src, ref.watch(pluginSubscriptionsProvider));
     return SteppedPill(
       child: ListTile(
         dense: true,
@@ -286,15 +288,47 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
             ),
           ),
         ),
-        title: Text(
-          src.name,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: 15 * s,
-            fontWeight: FontWeight.w600,
-            color: hasUpdate ? const Color(0xFFFF6B81) : Colors.white,
-          ),
+        title: Row(
+          children: [
+            Flexible(
+              child: Text(
+                src.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 15 * s,
+                  fontWeight: FontWeight.w600,
+                  color: hasUpdate ? const Color(0xFFFF6B81) : Colors.white,
+                ),
+              ),
+            ),
+            if (subTag != null) ...[
+              SizedBox(width: 4 * s),
+              Container(
+                padding: EdgeInsets.symmetric(
+                    horizontal: 5 * s, vertical: 1 * s),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE6A23C).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: const Color(0xFFE6A23C).withValues(alpha: 0.4),
+                    width: 0.5,
+                  ),
+                ),
+                child: Text(
+                  subTag.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.clip,
+                  style: TextStyle(
+                    fontSize: 10 * s,
+                    height: 1.2,
+                    color: const Color(0xFFE6A23C),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ],
         ),
         subtitle: Text(
           hasUpdate

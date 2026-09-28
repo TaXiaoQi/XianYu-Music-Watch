@@ -18,6 +18,7 @@ const Map<String, String> enDictWatch = {
   '更新': 'Update',
   '删除': 'Delete',
   '停止': 'Stop',
+  '付费': 'Paid',
   '功能': 'Features',
   '手机': 'Phone',
   '今日': 'Today',

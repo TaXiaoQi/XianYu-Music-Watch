@@ -733,9 +733,10 @@ class SteppedTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = context.watchScale();
-    final textReserve = leading != null
-        ? 48.0 * s
-        : (trailing != null ? 28.0 * s : 0.0);
+    // leading 与 trailing 同时存在时预留量相加，否则 trailing 会压住文字
+    final textReserve =
+        (leading != null ? 48.0 * s : 0.0) +
+        (trailing != null ? 28.0 * s : 0.0);
     return SteppedPill(
       onTap: onTap,
       color: backgroundColor,
