@@ -179,6 +179,7 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
   String? _lastAutoSwitchPath;
   String _switchCtxKey = '';
   final Set<String> _failedPluginIds = {};
+  int _skipDepth = 0;
 
   String? _currentMediaUrl;
   Map<String, String>? _currentHeaders;
@@ -404,6 +405,7 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
       if (_isDspEligible(item) &&
           await _tryStartDspPipeline(item.path, startAtSecs: startAtSecs)) {
         if (epoch != _playEpoch) return false;
+        _skipDepth = 0;
         state = state.copyWith(isPlaying: true, error: null);
         _syncPlaybackState();
         _persistSession();
@@ -427,6 +429,7 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
       _switchingSource = false;
       await _player.play();
       if (epoch != _playEpoch) return false;
+      _skipDepth = 0;
       state = state.copyWith(isPlaying: true, error: null);
       _persistSession();
       return true;
@@ -434,6 +437,14 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
       if (epoch != _playEpoch) return false;
       if (item.onlineSongJson != null && item.onlineSongJson!.isNotEmpty) {
         if (await _autoSwitchSource(item, index: index)) return true;
+        final behavior =
+            _ref.read(settingsProvider).valueOrNull?.onlineFailureBehavior;
+        if (behavior == 'skip' && _skipDepth < state.queue.length) {
+          _skipDepth++;
+          final next = _pickNextIndex();
+          if (next >= 0 && next != index) return _playAt(next);
+          _skipDepth = 0;
+        }
       }
       state = state.copyWith(isPlaying: false, error: '播放失败：$e');
       _persistSession();
@@ -1451,6 +1462,17 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
         await StreamCache.instance.evict(url);
       }
       if (await _autoSwitchSource(item, index: state.queueIndex)) return;
+      final behavior =
+          _ref.read(settingsProvider).valueOrNull?.onlineFailureBehavior;
+      if (behavior == 'skip' && _skipDepth < state.queue.length) {
+        _skipDepth++;
+        final next = _pickNextIndex();
+        if (next >= 0 && next != state.queueIndex) {
+          await _playAt(next);
+          return;
+        }
+        _skipDepth = 0;
+      }
       if (_usedCacheSource && url != null) {
         try {
           await _player.stop();

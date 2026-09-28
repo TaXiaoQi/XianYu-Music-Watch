@@ -266,9 +266,11 @@ class _PlaybackPage extends ConsumerWidget {
         title: tr('起播失败'),
         subtitle: tr('在线歌曲起播失败时的处理'),
         trailing: Text(
-          settings.onlineFailureBehavior == 'autoswitch'
-              ? tr('自动换源')
-              : tr('停止'),
+          switch (settings.onlineFailureBehavior) {
+            'autoswitch' => tr('自动换源'),
+            'skip' => tr('跳到下一首'),
+            _ => tr('停止'),
+          },
           style: TextStyle(
               fontSize: 12 * s, color: Colors.white.withValues(alpha: 0.7)),
         ),
@@ -520,6 +522,7 @@ class _FailureBehaviorPage extends ConsumerWidget {
     return _SteppedPage(title: tr('起播失败'), rows: [
       for (final (value, label) in [
         ('autoswitch', tr('自动换源')),
+        ('skip', tr('跳到下一首')),
         ('stop', tr('停止播放')),
       ])
         _SettingsChoiceRow(
