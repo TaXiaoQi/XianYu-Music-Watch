@@ -12,6 +12,7 @@ import 'src/i18n/i18n.dart';
 import 'src/auth/auth_provider.dart';
 import 'src/link/link_provider.dart';
 import 'src/sync/sync_provider.dart';
+import 'src/ui/common/root_back_scope.dart';
 import 'src/ui/local/local_music_hub.dart';
 import 'src/ui/link/linkage_home.dart';
 import 'src/update/app_update.dart';
@@ -71,6 +72,15 @@ class _XianYuWatchAppState extends ConsumerState<XianYuWatchApp>
     if (state != AppLifecycleState.resumed) return;
     ref.read(linkControllerProvider.notifier).refreshOnResume();
   }
+
+  /// 系统返回节流收口：Android 返回键/手势与鸿蒙 popRoute 最终都经
+  /// WidgetsBinding.handlePopRoute 依次派发给各 observer 的 didPopRoute，
+  /// 本 observer 注册先于 WidgetsApp。在此吞掉节流窗内的重复返回信号，
+  /// 未节流的返回 false 交回 WidgetsApp 走原有 maybePop 弹栈（含根路由
+  /// RootBackScope 的退后台/翻页），既有行为不变。不收口时，第二次返回
+  /// 信号若落在上一次 pop 过渡结束之后，会把当前层之下的路由也弹掉（跳层）。
+  @override
+  Future<bool> didPopRoute() async => consumeBackSignal();
 
   /// 启动后静默拉取服务端下发的最新版本，有新版且在当天未提示过则弹出整页更新页。
   Future<void> _startupUpdateCheck() async {
@@ -220,6 +230,10 @@ class _EdgeBackStripState extends State<_EdgeBackStrip> {
           final isBack = velocity > 300 || _dx >= 60 * s;
           _dx = 0;
           if (!isBack) return;
+          // 本条与系统返回是并存的兜底通道：固件把一次侧滑同时派发给
+          // 系统返回与 Flutter 触摸流时，这里再 maybePop 会连弹两层（跳层）。
+          // 与 didPopRoute 共用同一节流窗，保证一次返回手势至多弹一层。
+          if (consumeBackSignal()) return;
           widget.navigatorKey.currentState?.maybePop();
         },
       ),
