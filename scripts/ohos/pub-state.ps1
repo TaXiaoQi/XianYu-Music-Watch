@@ -40,21 +40,28 @@ function Enter-XianyuOhosPubState {
     Set-Content $mutex "$PID`n$(Get-Date -Format o)" -Force
     # 驻留态标记：Enter 置 ohos（Exit -KeepState 保持，Restore 置回 android）
     Set-Content (Join-Path $Root 'build\ohos\.pub-state-current') 'ohos' -Force
+    # 必须在写入 overrides 之前判定当前态：overrides 存在即已在 ohos 态
+    # （中断后重复进入），此刻的 lock 是 ohos 解析，绝不能当 android 备份
+    $alreadyOhos = Test-Path (Join-Path $Root 'pubspec_overrides.yaml')
     # overrides：模板是唯一事实源，每次强制重写（防模板新增条目后旧文件滞留、
     # 依赖静默停在旧 fork 上）
     Copy-Item (Join-Path $ScriptDir 'pubspec-ohos-overrides.yaml') `
         (Join-Path $Root 'pubspec_overrides.yaml') -Force
-    # lock 备份：首次进入时快照 Android/iOS 干净解析态（build/ 已 gitignore）；
-    # 之后每次进入都先回到干净态再让 pub get 重解析，保证 ohos 解析只由
-    # 「干净态 + overrides 模板」决定，可复现
+    # lock 备份：android 干净态进入时无条件刷新快照（build/ 已 gitignore）。
+    # 旧逻辑只在首次进入时快照、备份永不更新，android 侧依赖演化后（加包/
+    # 升级）退出还原会用陈旧快照把 pubspec.lock 打回旧版（实测踩坑：备份缺
+    # 后加的 encrypt/asn1lib 等条目）。刷新后备份新鲜度恒等于「最近一次
+    # android→ohos 切换瞬间」；ohos 态重复进入（中断恢复）不覆盖备份。
     $backup = Join-Path $Root 'build\ohos\pubspec.lock.android'
     $lock = Join-Path $Root 'pubspec.lock'
-    if (-not (Test-Path $backup) -and (Test-Path $lock)) {
-        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $backup) | Out-Null
-        Copy-Item $lock $backup -Force
-        Write-Host '[ohos-pub] pubspec.lock snapshot saved (android state)'
+    if (-not $alreadyOhos) {
+        if (Test-Path $lock) {
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $backup) | Out-Null
+            Copy-Item $lock $backup -Force
+            Write-Host '[ohos-pub] pubspec.lock snapshot refreshed (android state)'
+        }
     }
-    if (Test-Path $backup) { Copy-Item $backup $lock -Force }
+    elseif (Test-Path $backup) { Copy-Item $backup $lock -Force }
     # 强制 fork 重新 pub get：android 快照的 package_config 会让 fork 的依赖新鲜
     # 度检查误判"无需解析"，跳过 pub get → .flutter-plugins-dependencies 停留在
     # 官方格式（无 ohos 段），hvigor 插件读之即崩（00305010）。删掉两者强制重生
