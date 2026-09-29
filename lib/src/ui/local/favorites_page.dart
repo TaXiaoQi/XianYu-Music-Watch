@@ -5,7 +5,6 @@ import '../../core/watch_fit.dart';
 import '../../favorites/favorites_provider.dart';
 import '../../i18n/i18n.dart';
 import '../../player/player_provider.dart';
-import '../common/source_tag.dart';
 import '../common/stepped_list.dart';
 import '../home/cloud_playlists_page.dart';
 import 'local_music_hub.dart';
@@ -61,17 +60,10 @@ class FavoritesPage extends ConsumerWidget {
               ),
               title: f.title,
               subtitle: f.artist.isEmpty ? tr('未知歌手') : f.artist,
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SourceSubTag(pluginId: null, onlineSongJson: f.onlineSongJson),
-                  SizedBox(width: 4 * s),
-                  Icon(
-                    Icons.favorite_rounded,
-                    size: 18 * s,
-                    color: const Color(0xFFFF4D6E),
-                  ),
-                ],
+              trailing: Icon(
+                Icons.favorite_rounded,
+                size: 18 * s,
+                color: const Color(0xFFFF4D6E),
               ),
               onTap: () => _play(context, ref, favs, i),
             );

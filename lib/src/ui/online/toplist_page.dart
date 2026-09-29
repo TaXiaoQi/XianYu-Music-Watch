@@ -10,7 +10,6 @@ import '../../plugin/plugin_models.dart';
 import '../../plugin/plugin_provider.dart';
 import '../../plugin/plugin_search.dart';
 import '../../player/player_provider.dart';
-import '../common/source_tag.dart';
 import '../common/stepped_list.dart';
 import '../local/local_music_hub.dart';
 
@@ -292,7 +291,6 @@ class _TopListDetailPageState extends ConsumerState<TopListDetailPage> {
                 ),
                 title: r.name,
                 subtitle: r.singer,
-                trailing: SourceSubTag(pluginId: widget.source.id),
                 onTap: () => _play(i),
               );
             },

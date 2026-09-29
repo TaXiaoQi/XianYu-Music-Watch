@@ -264,7 +264,8 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
 
   Widget _pluginTile(PluginSource src, {required double s}) {
     final hasUpdate = src.updateAvailable;
-    final subTag = pluginSubTag(src, ref.watch(pluginSubscriptionsProvider));
+    final subTag =
+        pluginSubTagInfo(src, ref.watch(pluginSubscriptionsProvider));
     return SteppedPill(
       child: ListTile(
         dense: true,

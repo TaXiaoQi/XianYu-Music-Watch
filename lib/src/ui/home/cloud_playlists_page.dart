@@ -9,7 +9,6 @@ import '../../i18n/i18n.dart';
 import '../../player/player_provider.dart';
 import '../../sync/playlist_source_update.dart';
 import '../../sync/playlist_store.dart';
-import '../common/source_tag.dart';
 import '../common/stepped_list.dart';
 import '../local/local_music_hub.dart';
 
@@ -273,7 +272,6 @@ class _CloudPlaylistDetailPageState
               ),
               title: song.title,
               subtitle: song.artist.isEmpty ? tr('未知歌手') : song.artist,
-              trailing: SourceSubTag(pluginId: song.pluginId),
               onTap: () => widget.onPlay?.call(_playlist, i),
             );
           },
