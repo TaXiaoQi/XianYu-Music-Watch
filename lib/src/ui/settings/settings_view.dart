@@ -1230,6 +1230,17 @@ class _AboutPageState extends ConsumerState<_AboutPage> {
       ),
       _aboutLink(
         s,
+        icon: Icons.book_rounded,
+        label: tr('参考项目'),
+        sub: tr('借鉴的优秀开源项目'),
+        onTap: () => _aboutShowReferenceProjects(
+            context,
+            cfg.referenceProjects.isNotEmpty
+                ? cfg.referenceProjects
+                : _defaultWatchReferenceProjects),
+      ),
+      _aboutLink(
+        s,
         icon: Icons.favorite_rounded,
         label: tr('致谢名单'),
         sub: cfg.acknowledgements.isEmpty
@@ -1333,6 +1344,51 @@ class _AboutPageState extends ConsumerState<_AboutPage> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   for (final a in acks)
+                    Padding(
+                      padding: EdgeInsets.symmetric(vertical: 4 * s),
+                      child: Center(
+                        child: Text(
+                          a.name,
+                          style: TextStyle(
+                              fontSize: 13 * s, color: Colors.white),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+        actions: [
+          FullDialogButton(label: tr('知道了'), primary: true, onPressed: () => Navigator.of(context).pop()),
+        ],
+      ),
+    );
+  }
+
+  static const List<AboutAck> _defaultWatchReferenceProjects = [
+    AboutAck(
+        name: '弦予音乐移动端',
+        url: 'https://github.com/TaXiaoQi/XianYu-Music-Mobile'),
+  ];
+
+  void _aboutShowReferenceProjects(
+      BuildContext context, List<AboutAck> items) {
+    final s = context.watchScale();
+    showFullDialog<void>(
+      context: context,
+      builder: (context) => FullDialogScaffold(
+        title: tr('参考项目'),
+        content: items.isEmpty
+            ? Text(
+                tr('暂无参考项目'),
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    fontSize: 12 * s,
+                    color: Colors.white.withValues(alpha: 0.6)),
+              )
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final a in items)
                     Padding(
                       padding: EdgeInsets.symmetric(vertical: 4 * s),
                       child: Center(

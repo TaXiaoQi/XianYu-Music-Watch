@@ -441,15 +441,15 @@ class WatchAboutConfig {
   final String officialSiteUrl;
   final bool updateEnabled;
   final String projectUrl;
-  final String referenceProjectUrl;
   final String joinGroupUrl;
+  final List<AboutAck> referenceProjects;
   final List<AboutAck> acknowledgements;
   const WatchAboutConfig({
     this.officialSiteUrl = 'https://xianyumusic.cn',
     this.updateEnabled = true,
     this.projectUrl = '',
-    this.referenceProjectUrl = '',
     this.joinGroupUrl = '',
+    this.referenceProjects = const [],
     this.acknowledgements = const [],
   });
   factory WatchAboutConfig.fromJson(Map<String, dynamic> j) =>
@@ -458,8 +458,12 @@ class WatchAboutConfig {
             .toString(),
         updateEnabled: (j['updateEnabled'] as bool?) ?? true,
         projectUrl: (j['projectUrl'] ?? '').toString(),
-        referenceProjectUrl: (j['referenceProjectUrl'] ?? '').toString(),
         joinGroupUrl: (j['joinGroupUrl'] ?? '').toString(),
+        referenceProjects: (j['referenceProjects'] as List?)
+                ?.map((e) => AboutAck.fromJson(
+                    Map<String, dynamic>.from(e as Map)))
+                .toList() ??
+            const [],
         acknowledgements: (j['acknowledgements'] as List?)
                 ?.map((e) => AboutAck.fromJson(
                     Map<String, dynamic>.from(e as Map)))
