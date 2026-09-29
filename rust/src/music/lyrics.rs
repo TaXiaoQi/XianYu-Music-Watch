@@ -1,5 +1,5 @@
 use crate::music::lyric_formats::{
-    decrypt_qrc_hex, parse_eslrc, parse_lys, parse_qrc, parse_yrc, LyricLine as AmlLyricLine,
+    decrypt_qrc_hex, parse_eslrc, parse_lys, parse_qrc, parse_yrc, LyricLine as SourceLine,
 };
 use regex::Regex;
 use serde::Serialize;
@@ -1213,8 +1213,8 @@ fn to_safe_ms(value: u64, fallback: u32) -> u32 {
         .unwrap_or(fallback)
 }
 
-fn prepare_amll_line(
-    line: &AmlLyricLine<'_>,
+fn prepare_source_line(
+    line: &SourceLine,
     source_format: ParsedLineSourceFormat,
     source_index: usize,
 ) -> Option<ParsedLine> {
@@ -1231,7 +1231,7 @@ fn prepare_amll_line(
         .words
         .iter()
         .filter_map(|word| {
-            let text = sanitize_word_text(word.word.as_ref());
+            let text = sanitize_word_text(word.word.as_str());
             if text.is_empty() {
                 return None;
             }
@@ -1254,7 +1254,7 @@ fn prepare_amll_line(
             &line
                 .words
                 .iter()
-                .map(|word| word.word.as_ref())
+                .map(|word| word.word.as_str())
                 .collect::<String>(),
         )
     } else {
@@ -1266,8 +1266,8 @@ fn prepare_amll_line(
         )
     };
     let (explicit_role, text) = detect_explicit_role(&raw_text);
-    let translated_text = sanitize_line_text(line.translated_lyric.as_ref());
-    let roman_text = sanitize_line_text(line.roman_lyric.as_ref());
+    let translated_text = sanitize_line_text(line.translated_lyric.as_str());
+    let roman_text = sanitize_line_text(line.roman_lyric.as_str());
 
     if text.is_empty() && translated_text.is_empty() && roman_text.is_empty() && words.is_empty() {
         return None;
@@ -1793,7 +1793,7 @@ fn parse_raw_lyrics(raw: &str) -> Vec<ParsedLine> {
                 .iter()
                 .enumerate()
                 .filter_map(|(index, line)| {
-                    prepare_amll_line(line, ParsedLineSourceFormat::Qrc, index)
+                    prepare_source_line(line, ParsedLineSourceFormat::Qrc, index)
                 })
                 .collect(),
         );
@@ -1811,14 +1811,14 @@ fn parse_raw_lyrics(raw: &str) -> Vec<ParsedLine> {
         parse_yrc(&normalized)
             .iter()
             .enumerate()
-            .filter_map(|(index, line)| prepare_amll_line(line, ParsedLineSourceFormat::Yrc, index))
+            .filter_map(|(index, line)| prepare_source_line(line, ParsedLineSourceFormat::Yrc, index))
             .collect(),
     );
 
     let mut qrc_candidate = parse_qrc(&normalized)
         .iter()
         .enumerate()
-        .filter_map(|(index, line)| prepare_amll_line(line, ParsedLineSourceFormat::Qrc, index))
+        .filter_map(|(index, line)| prepare_source_line(line, ParsedLineSourceFormat::Qrc, index))
         .collect::<Vec<_>>();
     // Baka/插件链路把解密 QRC XML 与插件译文 LRC 拼成一份 raw（同移动端组合）。
     // parse_qrc 只消费 XML，尾部译文 LRC 会被静默丢弃——这里按时间戳把译文
@@ -1841,7 +1841,7 @@ fn parse_raw_lyrics(raw: &str) -> Vec<ParsedLine> {
         parse_lys(&normalized)
             .iter()
             .enumerate()
-            .filter_map(|(index, line)| prepare_amll_line(line, ParsedLineSourceFormat::Lys, index))
+            .filter_map(|(index, line)| prepare_source_line(line, ParsedLineSourceFormat::Lys, index))
             .collect(),
     );
 
@@ -1852,7 +1852,7 @@ fn parse_raw_lyrics(raw: &str) -> Vec<ParsedLine> {
             .iter()
             .enumerate()
             .filter_map(|(index, line)| {
-                prepare_amll_line(line, ParsedLineSourceFormat::Eslrc, index)
+                prepare_source_line(line, ParsedLineSourceFormat::Eslrc, index)
             })
             .collect(),
     );
