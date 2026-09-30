@@ -84,12 +84,12 @@ flutter test         # 单测（协议编解码 / 分片重组 / CRC 容错）
 ### 构建安装包
 
 ```bash
-# Android（.apk，Rust 自动编译；--flavor 必选：prod 正式包 / test 测试包，两者可并存安装）
-flutter build apk --v8 --flavor prod        # 正式包·64 位表（Wear OS 3+：三星 GW4/GW5/GW6、小米 S、OPPO Watch 等）
-flutter build apk --v7 --flavor prod        # 正式包·32 位国表（华为 GLL-AL00 等 armeabi-v7a）
-flutter build apk --release --flavor prod   # 正式包·全量双 ABI（单包兼容 32/64 位，体积更大）
-flutter build apk --release --flavor test   # 测试包（包名 .test 后缀、应用名「腕上弦予·测试」，与正式包并存）
-# flutter run 同样需带 --flavor prod（日常）或 --flavor test
+# Android（.apk，Rust 自动编译；PowerShell 包装函数未指定 --flavor 时默认 prod 正式包）
+flutter build apk --v8                      # 正式包·64 位表（Wear OS 3+：三星 GW4/GW5/GW6、小米 S、OPPO Watch 等）
+flutter build apk --v7                      # 正式包·32 位国表（华为 GLL-AL00 等 armeabi-v7a）
+flutter build apk --release                 # 正式包·全量双 ABI（单包兼容 32/64 位，体积更大）
+flutter build apk --release --flavor beta   # 测试包（包名 .test 后缀、应用名「腕上弦予·测试」，与正式包并存）
+# flutter run 同理：默认正式包，打测试包加 --flavor beta
 
 # 鸿蒙（.hap / .app，腕上端根目录内执行）
 flutter hap                  # 调试运行

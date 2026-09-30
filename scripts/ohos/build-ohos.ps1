@@ -7,7 +7,7 @@
   Watch edition of the mobile project's build-ohos.ps1. Builds the HarmonyOS
   HAP IN PLACE (space-free path). Differences vs mobile:
     - no version.ts sync step (single version source = pubspec.yaml)
-    - project name xianyu_watch, archive 弦予音乐v<ver>-Watch-<arch>.hap
+    - project name xianyu_watch, archive 腕上弦予v<ver>-Watch-<arch>.hap（与安卓 Watch 归档名对齐）
     - no PoC signing-profile fallback (watch bundle com.xianyumusic.watch.next has
       its own AGC materials, configured later in ohos/build-profile.json5)
     - no signing materials -> canonical profile omits "signingConfig" so
@@ -287,6 +287,13 @@ try {
         $hasModeFlag = $false
         foreach ($a in $FlutterArgs) { if ($a -in @('--release', '--profile', '--debug')) { $hasModeFlag = $true } }
         if (-not $hasModeFlag) { $buildArgs += '--release' }
+        # Dart AOT 混淆（release 专用；与 wrapper 对 `flutter build hap` 的注入、
+        # 安卓 gradle 侧 extra-gen-snapshot-options 同款）：符号抽到 build\ohos\symbols，
+        # 归档阶段收进 releases\symbols，libapp.so 瘦身约 1.3MB
+        $isReleaseBuild = ($FlutterArgs -notcontains '--debug') -and ($FlutterArgs -notcontains '--profile')
+        if ($isReleaseBuild -and ($FlutterArgs -notcontains '--obfuscate')) {
+            $buildArgs += @('--obfuscate', '--split-debug-info', (Join-Path $ProjectRoot 'build\ohos\symbols'))
+        }
         if ($targetAbi -eq 'x64') { $buildArgs += @('--target-platform', 'ohos-x64') }
         elseif ($targetAbi -eq 'arm64') { $buildArgs += @('--target-platform', 'ohos-arm64') }
         if ($FlutterArgs) { $buildArgs += $FlutterArgs }
@@ -307,7 +314,8 @@ try {
         foreach ($h in $haps) { Write-Host ("  HAP: {0}  ({1:N1} MB)" -f $h.FullName, ($h.Length / 1MB)) -ForegroundColor Green }
 
         # ---- archive to releases\ohos ----
-        # Naming: 弦予音乐v<version>-Watch-<arch>.hap, version verbatim from
+        # Naming: 腕上弦予v<version>-Watch-<arch>.hap（与安卓 Watch 归档名、
+        # 表上应用名一致），version verbatim from
         # pubspec.yaml (single version source; build number never in filenames,
         # matching the Android/三端 naming convention). Explicit --debug builds
         # are NOT archived.
@@ -332,9 +340,20 @@ try {
         if ($buildMode -ne 'debug') {
             New-Item -ItemType Directory -Force -Path $relDir | Out-Null
             foreach ($h in $haps) {
-                $dst = Join-Path $relDir ("弦予音乐v{0}-Watch-{1}.hap" -f $appVersion, $archSuffix)
+                $dst = Join-Path $relDir ("腕上弦予v{0}-Watch-{1}.hap" -f $appVersion, $archSuffix)
                 Copy-Item $h.FullName $dst -Force
                 Write-Host ("  archived: {0}" -f $dst) -ForegroundColor Green
+            }
+        }
+        # 混淆符号归档（--split-debug-info 产物 → releases\symbols\<版本>\ohos\，
+        # 供 flutter symbolize 还原混淆堆栈；hap 在 app 前必构建，此处收一次两路通用）
+        if ($buildMode -ne 'debug') {
+            $symFiles = Get-ChildItem (Join-Path $ProjectRoot 'build\ohos\symbols') -File -ErrorAction SilentlyContinue
+            if ($symFiles) {
+                $dstSym = Join-Path (Split-Path -Parent $relDir) ("symbols\{0}\ohos" -f $appVersion)
+                New-Item -ItemType Directory -Force -Path $dstSym | Out-Null
+                Copy-Item (Join-Path $symFiles[0].DirectoryName '*') $dstSym -Force
+                Write-Host ("  archived symbols: {0}" -f $dstSym) -ForegroundColor Green
             }
         }
         if ($AppPack) {
@@ -356,7 +375,7 @@ try {
                     # '*signed.app' 通配符会连 -unsigned.app 一起匹配
                     # （unsigned 以 signed.app 结尾），必须排除，归档只留签名版
                     if ($buildMode -ne 'debug' -and $a2.Name -notmatch 'unsigned') {
-                        $dst = Join-Path $relDir ("弦予音乐v{0}-Watch.app" -f $appVersion)
+                        $dst = Join-Path $relDir ("腕上弦予v{0}-Watch.app" -f $appVersion)
                         Copy-Item $a2.FullName $dst -Force
                         Write-Host ("  archived: {0}" -f $dst) -ForegroundColor Green
                     }

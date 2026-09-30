@@ -72,15 +72,13 @@ export default class EntryAbility extends FlutterAbility {
     this.screenShapeChannel.setMethodCallHandler({
       onMethodCall: (call, result) => {
         if (call.method === 'isRound') {
-          display.getDefaultDisplay()
-            .then((d) => {
-              const w = d.width
-              const h = d.height
-              const isRound = w > 0 && h > 0 &&
-                Math.abs(w - h) / Math.max(w, h) < 0.1
-              result.success(isRound)
-            })
-            .catch((err: Error) => result.error('probe_failed', String(err), null))
+          // getDefaultDisplay 已弃用（API 18），同步接口读屏幕参数即可
+          const d = display.getDefaultDisplaySync()
+          const w = d.width
+          const h = d.height
+          const isRound = w > 0 && h > 0 &&
+            Math.abs(w - h) / Math.max(w, h) < 0.1
+          result.success(isRound)
         } else {
           result.notImplemented()
         }
@@ -142,16 +140,26 @@ export default class EntryAbility extends FlutterAbility {
     if (this.keepAliveStarted) {
       return
     }
-    const wa = await wantAgent.getWantAgent({
-      wants: [{ bundleName: 'com.xianyumusic.watch.next', abilityName: 'EntryAbility' }],
-      actionType: wantAgent.OperationType.START_ABILITY,
-      requestCode: 0
-    } as wantAgent.WantAgentInfo)
-    await backgroundTaskManager.startBackgroundRunning(
-      this.context,
-      backgroundTaskManager.BackgroundMode.DATA_TRANSFER,
-      wa
-    )
-    this.keepAliveStarted = true
+    // backgroundTaskManager 非所有设备支持（syscap 检查警告），守卫后直接跳过，
+    // 避免在不支持设备上运行期抛错（此前未捕获 rejection）
+    if (!canIUse('SystemCapability.ResourceSchedule.BackgroundTaskManager.LongTimeRunning')) {
+      return
+    }
+    try {
+      const wa = await wantAgent.getWantAgent({
+        wants: [{ bundleName: 'com.xianyumusic.watch.next', abilityName: 'EntryAbility' }],
+        actionType: wantAgent.OperationType.START_ABILITY,
+        requestCode: 0
+      } as wantAgent.WantAgentInfo)
+      await backgroundTaskManager.startBackgroundRunning(
+        this.context,
+        backgroundTaskManager.BackgroundMode.DATA_TRANSFER,
+        wa
+      )
+      this.keepAliveStarted = true
+    } catch (err) {
+      // 常驻失败仅记录，不影响 UI（消除 may-throw 警告，也避免未处理 rejection）
+      hilog.error(0x0100, 'xianyu', `startKeepAlive failed: ${String(err)}`)
+    }
   }
 }

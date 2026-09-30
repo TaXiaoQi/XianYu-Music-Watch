@@ -23,7 +23,8 @@ struct Index {
   }
 
   onBackPress(): boolean {
-    dispatchBackToFlutter(getContext(this) as common.UIAbilityContext)
+    // getContext 已弃用（API 18），组件内用 UIContext 取宿主 Context
+    dispatchBackToFlutter(this.getUIContext().getHostContext() as common.UIAbilityContext)
     return true
   }
 }

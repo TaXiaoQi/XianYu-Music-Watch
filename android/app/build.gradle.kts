@@ -59,8 +59,9 @@ android {
         }
     }
 
-    // 渠道维度：prod 正式包 / test 测试包。加 flavor 后构建需显式指定：
-    // `flutter build apk --release --flavor prod|test`（flutter run 同理）。
+    // 渠道维度：prod 正式包 / beta 测试包。加 flavor 后构建需显式指定：
+    // `flutter build apk --release --flavor prod|beta`（flutter run 同理）。
+    // 注意 flavor 不能叫 test*（AGP 保留前缀，构建直接报错），故用 beta。
     flavorDimensions += "channel"
     productFlavors {
         create("prod") {
@@ -69,7 +70,7 @@ android {
             // appLabel 移到此处，flavor 级占位符不会被更高优先级覆盖）
             manifestPlaceholders["appLabel"] = "腕上弦予"
         }
-        create("test") {
+        create("beta") {
             dimension = "channel"
             // 测试包：包名加 .test 后缀、版本名加 -test 后缀、应用名加「·测试」，
             // 与正式包并存安装互不覆盖（与 debug 后缀方案同款做法）
@@ -180,19 +181,19 @@ tasks.matching { it.name == "preBuild" }.configureEach {
     dependsOn("rustHook")
 }
 
-// 正式/测试包自动归档：assemble{Prod,Test}Release 完成后把对应 release APK
+// 正式/测试包自动归档：assemble{Prod,Beta}Release 完成后把对应 release APK
 // （arm64+armv7 双 ABI）复制到 releases/android/（预发布版本名自带 -betaN 后缀），
-// 让 `flutter build apk --release --flavor prod|test` 一条命令出包并归档：
+// 让 `flutter build apk --release --flavor prod|beta` 一条命令出包并归档：
 // - prod：腕上弦予v<版本>-Watch-<架构>.apk（与历史命名一致）
-// - test：腕上弦予v<版本>-Watch-test-<架构>.apk（与正式包区分）
+// - beta：腕上弦予v<版本>-Watch-test-<架构>.apk（归档名沿用 -test，与正式包区分）
 // （与移动端同款钩子）
 tasks.register("archiveReleaseApk") {
     group = "build"
     doLast {
         // flavor 从本次命令行任务名推断（rustHook 同款思路）；直接执行本任务时默认 prod
         val taskNames = gradle.startParameter.taskNames
-        val flavor = if (taskNames.any { it.contains("TestRelease", ignoreCase = true) }) {
-            "test"
+        val flavor = if (taskNames.any { it.contains("BetaRelease", ignoreCase = true) }) {
+            "beta"
         } else {
             "prod"
         }
@@ -211,13 +212,24 @@ tasks.register("archiveReleaseApk") {
             "v8" -> "arm64"
             else -> "arm32-arm64"
         }
-        val flavorTag = if (flavor == "test") "-test" else ""
+        // 归档名沿用 -test 标记（与包名 .test 后缀、版本 -test 后缀一致）
+        val flavorTag = if (flavor == "beta") "-test" else ""
         val dest = File(releasesAndroidDir, "腕上弦予v$version-Watch$flavorTag-$arch.apk")
         apk.copyTo(dest, overwrite = true)
-        logger.lifecycle("已归档${if (flavor == "test") "测试" else "正式"}安装包: ${dest.absolutePath} (${"%.1f".format(dest.length() / 1024.0 / 1024.0)} MB)")
+        logger.lifecycle("已归档${if (flavor == "beta") "测试" else "正式"}安装包: ${dest.absolutePath} (${"%.1f".format(dest.length() / 1024.0 / 1024.0)} MB)")
+        // 混淆符号归档（gen_snapshot --save-debugging-info=app.symbols 落项目根，
+        // 供 flutter symbolize -d app.symbols 还原混淆堆栈；与移动端同款）
+        val sym = File(projectRoot, "app.symbols")
+        if (sym.exists()) {
+            val symDir = File(File(projectRoot, "releases"), "symbols/$version")
+            symDir.mkdirs()
+            sym.copyTo(File(symDir, "app.symbols"), overwrite = true)
+            sym.delete()
+            logger.lifecycle("已归档混淆符号: ${symDir.absolutePath}")
+        }
     }
 }
-tasks.matching { it.name == "assembleProdRelease" || it.name == "assembleTestRelease" }
+tasks.matching { it.name == "assembleProdRelease" || it.name == "assembleBetaRelease" }
     .configureEach {
         finalizedBy("archiveReleaseApk")
     }
