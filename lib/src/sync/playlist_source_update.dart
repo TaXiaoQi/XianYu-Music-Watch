@@ -117,6 +117,13 @@ Future<List<CloudSong>> _fetchSourceSongs(
     if (url != null && url.isNotEmpty) {
       results.addAll(await catalog.importMusicSheet(source, url));
     }
+    // 插件对酷狗/汽水/网易云/QQ/酷我歌单解析失败：宿主兜底
+    if (results.isEmpty && url != null && url.isNotEmpty) {
+      final hostTracks = await catalog.importHostSheetRaw(source, url);
+      results.addAll(hostTracks
+          .map((e) => mfItemToSearchResult(e, source))
+          .where((r) => r.name.isNotEmpty));
+    }
   }
   return results.map((r) => _cloudSongOf(source, r)).toList();
 }
