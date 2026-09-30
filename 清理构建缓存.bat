@@ -49,7 +49,9 @@ if exist "%~dp0android\.gradle" (
 echo.
 
 echo ============================================
-echo   Cache cleaned! Run "flutter run" or "flutter build apk --v7" to rebuild.
+echo   Cache cleaned! Run to rebuild:
+echo     Android : "flutter build apk --v7" (32-bit CN watches) or "--v8"
+echo     HarmonyOS: "flutter build hap" (use .tools\flutter-ohos-344)
 echo   (Rust is compiled automatically via scripts\gradle-rust-hook.ps1)
 echo ============================================
 echo.
