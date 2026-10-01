@@ -11,6 +11,7 @@ import 'src/core/watch_fit.dart';
 import 'src/i18n/i18n.dart';
 import 'src/auth/auth_provider.dart';
 import 'src/link/link_provider.dart';
+import 'src/plugin/lx_update_alerts.dart';
 import 'src/sync/sync_provider.dart';
 import 'src/ui/common/root_back_scope.dart';
 import 'src/ui/local/local_music_hub.dart';
@@ -156,6 +157,7 @@ class _XianYuWatchAppState extends ConsumerState<XianYuWatchApp>
               Positioned.fill(child: nav),
               _EdgeBackStrip(navigatorKey: _navKey),
               const Positioned.fill(child: _PairRequestHost()),
+              const LxUpdateAlertHost(),
             ],
           );
         },

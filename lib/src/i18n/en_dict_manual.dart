@@ -1559,4 +1559,10 @@ const Map<String, String> enDictManual = {
   '同意并继续': 'Agree and continue',
   '不同意并退出': 'Decline and exit',
   '查看在线版': 'View online',
+
+  '「{name}」有新版本': '"{name}" has a new version',
+  '当前版本 v{ver}': 'Current version v{ver}',
+  '立即更新': 'Update now',
+  '稍后': 'Later',
+  '无法获取更新脚本': 'Could not fetch the update script',
 };
