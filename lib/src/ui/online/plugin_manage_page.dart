@@ -20,6 +20,9 @@ class PluginManagePage extends ConsumerStatefulWidget {
 
 class _PluginManagePageState extends ConsumerState<PluginManagePage> {
   bool _checking = false;
+  bool _installing = false;
+  // 安装中页面返回 = 取消导入（终止后台安装并静默收尾）
+  bool _installCancelled = false;
   final Set<String> _updating = {};
 
   Future<PluginUpdateService> _updateService() async {
@@ -125,6 +128,7 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
   }
 
   Future<void> _addPlugin() async {
+    if (_installing) return;
     final url = await showFullInput(
       context,
       title: tr('添加插件'),
@@ -133,10 +137,12 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
       keyboardType: TextInputType.url,
     );
     if (url == null || url.isEmpty || !mounted) return;
+    _installCancelled = false;
+    setState(() => _installing = true);
     try {
       final result = await ref
           .read(pluginManagerProvider.notifier)
-          .installFromUrl(url);
+          .installFromUrl(url, cancelled: () => _installCancelled);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -150,6 +156,8 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
           duration: const Duration(seconds: 2),
         ),
       );
+    } on PluginInstallCancelled {
+      // 用户返回已取消：静默终止，不再弹失败提示
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -158,6 +166,8 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
           SnackBar(content: Text(tr('安装失败：{e}', {'e': e}))),
         );
       }
+    } finally {
+      if (mounted) setState(() => _installing = false);
     }
   }
 
@@ -199,8 +209,14 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
               ),
               IconButton(
                 tooltip: tr('添加插件'),
-                onPressed: _addPlugin,
-                icon: Icon(Icons.add_circle_outline_rounded, size: 22 * s),
+                onPressed: _installing ? null : _addPlugin,
+                icon: _installing
+                    ? SizedBox(
+                        width: 20 * s,
+                        height: 20 * s,
+                        child: CircularProgressIndicator(strokeWidth: 2 * s),
+                      )
+                    : Icon(Icons.add_circle_outline_rounded, size: 22 * s),
               ),
             ],
           ),
@@ -259,7 +275,14 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
         itemBuilder: (context, i) => _pluginTile(sources[i], s: s),
       );
     }
-    return Scaffold(body: SafeArea(child: body));
+    // 安装中允许返回，但返回语义 = 取消导入：终止后台安装，
+    // 避免页面已退安装仍在跑且无任何结果反馈（对齐移动端「返回=取消导入」）
+    return PopScope(
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop && _installing) _installCancelled = true;
+      },
+      child: Scaffold(body: SafeArea(child: body)),
+    );
   }
 
   Widget _pluginTile(PluginSource src, {required double s}) {

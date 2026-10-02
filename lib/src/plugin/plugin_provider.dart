@@ -30,9 +30,23 @@ const _bilibiliCookieKeys = {
 
 const int _maxScriptBytes = 2 * 1024 * 1024;
 
-Future<String?> fetchPluginScript(String url) async {
+/// 用户取消在线导入：在请求间隙抛出，静默终止安装流程（对齐移动端语义）。
+/// 手表端当前安装期间无取消入口，参数管道已就位，UI 接入时直接传探针即可。
+class PluginInstallCancelled implements Exception {
+  const PluginInstallCancelled();
+
+  @override
+  String toString() => 'PluginInstallCancelled';
+}
+
+/// body 读取超时：connectionTimeout/响应头 timeout 只覆盖到收到响应头，
+/// body 中途断流时 chunk 流会永久挂起（安装无响应卡死的根因，对齐移动端 bodyTimeout）
+const Duration _bodyTimeout = Duration(seconds: 60);
+
+Future<String?> fetchPluginScript(String url, {bool Function()? cancelled}) async {
   final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
   try {
+    if (cancelled?.call() ?? false) return null;
     final req = await client.getUrl(Uri.parse(url));
     req.headers.set(
       'User-Agent',
@@ -54,17 +68,22 @@ Future<String?> fetchPluginScript(String url) async {
                 const Duration(seconds: 20),
               );
           if (retryResp.statusCode >= 200 && retryResp.statusCode < 300) {
-            return await retryResp.transform(utf8.decoder).join();
+            return await retryResp.transform(utf8.decoder).join().timeout(_bodyTimeout);
           }
         } catch (_) {}
       }
       return null;
     }
     final buf = StringBuffer();
-    await for (final chunk in resp.transform(utf8.decoder)) {
+    // stream.timeout 为事件间超时：断流 60s 无新 chunk 即抛 TimeoutException，
+    // 慢速但不断流的下载不受总时长限制
+    await for (final chunk
+        in resp.transform(utf8.decoder).timeout(_bodyTimeout)) {
+      if (cancelled?.call() ?? false) return null;
       buf.write(chunk);
       if (buf.length > _maxScriptBytes) return null;
     }
+    if (cancelled?.call() ?? false) return null;
     return buf.toString();
   } catch (_) {
     return null;
@@ -234,21 +253,31 @@ class PluginManager extends StateNotifier<PluginListState> {
     return source;
   }
 
-  Future<PluginInstallResult> installFromUrl(String url) async {
-    final script = await fetchPluginScript(url);
+  Future<PluginInstallResult> installFromUrl(
+    String url, {
+    bool Function()? cancelled,
+  }) async {
+    void checkCancelled() {
+      if (cancelled?.call() ?? false) throw const PluginInstallCancelled();
+    }
+
+    checkCancelled();
+    final script = await fetchPluginScript(url, cancelled: cancelled);
+    checkCancelled();
     if (script == null || script.isEmpty) {
       throw PluginEngineException(tr('无法获取插件脚本，请检查 URL 与网络'));
     }
 
     final batch = _parsePluginList(script);
     if (batch != null && batch.isNotEmpty) {
-      final result = await _installBatch(batch);
+      final result = await _installBatch(batch, cancelled: cancelled);
       if (result.success) {
         await _recordSubscription(url);
       }
       return result;
     }
 
+    checkCancelled();
     final source = await installFromScript(
       script,
       fileName: url,
@@ -294,15 +323,22 @@ class PluginManager extends StateNotifier<PluginListState> {
   }
 
   Future<PluginInstallResult> _installBatch(
-    List<Map<String, dynamic>> items,
-  ) async {
+    List<Map<String, dynamic>> items, {
+    bool Function()? cancelled,
+  }) async {
     final names = <String>[];
     final errors = <String>[];
     for (final item in items) {
+      // 批量导入逐项响应取消（PluginInstallCancelled 向上穿透，
+      // 由 installFromUrl 的调用方静默处理）
+      if (cancelled?.call() ?? false) throw const PluginInstallCancelled();
       final url = item['url'].toString();
       final label = (item['name'] ?? url).toString();
       try {
-        final script = await fetchPluginScript(url);
+        final script = await fetchPluginScript(url, cancelled: cancelled);
+        if (cancelled?.call() ?? false) {
+          throw const PluginInstallCancelled();
+        }
         if (script == null || script.isEmpty) {
           errors.add(tr('{label}: 获取脚本失败', {'label': label}));
           continue;
@@ -315,6 +351,9 @@ class PluginManager extends StateNotifier<PluginListState> {
           sourceUrl: url,
         );
         names.add(source.name);
+      } on PluginInstallCancelled {
+        // 取消不能被吞成单项失败：向上穿透交给调用方静默处理
+        rethrow;
       } on PluginEngineException catch (e) {
         errors.add('$label: ${e.message}');
       } catch (_) {

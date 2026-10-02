@@ -22,6 +22,8 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
   final _controller = TextEditingController();
   bool _searching = false;
   bool _installing = false;
+  // 安装中页面返回 = 取消导入（终止后台安装并静默收尾）
+  bool _installCancelled = false;
   String? _error;
   List<PluginSource> _sources = [];
   List<(PluginSource, List<PluginSearchResult>)> _results = [];
@@ -71,11 +73,12 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
       keyboardType: TextInputType.url,
     );
     if (url == null || url.isEmpty || !mounted) return;
+    _installCancelled = false;
     setState(() => _installing = true);
     try {
       final result = await ref
           .read(pluginManagerProvider.notifier)
-          .installFromUrl(url);
+          .installFromUrl(url, cancelled: () => _installCancelled);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -88,6 +91,8 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
           ),
         ),
       );
+    } on PluginInstallCancelled {
+      // 用户返回已取消：静默终止，不再弹失败提示
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -120,7 +125,7 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
   @override
   Widget build(BuildContext context) {
     final s = context.watchScale();
-    return Scaffold(
+    final scaffold = Scaffold(
       appBar: AppBar(
         title: Text(tr('搜索'), style: TextStyle(fontSize: 15 * s)),
         actions: [
@@ -161,6 +166,14 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
           Expanded(child: _buildBody(s)),
         ],
       ),
+    );
+    // 安装中允许返回，但返回语义 = 取消导入：终止后台安装，
+    // 避免页面已退安装仍在跑且无任何结果反馈（对齐移动端「返回=取消导入」）
+    return PopScope(
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop && _installing) _installCancelled = true;
+      },
+      child: scaffold,
     );
   }
 
