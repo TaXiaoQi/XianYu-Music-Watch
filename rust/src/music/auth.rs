@@ -413,13 +413,7 @@ mod time_calibrate_tests {
     #[test]
     fn parse_http_date_standard() {
         let secs = parse_http_date("Thu, 10 Sep 2026 06:34:48 GMT").expect("应解析成功");
-        let local = local_now_secs();
-        assert!(
-            (secs - local).abs() < 86_400,
-            "解析结果 {} 与本地时间 {} 偏差超过一天",
-            secs,
-            local
-        );
+        // 固定日期→epoch 断言已验证解析正确性；不与本地时间比对（写死日期会随时间流逝失效）
         assert_eq!(secs, 1789022088);
     }
 
