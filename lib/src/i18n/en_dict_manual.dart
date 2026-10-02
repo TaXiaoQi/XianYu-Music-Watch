@@ -607,6 +607,11 @@ const Map<String, String> enDictManual = {
       'This device has not been granted beta access and cannot use the beta build.\nTap "Apply" to submit your reason. Once approved by an admin, you can continue using the app.',
   '该设备的内测申请正在审核中，请耐心等待管理员审核，审核结果将以反馈回复通知。':
       'The beta application for this device is under review. Please wait patiently for the admin to process it; the result will be sent as a feedback reply.',
+  '无法验证内测资格': 'Cannot verify beta access',
+  '请连接网络后重试。若持续失败，请联系管理员。':
+      'Please connect to the network and try again. If it keeps failing, contact the administrator.',
+  '当前设备未申请内测资格，无法使用内测版本。请在手机端打开弦予音乐提交内测申请。':
+      'This device has not been granted beta access and cannot use the beta build. Open XianYu Music on your phone to submit a beta application.',
   '提示': 'Notice',
   '确定': 'OK',
   '退出软件': 'Exit app',

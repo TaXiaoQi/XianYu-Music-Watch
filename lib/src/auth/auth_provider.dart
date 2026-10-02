@@ -12,6 +12,9 @@ import '../rust/api.dart' as rust;
 const defaultAuthBaseUrl = 'https://api.xianyumusic.cn/api';
 const defaultAuthApiSecret = 'acca7562ecaf830fcce45814f110eacea83ecf9cf52320c3';
 
+/// 已验签内测资格响应的本地缓存键（fail-closed：断网凭缓存放行，无缓存/过期则锁）。
+const _betaAccessCacheKey = 'beta_access_signed_payload_v1';
+
 class AuthUser {
   final String id;
   final String username;
@@ -416,6 +419,67 @@ class AuthNotifier extends StateNotifier<AuthState> {
       });
       if (data['version'] == null) return null;
       return LatestVersion.fromJson(data);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 内测资格验证（fail-closed，供启动锁使用）：
+  /// 1) 联网请求 check_beta_access 并验签（ed25519，绑定 device_id + 过期时间），
+  ///    验签通过则更新本地缓存；
+  /// 2) 网络失败或响应不可信（无签名/验签失败/设备不匹配/已过期）时回退本地缓存，
+  ///    缓存同样经完整验签；
+  /// 3) 两者皆不可用返回 null，调用方应锁定（无法验证 ≠ 放行）。
+  /// 返回 (allowed, pending)。
+  Future<(bool, bool)?> verifyBetaAccess() async {
+    final deviceId = (await _deviceId()).trim();
+    try {
+      final data = await requestAction('check_beta_access', {
+        'device_id': deviceId,
+      });
+      final parsed = await _parseSignedBetaAccess(data, deviceId);
+      if (parsed != null) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(_betaAccessCacheKey, jsonEncode(data));
+        return parsed;
+      }
+    } catch (_) {}
+    return _readCachedBetaAccess(deviceId);
+  }
+
+  /// 解析并验签一份 check_beta_access 响应。不可信返回 null。
+  Future<(bool, bool)?> _parseSignedBetaAccess(
+      Map<String, dynamic> payload, String deviceId) async {
+    final payloadDevice = (payload['device_id'] ?? '').toString().trim();
+    if (payloadDevice.isEmpty || payloadDevice != deviceId) return null;
+    final exp = (payload['exp'] as num?)?.toInt() ?? 0;
+    if (exp <= DateTime.now().millisecondsSinceEpoch ~/ 1000) return null;
+    final signature = (payload['sig'] ?? '').toString();
+    if (signature.isEmpty) return null;
+    final allowed = payload['allowed'] == true;
+    final pending = payload['pending'] == true;
+    try {
+      final ok = await rust.verifyBetaAccessSignature(
+        deviceId: deviceId,
+        allowed: allowed,
+        pending: pending,
+        exp: exp,
+        signature: signature,
+      );
+      if (ok) return (allowed, pending);
+    } catch (_) {}
+    return null;
+  }
+
+  Future<(bool, bool)?> _readCachedBetaAccess(String deviceId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_betaAccessCacheKey);
+      if (raw == null || raw.isEmpty) return null;
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return null;
+      return await _parseSignedBetaAccess(
+          Map<String, dynamic>.from(decoded), deviceId);
     } catch (_) {
       return null;
     }

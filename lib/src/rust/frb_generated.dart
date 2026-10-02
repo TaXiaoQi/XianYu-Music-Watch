@@ -65,7 +65,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => 120796639;
+  int get rustContentHash => 114992960;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -856,6 +856,14 @@ abstract class RustLibApi extends BaseApi {
     required String dbPath,
     required double positionSecs,
     required bool isPlaying,
+  });
+
+  Future<bool> crateApiVerifyBetaAccessSignature({
+    required String deviceId,
+    required bool allowed,
+    required bool pending,
+    required PlatformInt64 exp,
+    required String signature,
   });
 
   Future<bool> crateApiVerifyFallbackModuleSignature({
@@ -7169,6 +7177,47 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<bool> crateApiVerifyBetaAccessSignature({
+    required String deviceId,
+    required bool allowed,
+    required bool pending,
+    required PlatformInt64 exp,
+    required String signature,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(deviceId, serializer);
+          sse_encode_bool(allowed, serializer);
+          sse_encode_bool(pending, serializer);
+          sse_encode_i_64(exp, serializer);
+          sse_encode_String(signature, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 184,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_bool,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiVerifyBetaAccessSignatureConstMeta,
+        argValues: [deviceId, allowed, pending, exp, signature],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiVerifyBetaAccessSignatureConstMeta =>
+      const TaskConstMeta(
+        debugName: "verify_beta_access_signature",
+        argNames: ["deviceId", "allowed", "pending", "exp", "signature"],
+      );
+
+  @override
   Future<bool> crateApiVerifyFallbackModuleSignature({
     required String moduleKey,
     required PlatformInt64 version,
@@ -7186,7 +7235,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 184,
+            funcId: 185,
             port: port_,
           );
         },
@@ -7221,7 +7270,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 185,
+            funcId: 186,
             port: port_,
           );
         },
@@ -7255,7 +7304,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 186,
+            funcId: 187,
             port: port_,
           );
         },
@@ -7285,7 +7334,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 187,
+            funcId: 188,
             port: port_,
           );
         },
@@ -7316,7 +7365,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 188,
+            funcId: 189,
             port: port_,
           );
         },
@@ -7353,7 +7402,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 189,
+            funcId: 190,
             port: port_,
           );
         },
@@ -7388,7 +7437,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 190,
+            funcId: 191,
             port: port_,
           );
         },
@@ -7423,7 +7472,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 191,
+            funcId: 192,
             port: port_,
           );
         },

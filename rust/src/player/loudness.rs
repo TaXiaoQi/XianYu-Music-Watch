@@ -12,74 +12,74 @@ use std::time::{SystemTime, UNIX_EPOCH};
 // =========================================================================
 
 fn parse_gain_db(raw: &str) -> Option<f32> {
-    let cleaned = raw
-        .to_lowercase()
-        .replace("db", "")
-        .replace(" ", "")
-        .replace("+", "");
-    cleaned.trim().parse::<f32>().ok()
+	let cleaned = raw
+		.to_lowercase()
+		.replace("db", "")
+		.replace(" ", "")
+		.replace("+", "");
+	cleaned.trim().parse::<f32>().ok()
 }
 
 fn parse_peak(raw: &str) -> Option<f32> {
-    let cleaned = raw.replace(" ", "");
-    cleaned.trim().parse::<f32>().ok()
+	let cleaned = raw.replace(" ", "");
+	cleaned.trim().parse::<f32>().ok()
 }
 
 pub fn extract_replaygain_from_path(path: &Path) -> Option<(f32, Option<f32>)> {
-    let tagged_file = crate::music::tags::read_tagged_file_from_path(path).ok()?;
-    let mut track_gain: Option<f32> = None;
-    let mut track_peak: Option<f32> = None;
+	let tagged_file = crate::music::tags::read_tagged_file_from_path(path).ok()?;
+	let mut track_gain: Option<f32> = None;
+	let mut track_peak: Option<f32> = None;
 
-    for tag in tagged_file.tags() {
-        if let Some(gain_str) = tag.get_string(&ItemKey::ReplayGainTrackGain) {
-            if let Some(parsed) = parse_gain_db(gain_str) {
-                track_gain = Some(parsed);
-            }
-        }
-        if let Some(peak_str) = tag.get_string(&ItemKey::ReplayGainTrackPeak) {
-            if let Some(parsed) = parse_peak(peak_str) {
-                track_peak = Some(parsed);
-            }
-        }
+	for tag in tagged_file.tags() {
+		if let Some(gain_str) = tag.get_string(&ItemKey::ReplayGainTrackGain) {
+			if let Some(parsed) = parse_gain_db(gain_str) {
+				track_gain = Some(parsed);
+			}
+		}
+		if let Some(peak_str) = tag.get_string(&ItemKey::ReplayGainTrackPeak) {
+			if let Some(parsed) = parse_peak(peak_str) {
+				track_peak = Some(parsed);
+			}
+		}
 
-        for item in tag.items() {
-            let text_val = match item.value() {
-                lofty::tag::ItemValue::Text(s) => Some(s.clone()),
-                _ => None,
-            };
-            if let Some(val) = text_val {
-                let is_match_gain = match item.key() {
-                    ItemKey::ReplayGainTrackGain => true,
-                    ItemKey::Unknown(k) => {
-                        let k_lower = k.to_lowercase();
-                        k_lower == "replaygain_track_gain" || k_lower == "replaygaintrackgain"
-                    }
-                    _ => false,
-                };
+		for item in tag.items() {
+			let text_val = match item.value() {
+				lofty::tag::ItemValue::Text(s) => Some(s.clone()),
+				_ => None,
+			};
+			if let Some(val) = text_val {
+				let is_match_gain = match item.key() {
+					ItemKey::ReplayGainTrackGain => true,
+					ItemKey::Unknown(k) => {
+						let k_lower = k.to_lowercase();
+						k_lower == "replaygain_track_gain" || k_lower == "replaygaintrackgain"
+					}
+					_ => false,
+				};
 
-                let is_match_peak = match item.key() {
-                    ItemKey::ReplayGainTrackPeak => true,
-                    ItemKey::Unknown(k) => {
-                        let k_lower = k.to_lowercase();
-                        k_lower == "replaygain_track_peak" || k_lower == "replaygaintrackpeak"
-                    }
-                    _ => false,
-                };
+				let is_match_peak = match item.key() {
+					ItemKey::ReplayGainTrackPeak => true,
+					ItemKey::Unknown(k) => {
+						let k_lower = k.to_lowercase();
+						k_lower == "replaygain_track_peak" || k_lower == "replaygaintrackpeak"
+					}
+					_ => false,
+				};
 
-                if track_gain.is_none() && is_match_gain {
-                    if let Some(parsed) = parse_gain_db(&val) {
-                        track_gain = Some(parsed);
-                    }
-                } else if track_peak.is_none() && is_match_peak {
-                    if let Some(parsed) = parse_peak(&val) {
-                        track_peak = Some(parsed);
-                    }
-                }
-            }
-        }
-    }
+				if track_gain.is_none() && is_match_gain {
+					if let Some(parsed) = parse_gain_db(&val) {
+						track_gain = Some(parsed);
+					}
+				} else if track_peak.is_none() && is_match_peak {
+					if let Some(parsed) = parse_peak(&val) {
+						track_peak = Some(parsed);
+					}
+				}
+			}
+		}
+	}
 
-    track_gain.map(|gain| (gain, track_peak))
+	track_gain.map(|gain| (gain, track_peak))
 }
 
 // =========================================================================
@@ -88,69 +88,69 @@ pub fn extract_replaygain_from_path(path: &Path) -> Option<(f32, Option<f32>)> {
 
 #[derive(Clone)]
 pub struct VolumeNormalizerHandle {
-    target_gain: Arc<AtomicU32>,
+	target_gain: Arc<AtomicU32>,
 }
 
-impl VolumeNormalizerHandle {
-    pub fn set_target_gain(&self, gain: f32) {
-        self.target_gain.store(gain.to_bits(), Ordering::Relaxed);
-    }
+impl VolumeNormalizerHandle { // VolumeNormalizerHandle
+	pub fn set_target_gain(&self, gain: f32) {
+		self.target_gain.store(gain.to_bits(), Ordering::Relaxed);
+	}
 }
 
-pub struct GainRamp {
-    target_gain: Arc<AtomicU32>,
-    last_target_gain: f32,
-    current_gain: f32,
-    old_gain: f32,
-    ramp_frames: usize,
-    current_frame: usize,
-    is_ramping: bool,
+pub struct GainRamp { // GainRamp
+	target_gain: Arc<AtomicU32>,
+	last_target_gain: f32,
+	current_gain: f32,
+	old_gain: f32,
+	ramp_frames: usize,
+	current_frame: usize,
+	is_ramping: bool,
 }
 
-impl GainRamp {
-    pub fn new(initial_gain: f32, sample_rate: u32, ramp_ms: u32) -> Self {
-        let ramp_frames = ((ramp_ms as f64 / 1000.0) * sample_rate as f64).round() as usize;
-        Self {
-            target_gain: Arc::new(AtomicU32::new(initial_gain.to_bits())),
-            last_target_gain: initial_gain,
-            current_gain: initial_gain,
-            old_gain: initial_gain,
-            ramp_frames: ramp_frames.max(1),
-            current_frame: 0,
-            is_ramping: false,
-        }
-    }
+impl GainRamp { // GainRamp
+	pub fn new(initial_gain: f32, sample_rate: u32, ramp_ms: u32) -> Self {
+		let ramp_frames = ((ramp_ms as f64 / 1000.0) * sample_rate as f64).round() as usize;
+		Self {
+			target_gain: Arc::new(AtomicU32::new(initial_gain.to_bits())),
+			last_target_gain: initial_gain,
+			current_gain: initial_gain,
+			old_gain: initial_gain,
+			ramp_frames: ramp_frames.max(1),
+			current_frame: 0,
+			is_ramping: false,
+		}
+	}
 
-    pub fn get_handle(&self) -> VolumeNormalizerHandle {
-        VolumeNormalizerHandle {
-            target_gain: self.target_gain.clone(),
-        }
-    }
+	pub fn get_handle(&self) -> VolumeNormalizerHandle {
+		VolumeNormalizerHandle {
+			target_gain: self.target_gain.clone(),
+		}
+	}
 
-    #[inline]
-    pub fn next_frame_gain(&mut self) -> f32 {
-        let target = f32::from_bits(self.target_gain.load(Ordering::Relaxed));
+	#[inline]
+	pub fn next_frame_gain(&mut self) -> f32 {
+		let target = f32::from_bits(self.target_gain.load(Ordering::Relaxed));
 
-        if (target - self.last_target_gain).abs() > 0.00001 {
-            self.old_gain = self.current_gain;
-            self.last_target_gain = target;
-            self.current_frame = 0;
-            self.is_ramping = true;
-        }
+		if (target - self.last_target_gain).abs() > 0.00001 {
+			self.old_gain = self.current_gain;
+			self.last_target_gain = target;
+			self.current_frame = 0;
+			self.is_ramping = true;
+		}
 
-        if self.is_ramping {
-            self.current_frame += 1;
-            let progress = self.current_frame as f32 / self.ramp_frames as f32;
-            if progress >= 1.0 {
-                self.current_gain = target;
-                self.is_ramping = false;
-            } else {
-                self.current_gain = self.old_gain + (target - self.old_gain) * progress;
-            }
-        }
+		if self.is_ramping {
+			self.current_frame += 1;
+			let progress = self.current_frame as f32 / self.ramp_frames as f32;
+			if progress >= 1.0 {
+				self.current_gain = target;
+				self.is_ramping = false;
+			} else {
+				self.current_gain = self.old_gain + (target - self.old_gain) * progress;
+			}
+		}
 
-        self.current_gain
-    }
+		self.current_gain
+	}
 }
 
 // =========================================================================
@@ -158,44 +158,49 @@ impl GainRamp {
 // =========================================================================
 
 pub struct VolumeNormalizer {
-    ramp: GainRamp,
-    channels: u16,
-    current_channel: u16,
-    current_frame_gain: f32,
+	ramp: GainRamp,
+	channels: u16,
+	current_channel: u16,
+	current_frame_gain: f32,
 }
 
 impl VolumeNormalizer {
-    pub fn new(initial_gain: f32, sample_rate: u32, channels: u16, ramp_ms: u32) -> (Self, VolumeNormalizerHandle) {
-        let ramp = GainRamp::new(initial_gain, sample_rate, ramp_ms);
-        let handle = ramp.get_handle();
+	pub fn new(
+		initial_gain: f32,
+		sample_rate: u32,
+		channels: u16,
+		ramp_ms: u32,
+	) -> (Self, VolumeNormalizerHandle) {
+		let ramp = GainRamp::new(initial_gain, sample_rate, ramp_ms);
+		let handle = ramp.get_handle();
 
-        let normalizer = Self {
-            ramp,
-            channels,
-            current_channel: 0,
-            current_frame_gain: initial_gain,
-        };
-        (normalizer, handle)
-    }
+		let normalizer = Self {
+			ramp,
+			channels,
+			current_channel: 0,
+			current_frame_gain: initial_gain,
+		};
+		(normalizer, handle)
+	}
 
-    pub fn process_block(&mut self, input: &[f32]) -> Vec<f32> {
-        let mut out = Vec::with_capacity(input.len());
-        for &sample in input {
-            if self.current_channel == 0 {
-                self.current_frame_gain = self.ramp.next_frame_gain();
-            }
-            self.current_channel += 1;
-            if self.current_channel >= self.channels {
-                self.current_channel = 0;
-            }
-            out.push(sample * self.current_frame_gain);
-        }
-        out
-    }
+	pub fn process_block(&mut self, input: &[f32]) -> Vec<f32> {
+		let mut out = Vec::with_capacity(input.len());
+		for &sample in input {
+			if self.current_channel == 0 {
+				self.current_frame_gain = self.ramp.next_frame_gain();
+			}
+			self.current_channel += 1;
+			if self.current_channel >= self.channels {
+				self.current_channel = 0;
+			}
+			out.push(sample * self.current_frame_gain);
+		}
+		out
+	}
 
-    pub fn reset(&mut self) {
-        self.current_channel = 0;
-    }
+	pub fn reset(&mut self) {
+		self.current_channel = 0;
+	}
 }
 
 // =========================================================================
@@ -205,33 +210,33 @@ impl VolumeNormalizer {
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct LoudnessRecord {
-    pub song_id: i64,
-    pub song_path: String,
-    pub loudness_lufs: Option<f64>,
-    pub estimated_loudness_lufs: Option<f64>,
-    pub sample_peak: Option<f64>,
-    pub true_peak: Option<f64>,
-    pub tag_track_gain_db: Option<f64>,
-    pub tag_track_peak: Option<f64>,
-    pub tag_album_gain_db: Option<f64>,
-    pub tag_album_peak: Option<f64>,
-    pub tag_r128_track_gain_db: Option<f64>,
-    pub tag_r128_album_gain_db: Option<f64>,
-    pub file_size: i64,
-    pub file_modified_at: i64,
-    pub scan_source: String,
-    pub analyzer_name: Option<String>,
-    pub analyzer_version: i32,
-    pub scan_status: String,
-    pub scanned_at: Option<i64>,
-    pub error_message: Option<String>,
+	pub song_id: i64,
+	pub song_path: String,
+	pub loudness_lufs: Option<f64>,
+	pub estimated_loudness_lufs: Option<f64>,
+	pub sample_peak: Option<f64>,
+	pub true_peak: Option<f64>,
+	pub tag_track_gain_db: Option<f64>,
+	pub tag_track_peak: Option<f64>,
+	pub tag_album_gain_db: Option<f64>,
+	pub tag_album_peak: Option<f64>,
+	pub tag_r128_track_gain_db: Option<f64>,
+	pub tag_r128_album_gain_db: Option<f64>,
+	pub file_size: i64,
+	pub file_modified_at: i64,
+	pub scan_source: String,
+	pub analyzer_name: Option<String>,
+	pub analyzer_version: i32,
+	pub scan_status: String,
+	pub scanned_at: Option<i64>,
+	pub error_message: Option<String>,
 }
 
-pub fn get_song_loudness_record(
-    conn: &Connection,
-    song_id: i64,
-) -> Result<Option<LoudnessRecord>, String> {
-    let mut stmt = conn
+pub fn get_song_loudness_record( // get_song_loudness_record
+	conn: &Connection,
+	song_id: i64,
+) -> Result<Option<LoudnessRecord>, String> { // 实现
+	let mut stmt = conn
         .prepare(
             "SELECT song_id, song_path, loudness_lufs, estimated_loudness_lufs, sample_peak, true_peak,
                     tag_track_gain_db, tag_track_peak, tag_album_gain_db, tag_album_peak,
@@ -241,42 +246,42 @@ pub fn get_song_loudness_record(
         )
         .map_err(|e| e.to_string())?;
 
-    let record = stmt
-        .query_row(params![song_id], |row| {
-            Ok(LoudnessRecord {
-                song_id: row.get(0)?,
-                song_path: row.get(1)?,
-                loudness_lufs: row.get(2)?,
-                estimated_loudness_lufs: row.get(3)?,
-                sample_peak: row.get(4)?,
-                true_peak: row.get(5)?,
-                tag_track_gain_db: row.get(6)?,
-                tag_track_peak: row.get(7)?,
-                tag_album_gain_db: row.get(8)?,
-                tag_album_peak: row.get(9)?,
-                tag_r128_track_gain_db: row.get(10)?,
-                tag_r128_album_gain_db: row.get(11)?,
-                file_size: row.get(12)?,
-                file_modified_at: row.get(13)?,
-                scan_source: row.get(14)?,
-                analyzer_name: row.get(15)?,
-                analyzer_version: row.get(16)?,
-                scan_status: row.get(17)?,
-                scanned_at: row.get(18)?,
-                error_message: row.get(19)?,
-            })
-        })
-        .optional()
-        .map_err(|e| e.to_string())?;
+	let record = stmt
+		.query_row(params![song_id], |row| {
+			Ok(LoudnessRecord {
+				song_id: row.get(0)?,
+				song_path: row.get(1)?,
+				loudness_lufs: row.get(2)?,
+				estimated_loudness_lufs: row.get(3)?,
+				sample_peak: row.get(4)?,
+				true_peak: row.get(5)?,
+				tag_track_gain_db: row.get(6)?,
+				tag_track_peak: row.get(7)?,
+				tag_album_gain_db: row.get(8)?,
+				tag_album_peak: row.get(9)?,
+				tag_r128_track_gain_db: row.get(10)?,
+				tag_r128_album_gain_db: row.get(11)?,
+				file_size: row.get(12)?,
+				file_modified_at: row.get(13)?,
+				scan_source: row.get(14)?,
+				analyzer_name: row.get(15)?,
+				analyzer_version: row.get(16)?,
+				scan_status: row.get(17)?,
+				scanned_at: row.get(18)?,
+				error_message: row.get(19)?,
+			})
+		})
+		.optional()
+		.map_err(|e| e.to_string())?;
 
-    Ok(record)
+	Ok(record)
 }
 
 pub fn upsert_song_loudness_record(
-    conn: &Connection,
-    record: &LoudnessRecord,
-) -> Result<(), String> {
-    conn.execute(
+	conn: &Connection,
+	record: &LoudnessRecord,
+) -> Result<(), String> { // 实现
+	conn.execute(
         "INSERT INTO song_loudness (
             song_id, song_path, loudness_lufs, estimated_loudness_lufs, sample_peak, true_peak,
             tag_track_gain_db, tag_track_peak, tag_album_gain_db, tag_album_peak,
@@ -328,18 +333,19 @@ pub fn upsert_song_loudness_record(
     )
     .map_err(|e| e.to_string())?;
 
-    Ok(())
+	Ok(())
 }
 
-pub fn create_pending_loudness_record(
-    conn: &Connection,
-    song_id: i64,
-    song_path: &str,
-    file_size: i64,
-    file_modified_at: i64,
-) -> Result<(), String> {
-    conn.execute(
-        "INSERT INTO song_loudness (
+pub fn create_pending_loudness_record( // create_pending_loudness_record
+	conn: &Connection,
+	song_id: i64,
+	song_path: &str,
+	file_size: i64,
+	file_modified_at: i64,
+) -> Result<(), String> { // 实现
+	conn
+		.execute(
+			"INSERT INTO song_loudness (
             song_id, song_path, file_size, file_modified_at, scan_source, scan_status
          ) VALUES (?1, ?2, ?3, ?4, 'none', 'pending')
          ON CONFLICT(song_id) DO UPDATE SET
@@ -348,11 +354,11 @@ pub fn create_pending_loudness_record(
             file_modified_at = excluded.file_modified_at,
             scan_source = 'none',
             scan_status = 'pending'",
-        params![song_id, song_path, file_size, file_modified_at],
-    )
-    .map_err(|e| e.to_string())?;
+			params![song_id, song_path, file_size, file_modified_at],
+		)
+		.map_err(|e| e.to_string())?;
 
-    Ok(())
+	Ok(())
 }
 
 // =========================================================================
@@ -360,129 +366,128 @@ pub fn create_pending_loudness_record(
 // =========================================================================
 
 pub fn calculate_playback_gain(
-    record: &LoudnessRecord,
-    gain_offset_db: f32,
-    prevent_clipping: bool,
+	record: &LoudnessRecord,
+	gain_offset_db: f32,
+	prevent_clipping: bool,
 ) -> f32 {
-    let mut gain_db = 0.0;
-    let mut has_lufs_reference = false;
+	let mut gain_db = 0.0;
+	let mut has_lufs_reference = false;
 
-    if let Some(lufs) = record.loudness_lufs {
-        gain_db = (-18.0 + gain_offset_db) - lufs as f32;
-        has_lufs_reference = true;
-    }
-    else if let Some(tag_gain) = record.tag_track_gain_db {
-        gain_db = tag_gain as f32 + gain_offset_db;
-        has_lufs_reference = true;
-    }
+	if let Some(lufs) = record.loudness_lufs {
+		gain_db = (-18.0 + gain_offset_db) - lufs as f32;
+		has_lufs_reference = true;
+	} else if let Some(tag_gain) = record.tag_track_gain_db {
+		gain_db = tag_gain as f32 + gain_offset_db;
+		has_lufs_reference = true;
+	}
 
-    if !has_lufs_reference {
-        return 1.0;
-    }
+	if !has_lufs_reference {
+		return 1.0;
+	}
 
-    let mut linear_gain = 10.0_f32.powf(gain_db / 20.0);
+	let mut linear_gain = 10.0_f32.powf(gain_db / 20.0);
 
-    if prevent_clipping {
-        let peak = record.sample_peak.or(record.tag_track_peak);
+	if prevent_clipping {
+		let peak = record.sample_peak.or(record.tag_track_peak);
 
-        match peak {
-            Some(p) => {
-                let p_f32 = p as f32;
-                if linear_gain * p_f32 > 0.98 {
-                    let safe_linear_gain = 0.98 / p_f32;
-                    linear_gain = safe_linear_gain;
-                }
-            }
-            None => {
-                if gain_db > 0.0 {
-                    linear_gain = 1.0;
-                }
-            }
-        }
-    }
+		match peak {
+			Some(p) => {
+				let p_f32 = p as f32;
+				if linear_gain * p_f32 > 0.98 {
+					let safe_linear_gain = 0.98 / p_f32;
+					linear_gain = safe_linear_gain;
+				}
+			}
+			None => {
+				if gain_db > 0.0 {
+					linear_gain = 1.0;
+				}
+			}
+		}
+	}
 
-    linear_gain
+	linear_gain
 }
 
 pub fn process_song_on_play(
-    conn: &Connection,
-    song_id: i64,
-    song_path: &str,
+	conn: &Connection,
+	song_id: i64,
+	song_path: &str,
 ) -> Result<LoudnessRecord, String> {
-    let path = Path::new(song_path);
-    let metadata = fs::metadata(path).map_err(|e| e.to_string())?;
-    let file_size = metadata.len() as i64;
-    let file_modified_at = metadata
-        .modified()
-        .map_err(|e| e.to_string())?
-        .duration_since(UNIX_EPOCH)
-        .map_err(|e| e.to_string())?
-        .as_secs() as i64;
+	let path = Path::new(song_path);
+	let metadata = fs::metadata(path).map_err(|e| e.to_string())?;
+	let file_size = metadata.len() as i64;
+	let file_modified_at = metadata
+		.modified()
+		.map_err(|e| e.to_string())?
+		.duration_since(UNIX_EPOCH)
+		.map_err(|e| e.to_string())?
+		.as_secs() as i64;
 
-    if let Ok(Some(cached)) = get_song_loudness_record(conn, song_id) {
-        if cached.file_size == file_size && cached.file_modified_at == file_modified_at {
-            return Ok(cached);
-        }
-    }
+	if let Ok(Some(cached)) = get_song_loudness_record(conn, song_id) {
+		if cached.file_size == file_size && cached.file_modified_at == file_modified_at {
+			return Ok(cached);
+		}
+	}
 
-    if let Some((tag_gain, tag_peak)) = extract_replaygain_from_path(path) {
-        let estimated_lufs = -18.0 - tag_gain;
-        let record = LoudnessRecord {
-            song_id,
-            song_path: song_path.to_string(),
-            loudness_lufs: None,
-            estimated_loudness_lufs: Some(estimated_lufs as f64),
-            sample_peak: None,
-            true_peak: None,
-            tag_track_gain_db: Some(tag_gain as f64),
-            tag_track_peak: tag_peak.map(|p| p as f64),
-            tag_album_gain_db: None,
-            tag_album_peak: None,
-            tag_r128_track_gain_db: None,
-            tag_r128_album_gain_db: None,
-            file_size,
-            file_modified_at,
-            scan_source: "tag_replaygain".to_string(),
-            analyzer_name: None,
-            analyzer_version: 1,
-            scan_status: "scanned".to_string(),
-            scanned_at: Some(
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs() as i64,
-            ),
-            error_message: None,
-        };
+	if let Some((tag_gain, tag_peak)) = extract_replaygain_from_path(path) {
+		let estimated_lufs = -18.0 - tag_gain;
+		let record = LoudnessRecord {
+			song_id,
+			song_path: song_path.to_string(),
+			loudness_lufs: None,
+			estimated_loudness_lufs: Some(estimated_lufs as f64),
+			sample_peak: None,
+			true_peak: None,
+			tag_track_gain_db: Some(tag_gain as f64),
+			tag_track_peak: tag_peak.map(|p| p as f64),
+			tag_album_gain_db: None,
+			tag_album_peak: None,
+			tag_r128_track_gain_db: None,
+			tag_r128_album_gain_db: None,
+			file_size,
+			file_modified_at,
+			scan_source: "tag_replaygain".to_string(),
+			analyzer_name: None,
+			analyzer_version: 1,
+			scan_status: "scanned".to_string(),
+			scanned_at: Some(
+				SystemTime::now()
+					.duration_since(UNIX_EPOCH)
+					.unwrap_or_default()
+					.as_secs() as i64,
+			),
+			error_message: None,
+		};
 
-        upsert_song_loudness_record(conn, &record)?;
-        return Ok(record);
-    }
+		upsert_song_loudness_record(conn, &record)?;
+		return Ok(record);
+	}
 
-    create_pending_loudness_record(conn, song_id, song_path, file_size, file_modified_at)?;
+	create_pending_loudness_record(conn, song_id, song_path, file_size, file_modified_at)?;
 
-    let pending_record = LoudnessRecord {
-        song_id,
-        song_path: song_path.to_string(),
-        loudness_lufs: None,
-        estimated_loudness_lufs: None,
-        sample_peak: None,
-        true_peak: None,
-        tag_track_gain_db: None,
-        tag_track_peak: None,
-        tag_album_gain_db: None,
-        tag_album_peak: None,
-        tag_r128_track_gain_db: None,
-        tag_r128_album_gain_db: None,
-        file_size,
-        file_modified_at,
-        scan_source: "none".to_string(),
-        analyzer_name: None,
-        analyzer_version: 1,
-        scan_status: "pending".to_string(),
-        scanned_at: None,
-        error_message: None,
-    };
+	let pending_record = LoudnessRecord {
+		song_id,
+		song_path: song_path.to_string(),
+		loudness_lufs: None,
+		estimated_loudness_lufs: None,
+		sample_peak: None,
+		true_peak: None,
+		tag_track_gain_db: None,
+		tag_track_peak: None,
+		tag_album_gain_db: None,
+		tag_album_peak: None,
+		tag_r128_track_gain_db: None,
+		tag_r128_album_gain_db: None,
+		file_size,
+		file_modified_at,
+		scan_source: "none".to_string(),
+		analyzer_name: None,
+		analyzer_version: 1,
+		scan_status: "pending".to_string(),
+		scanned_at: None,
+		error_message: None,
+	};
 
-    Ok(pending_record)
+	Ok(pending_record)
 }

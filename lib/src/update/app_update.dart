@@ -1,6 +1,8 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show SystemNavigator;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -163,4 +165,102 @@ void _toast(BuildContext context, String msg) {
 
 void toastUpdateOnPhone(BuildContext context) {
   _toast(context, tr('请在手机端下载最新版腕上应用'));
+}
+
+bool get isBetaBuild {
+  final pre = _parseVersion(kAppVersion).pre ?? '';
+  return pre.toLowerCase().startsWith('beta');
+}
+
+/// 内测锁（fail-closed）：
+/// - 联网验签通过且 allowed → 放行；
+/// - allowed=false → 锁（审核中/未申请文案区分）；
+/// - 无法验证（断网且无有效缓存 / 响应不可信）→ 锁，仅提供重试与退出。
+/// 返回 true 表示已锁定（应终止后续启动检查）。
+Future<bool> maybeGateBetaAccess(WidgetRef ref, BuildContext context) async {
+  if (!kReleaseMode) return false;
+  if (!isBetaBuild) return false;
+  while (true) {
+    final access = await ref.read(authProvider.notifier).verifyBetaAccess();
+    if (!context.mounted) return false;
+    if (access != null) {
+      final (bool allowed, bool pending) = access;
+      if (allowed) return false;
+      await showBetaGatePage(context, pending: pending);
+      return true;
+    }
+    final retry = await showBetaUnverifiedPage(context);
+    if (!retry) return true;
+  }
+}
+
+/// 无法验证内测资格整页弹窗。返回 true 表示选择重试（「退出软件」直接结束应用）。
+Future<bool> showBetaUnverifiedPage(BuildContext context) async {
+  final retry = await showFullDialog<bool>(
+    context: context,
+    builder: (ctx) {
+      final s = ctx.watchScale();
+      return PopScope(
+        canPop: false,
+        child: FullDialogScaffold(
+          title: tr('无法验证内测资格'),
+          content: Text(
+            tr('请连接网络后重试。若持续失败，请联系管理员。'),
+            textAlign: TextAlign.center,
+            style: TextStyle(
+                fontSize: 12 * s,
+                height: 1.55,
+                color: Colors.white.withValues(alpha: 0.72)),
+          ),
+          actions: [
+            FullDialogButton(
+              label: tr('退出软件'),
+              onPressed: () => SystemNavigator.pop(),
+            ),
+            FullDialogButton(
+              label: tr('重试'),
+              primary: true,
+              onPressed: () => Navigator.pop(ctx, true),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+  return retry ?? false;
+}
+
+/// 未获内测资格整页弹窗（腕上端无申请入口，提示在手机端申请）。
+Future<void> showBetaGatePage(
+  BuildContext context, {
+  required bool pending,
+}) {
+  return showFullDialog<void>(
+    context: context,
+    builder: (ctx) {
+      final s = ctx.watchScale();
+      return PopScope(
+        canPop: false,
+        child: FullDialogScaffold(
+          title: tr('内测资格提示'),
+          content: Text(
+            pending
+                ? tr('该设备的内测申请正在审核中，请耐心等待管理员审核，审核结果将以反馈回复通知。')
+                : tr('当前设备未申请内测资格，无法使用内测版本。请在手机端打开弦予音乐提交内测申请。'),
+            textAlign: TextAlign.center,
+            style: TextStyle(
+                fontSize: 12 * s,
+                height: 1.55,
+                color: Colors.white.withValues(alpha: 0.72)),
+          ),
+          actions: [
+            FullDialogButton(
+              label: tr('退出软件'),
+              onPressed: () => SystemNavigator.pop(),
+            ),
+          ],
+        ),
+      );
+    },
+  );
 }

@@ -50,7 +50,7 @@ class _XianYuWatchAppState extends ConsumerState<XianYuWatchApp>
       ref.read(linkControllerProvider.notifier).init();
       ref.read(authProvider.notifier).init();
     });
-    _startupUpdateCheck();
+    _startupVersionChecks();
     initAmbientListener(ref);
     _settingsSub = ref.listenManual(settingsProvider, (prev, next) {
       _applyKeepScreenOn(next.valueOrNull?.keepScreenOn ?? true);
@@ -82,6 +82,15 @@ class _XianYuWatchAppState extends ConsumerState<XianYuWatchApp>
   /// 信号若落在上一次 pop 过渡结束之后，会把当前层之下的路由也弹掉（跳层）。
   @override
   Future<bool> didPopRoute() async => consumeBackSignal();
+
+  /// 启动后先过内测资格门禁（fail-closed，无法验证则锁定），通过后再检查更新。
+  Future<void> _startupVersionChecks() async {
+    await Future<void>.delayed(const Duration(seconds: 3));
+    final ctx = _navKey.currentContext;
+    if (!mounted || ctx == null || !ctx.mounted) return;
+    if (await maybeGateBetaAccess(ref, ctx)) return;
+    await _startupUpdateCheck();
+  }
 
   /// 启动后静默拉取服务端下发的最新版本，有新版且在当天未提示过则弹出整页更新页。
   Future<void> _startupUpdateCheck() async {
