@@ -4,6 +4,8 @@ import 'dart:typed_data';
 
 import 'dart:io';
 
+import '../core/application_logger.dart';
+
 class CloudLinkEvent {
   const CloudLinkEvent._(this.kind, {this.peerName = ''});
 
@@ -50,7 +52,9 @@ class CloudLinkClient {
       if (_closed) {
         try {
           await ws.close();
-        } catch (_) {}
+        } catch (e) {
+          AppLog.debug('link', '关闭冗余 WebSocket 失败: $e');
+        }
         return;
       }
       _ws = ws;
@@ -83,7 +87,8 @@ class CloudLinkClient {
         },
         cancelOnError: true,
       );
-    } catch (_) {
+    } catch (e) {
+      AppLog.warn('link', '连接云中继失败: $e');
       _eventCtrl.add(const CloudLinkEvent._(CloudLinkEvent.closed));
       _closed = true;
       _ws = null;
@@ -111,7 +116,9 @@ class CloudLinkClient {
         default:
           break;
       }
-    } catch (_) {}
+    } catch (_) {
+      // 下行消息兜底：坏消息不中断链路
+    }
   }
 
   Future<void> send(Uint8List bytes) async {
@@ -119,7 +126,9 @@ class CloudLinkClient {
     if (ws == null || _closed) return;
     try {
       ws.add(bytes);
-    } catch (_) {}
+    } catch (e) {
+      AppLog.warn('link', '云中继发送数据失败: $e');
+    }
   }
 
   Future<void> close() async {
@@ -132,6 +141,8 @@ class CloudLinkClient {
     _ws = null;
     try {
       await ws?.close();
-    } catch (_) {}
+    } catch (e) {
+      AppLog.debug('link', '关闭 WebSocket 失败: $e');
+    }
   }
 }

@@ -9,6 +9,7 @@ import 'package:crypto/crypto.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/ambient.dart';
+import '../core/application_logger.dart';
 import '../effects/sound_effect_provider.dart';
 import 'cloud_client.dart';
 import 'protocol.dart';
@@ -921,7 +922,9 @@ class LinkController extends StateNotifier<LinkState>
             _fxMgr?.applyRemote(
               SoundEffectSettings.fromJson(Map<String, dynamic>.from(fx)),
             );
-          } catch (_) {}
+          } catch (e) {
+            AppLog.debug('link', '应用远端音效设置失败: $e');
+          }
         }
       case LinkMsgType.cloudBind:
         _onCloudBind(msg.payload['cloud_bind']);
@@ -976,7 +979,9 @@ class LinkController extends StateNotifier<LinkState>
           _channel.send(frame);
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLog.warn('link', '发送链路消息失败: $e');
+    }
   }
 
   String? _linkCoverPathFor(String songId) {
@@ -1004,7 +1009,8 @@ class LinkController extends StateNotifier<LinkState>
           olds.map((e) async {
             try {
               return (e, await e.lastModified());
-            } catch (_) {
+            } catch (err) {
+              AppLog.debug('link', '读取联动封面修改时间失败: $err');
               return (e, DateTime.fromMillisecondsSinceEpoch(0));
             }
           }),
@@ -1013,11 +1019,16 @@ class LinkController extends StateNotifier<LinkState>
         for (var i = 2; i < sorted.length; i++) {
           try {
             await sorted[i].$1.delete();
-          } catch (_) {}
+          } catch (e) {
+            AppLog.debug('link', '删除旧联动封面失败: $e');
+          }
         }
-      } catch (_) {}
+      } catch (e) {
+        AppLog.debug('link', '清理旧联动封面失败: $e');
+      }
       return f.path;
-    } catch (_) {
+    } catch (e) {
+      AppLog.warn('link', '保存联动封面失败: $e');
       return null;
     }
   }

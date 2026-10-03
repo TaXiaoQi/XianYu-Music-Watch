@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/application_logger.dart';
+
 class PluginSubscription {
   final String id;
   final String name;
@@ -53,7 +55,9 @@ class PluginSubscriptionsNotifier
           .toList();
       if (state.isNotEmpty) return;
       state = loaded;
-    } catch (_) {}
+    } catch (e) {
+      AppLog.warn('plugin', '读取插件订阅失败: $e');
+    }
   }
 
   Future<void> _persist() async {
@@ -63,7 +67,9 @@ class PluginSubscriptionsNotifier
         _key,
         jsonEncode(state.map((e) => e.toJson()).toList()),
       );
-    } catch (_) {}
+    } catch (e) {
+      AppLog.warn('plugin', '保存插件订阅失败: $e');
+    }
   }
 
   String _fallbackName(String url) {

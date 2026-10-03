@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../auth/auth_provider.dart';
+import '../core/application_logger.dart';
 import '../core/db_path.dart';
 import '../favorites/favorites_provider.dart';
 import '../i18n/i18n.dart';
@@ -319,7 +320,9 @@ class SyncNotifier extends StateNotifier<SyncState> {
         try {
           await manager.remove(id);
           cloudInstalled.remove(id);
-        } catch (_) {}
+        } catch (e) {
+          AppLog.debug('sync', '清理云端已删插件失败: $e');
+        }
       }
       await prefs.setStringList(_cloudPluginIdsKey, cloudInstalled.toList());
     }
@@ -338,6 +341,7 @@ class SyncNotifier extends StateNotifier<SyncState> {
         try {
           script = _decodeRevBase64(script);
         } catch (_) {
+          // 解析兜底：跳过解码失败的云插件脚本
           continue;
         }
       }
@@ -372,7 +376,9 @@ class SyncNotifier extends StateNotifier<SyncState> {
           }
         }
         installedNow.add(source.id);
-      } catch (_) {}
+      } catch (e) {
+        AppLog.warn('sync', '安装云同步插件失败: $e');
+      }
     }
     if (installedNow.isNotEmpty) {
       final all = {...cloudInstalled, ...installedNow}.toList();
@@ -434,7 +440,9 @@ class SyncNotifier extends StateNotifier<SyncState> {
           'subscriptions': subs,
         });
         first = false;
-      } catch (_) {}
+      } catch (e) {
+        AppLog.warn('sync', '上传插件到云端失败: $e');
+      }
     }
   }
 

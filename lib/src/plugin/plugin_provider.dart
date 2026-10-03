@@ -1,10 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/app_http.dart' show appGet;
+import '../core/application_logger.dart';
 import '../core/db_path.dart';
 import '../core/rust_init.dart';
 import '../rust/api.dart' as frb;
@@ -44,34 +45,34 @@ class PluginInstallCancelled implements Exception {
 const Duration _bodyTimeout = Duration(seconds: 60);
 
 Future<String?> fetchPluginScript(String url, {bool Function()? cancelled}) async {
-  final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
   try {
     if (cancelled?.call() ?? false) return null;
-    final req = await client.getUrl(Uri.parse(url));
-    req.headers.set(
-      'User-Agent',
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-          '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    );
-    req.headers.set('Accept', '*/*');
-    final resp = await req.close().timeout(const Duration(seconds: 20));
+    final uri = Uri.parse(url);
+    final resp = await appGet(uri, headers: const {
+      'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+              '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': '*/*',
+    }).timeout(const Duration(seconds: 20));
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
       // 部分源站会封伪装浏览器的 UA（如 guazi 接口专拒 NT+Chrome 组合，对
       // lx-music / 无 UA 放行）。与移动端 fetchPluginScriptWithRetry 同款
       // 兜底：403 时改用 LX 客户端 UA 重试一次。
       if (resp.statusCode == 403) {
         try {
-          final retryReq = await client.getUrl(Uri.parse(url));
-          retryReq.headers.set('User-Agent', 'lx-music-desktop/2.0.0');
-          retryReq.headers.set('Accept', '*/*');
-          final retryResp = await retryReq.close().timeout(
-                const Duration(seconds: 20),
-              );
+          final retryResp = await appGet(uri, headers: const {
+            'User-Agent': 'lx-music-desktop/2.0.0',
+            'Accept': '*/*',
+          }).timeout(const Duration(seconds: 20));
           if (retryResp.statusCode >= 200 && retryResp.statusCode < 300) {
             return await retryResp.transform(utf8.decoder).join().timeout(_bodyTimeout);
           }
-        } catch (_) {}
+          await retryResp.drain<void>();
+        } catch (e) {
+          AppLog.debug('plugin', '[fetchScript] UA 重试请求失败: $e');
+        }
       }
+      await resp.drain<void>();
       return null;
     }
     final buf = StringBuffer();
@@ -85,10 +86,9 @@ Future<String?> fetchPluginScript(String url, {bool Function()? cancelled}) asyn
     }
     if (cancelled?.call() ?? false) return null;
     return buf.toString();
-  } catch (_) {
+  } catch (e) {
+    AppLog.warn('plugin', '[fetchScript] 获取插件脚本失败: $e');
     return null;
-  } finally {
-    client.close();
   }
 }
 
@@ -101,7 +101,9 @@ final pluginEngineProvider = FutureProvider<PluginEngine>((ref) async {
       ref.read(pluginUserVarValuesProvider.notifier).valuesOf(pluginId);
   try {
     await frbPluginEngineInit(dataDir);
-  } catch (_) {}
+  } catch (e) {
+    AppLog.warn('plugin', '插件引擎初始化失败: $e');
+  }
   return engine;
 });
 
@@ -292,7 +294,9 @@ class PluginManager extends StateNotifier<PluginListState> {
       await _ref
           .read(pluginSubscriptionsProvider.notifier)
           .addFromInstall(url, name: name);
-    } catch (_) {}
+    } catch (e) {
+      AppLog.warn('plugin', '记录插件订阅失败: $e');
+    }
   }
 
   List<Map<String, dynamic>>? _parsePluginList(String content) {
@@ -318,6 +322,7 @@ class PluginManager extends StateNotifier<PluginListState> {
       if (items.isEmpty) return null;
       return items;
     } catch (_) {
+      // 解析兜底：非插件列表 JSON 按单脚本安装处理
       return null;
     }
   }
@@ -356,7 +361,8 @@ class PluginManager extends StateNotifier<PluginListState> {
         rethrow;
       } on PluginEngineException catch (e) {
         errors.add('$label: ${e.message}');
-      } catch (_) {
+      } catch (e) {
+        AppLog.warn('plugin', '$label 安装失败: $e');
         errors.add(tr('{label}: 安装失败', {'label': label}));
       }
     }
@@ -531,7 +537,9 @@ class PluginManager extends StateNotifier<PluginListState> {
             if (name.isNotEmpty && value != null) put(name, value.toString());
           }
         }
-      } catch (_) {}
+      } catch (_) {
+        // 解析兜底：非 JSON 的变量值跳过
+      }
     }
     if (cookies.isEmpty) return;
     try {
@@ -543,7 +551,9 @@ class PluginManager extends StateNotifier<PluginListState> {
           'overwriteCookies': true,
         }),
       );
-    } catch (_) {}
+    } catch (e) {
+      AppLog.warn('plugin', '同步 B 站 Cookie 失败: $e');
+    }
   }
 
   List<String> _extractSources(bool isLx, Map<String, dynamic>? metadata) {

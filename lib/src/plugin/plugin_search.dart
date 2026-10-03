@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../core/application_logger.dart';
 import '../player/player_provider.dart';
 import 'plugin_catalog.dart';
 import 'plugin_engine.dart';
@@ -27,7 +28,9 @@ class PluginSearchService {
             limit: limit,
           );
           if (items.isNotEmpty) results.add((source, items));
-        } catch (_) {}
+        } catch (e) {
+          AppLog.debug('plugin', '[search] ${source.name} 搜索失败: $e');
+        }
         continue;
       }
       final sourceKeys = source.sources.isEmpty
@@ -43,7 +46,9 @@ class PluginSearchService {
             limit: limit,
           );
           merged.addAll(items);
-        } catch (_) {}
+        } catch (e) {
+          AppLog.debug('plugin', '[search] ${source.name}/$key 搜索失败: $e');
+        }
       }
       if (merged.isNotEmpty) {
         results.add((source, merged));

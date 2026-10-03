@@ -323,6 +323,7 @@ class PluginEngine {
       }
       return false;
     } catch (_) {
+      // 解析兜底：元数据结构异常时按不可播放处理
       return false;
     }
   }
@@ -629,7 +630,9 @@ class PluginEngine {
           );
           final url = extractMfPlayableUrl(response, requestedKey: q);
           if (url != null) return url;
-        } catch (_) {}
+        } catch (e) {
+          AppLog.debug('plugin', '候选音质 $q 获取失败: $e');
+        }
       }
     }
     return null;
@@ -935,7 +938,8 @@ class PluginEngine {
         musicItem,
       ], timeoutMs: _lyricTimeout);
       return await _normalizeLyricResponse(response);
-    } catch (_) {
+    } catch (e) {
+      AppLog.warn('plugin', '获取歌词失败: $e');
       return null;
     }
   }
@@ -1048,7 +1052,9 @@ class PluginEngine {
     _aliases.removeWhere((k, v) => k == pluginId || v == id);
     try {
       await frb.pluginEngineDestroy(dataDir: dataDir, pluginId: id);
-    } catch (_) {}
+    } catch (e) {
+      AppLog.debug('plugin', '销毁插件实例 $id 失败: $e');
+    }
   }
 
   Future<void> destroyAll() async {
@@ -1057,7 +1063,9 @@ class PluginEngine {
     _aliases.clear();
     try {
       await frb.pluginEngineDestroyAll(dataDir: dataDir);
-    } catch (_) {}
+    } catch (e) {
+      AppLog.debug('plugin', '销毁全部插件实例失败: $e');
+    }
   }
 
   // ==================== 工具 ====================
@@ -1082,6 +1090,7 @@ class PluginEngine {
       try {
         return jsonDecode(jsonEncode(arg));
       } catch (_) {
+        // 解析兜底：不可序列化参数按 null 传递
         return null;
       }
     }).toList();
@@ -1116,7 +1125,8 @@ Future<String?> decryptPluginLyricText(String hex) async {
         encryptedHex: hex.replaceAll(RegExp(r'\s'), ''));
     final s = out.trim();
     return s.isEmpty ? null : s;
-  } catch (_) {
+  } catch (e) {
+    AppLog.debug('plugin', '解密插件歌词失败: $e');
     return null;
   }
 }

@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 
+import '../core/application_logger.dart';
+
 class LinkConnectionEvent {
   const LinkConnectionEvent({required this.connected, required this.name});
 
@@ -84,7 +86,8 @@ class LinkClientChannel {
   Future<bool> sppSupported() async {
     try {
       return await _ch.invokeMethod('sppSupported') == true;
-    } catch (_) {
+    } catch (e) {
+      AppLog.debug('link', 'SPP 支持探测失败（按不支持处理）: $e');
       return false;
     }
   }
@@ -93,7 +96,8 @@ class LinkClientChannel {
     try {
       final list = await _ch.invokeMethod<List<dynamic>>('pairedDevices');
       return (list ?? const []).map(BondedDevice.fromMap).toList();
-    } catch (_) {
+    } catch (e) {
+      AppLog.warn('link', '获取已配对设备失败: $e');
       return const [];
     }
   }
@@ -101,43 +105,56 @@ class LinkClientChannel {
   Future<void> connect(String address) async {
     try {
       await _ch.invokeMethod('connect', {'address': address});
-    } catch (_) {}
+    } catch (e) {
+      AppLog.warn('link', '发起蓝牙连接失败: $e');
+    }
   }
 
   Future<void> disconnect() async {
     try {
       await _ch.invokeMethod('disconnect');
-    } catch (_) {}
+    } catch (e) {
+      AppLog.debug('link', '断开蓝牙连接失败: $e');
+    }
   }
 
   Future<void> startServer() async {
     try {
       await _ch.invokeMethod('startServer');
-    } catch (_) {}
+    } catch (e) {
+      AppLog.warn('link', '启动蓝牙监听失败: $e');
+    }
   }
 
   Future<void> acceptPair() async {
     try {
       await _ch.invokeMethod('acceptPair');
-    } catch (_) {}
+    } catch (e) {
+      AppLog.warn('link', '接受配对请求失败: $e');
+    }
   }
 
   Future<void> rejectPair() async {
     try {
       await _ch.invokeMethod('rejectPair');
-    } catch (_) {}
+    } catch (e) {
+      AppLog.warn('link', '拒绝配对请求失败: $e');
+    }
   }
 
   Future<void> send(Uint8List bytes) async {
     try {
       await _ch.invokeMethod('send', {'bytes': bytes});
-    } catch (_) {}
+    } catch (e) {
+      AppLog.warn('link', '发送蓝牙数据失败: $e');
+    }
   }
 
   Future<bool> hasPermission() async {
     try {
       return await _ch.invokeMethod('hasPermission') == true;
-    } catch (_) {
+    } catch (e) {
+      AppLog.warn('link', '查询蓝牙权限失败: $e');
       return false;
     }
   }
@@ -145,7 +162,9 @@ class LinkClientChannel {
   Future<void> requestPermission() async {
     try {
       await _ch.invokeMethod('requestPermission');
-    } catch (_) {}
+    } catch (e) {
+      AppLog.warn('link', '请求蓝牙权限失败: $e');
+    }
   }
 
   Future<void> notifyNowPlaying(String title, String artist) async {
@@ -154,6 +173,8 @@ class LinkClientChannel {
         'title': title,
         'artist': artist,
       });
-    } catch (_) {}
+    } catch (e) {
+      AppLog.debug('link', '推送正在播放通知失败: $e');
+    }
   }
 }

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 
+import '../core/application_logger.dart';
 import 'plugin_engine.dart';
 import 'plugin_models.dart';
 import 'plugin_preferences.dart';
@@ -144,6 +145,7 @@ class PluginUpdateService {
             ),
       ];
     } catch (_) {
+      // 解析兜底：订阅清单格式异常按空列表处理
       return <({String url, String? version, String? name})>[];
     }
   }
@@ -187,6 +189,7 @@ class PluginUpdateService {
       final uri = Uri.parse(u);
       return '${uri.scheme}://${uri.authority}${uri.path}';
     } catch (_) {
+      // 解析兜底：URL 解析失败按原串返回
       return u;
     }
   }
@@ -360,7 +363,9 @@ class PluginUpdateService {
       try {
         final result = await checkPluginUpdate(source);
         if (result != null) results[source.id] = result;
-      } catch (_) {}
+      } catch (e) {
+        AppLog.warn('plugin', '[update] ${source.name} 检查更新失败: $e');
+      }
     }
     return results;
   }

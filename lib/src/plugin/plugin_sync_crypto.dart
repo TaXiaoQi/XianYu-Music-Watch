@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:encrypt/encrypt.dart' as enc;
 
+import '../core/application_logger.dart';
+
 abstract class PluginUserVarCrypto {
   static List<int> _key(String ciyuanxiId) =>
       sha256.convert(utf8.encode(ciyuanxiId)).bytes;
@@ -17,7 +19,8 @@ abstract class PluginUserVarCrypto {
           enc.Encrypter(enc.AES(key, mode: enc.AESMode.cbc, padding: 'PKCS7'));
       final ct = encrypter.encrypt(jsonEncode(values), iv: iv);
       return {'iv': iv.base64, 'data': ct.base64};
-    } catch (_) {
+    } catch (e) {
+      AppLog.warn('plugin', '加密用户变量失败: $e');
       return null;
     }
   }
@@ -38,7 +41,9 @@ abstract class PluginUserVarCrypto {
       if (json is Map) {
         return json.map((k, v) => MapEntry(k.toString(), v?.toString() ?? ''));
       }
-    } catch (_) {}
+    } catch (_) {
+      // 解析兜底：密钥不匹配或数据损坏时按无变量处理
+    }
     return null;
   }
 }

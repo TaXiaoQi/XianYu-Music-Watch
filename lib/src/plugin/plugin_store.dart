@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/application_logger.dart';
 import 'plugin_models.dart';
 
 class PluginStore {
@@ -24,7 +25,8 @@ class PluginStore {
       return list
           .map((e) => PluginSource.fromJson(e as Map<String, dynamic>))
           .toList();
-    } catch (_) {
+    } catch (e) {
+      AppLog.warn('plugin', '读取插件列表失败: $e');
       return const [];
     }
   }
@@ -49,7 +51,8 @@ class PluginStore {
     if (!file.existsSync()) return null;
     try {
       return await file.readAsString();
-    } catch (_) {
+    } catch (e) {
+      AppLog.warn('plugin', '读取插件脚本失败: $e');
       return null;
     }
   }
@@ -60,7 +63,8 @@ class PluginStore {
     if (file.existsSync()) {
       try {
         await file.delete();
-      } catch (_) {
+      } catch (e) {
+        AppLog.debug('plugin', '删除插件脚本失败: $e');
       }
     }
   }
@@ -70,7 +74,8 @@ class PluginStore {
     if (dir.existsSync()) {
       try {
         await dir.delete(recursive: true);
-      } catch (_) {
+      } catch (e) {
+        AppLog.debug('plugin', '清空插件目录失败: $e');
       }
     }
     await saveSources(const []);

@@ -159,7 +159,12 @@ fn read_api_secret(data_dir: &Path) -> String {
                     .unwrap_or_default()
                     .trim()
                     .to_string();
-                if saved.is_empty() {
+                if saved.is_empty() || saved == DEFAULT_API_SECRET {
+                    // 历史版本会把内置默认密钥写入文件（明文落盘）；
+                    // 检测到文件内容等于默认值时删除文件迁移为内置默认
+                    if saved == DEFAULT_API_SECRET {
+                        let _ = fs::remove_file(&path);
+                    }
                     DEFAULT_API_SECRET.to_string()
                 } else {
                     saved
@@ -391,15 +396,15 @@ pub fn get_auth_base_url(data_dir: &Path) -> Result<String, String> {
 
 pub fn set_auth_api_secret(data_dir: &Path, api_secret: String) -> Result<(), String> {
     let trimmed = api_secret.trim();
-    let secret = if trimmed.is_empty() {
-        DEFAULT_API_SECRET.to_string()
-    } else {
-        trimmed.to_string()
-    };
-
     let path = api_secret_file_path(data_dir)?;
-    fs::write(&path, &secret).map_err(|e| format!("api_secret 文件写入失败: {e}"))?;
-    Ok(())
+    // 空值 = 恢复内置默认密钥：删除文件而不是把默认密钥写盘
+    if trimmed.is_empty() {
+        if path.exists() {
+            fs::remove_file(&path).map_err(|e| format!("api_secret 删除失败: {e}"))?;
+        }
+        return Ok(());
+    }
+    fs::write(&path, trimmed).map_err(|e| format!("api_secret 文件写入失败: {e}"))
 }
 
 pub fn get_auth_api_secret(data_dir: &Path) -> Result<String, String> {

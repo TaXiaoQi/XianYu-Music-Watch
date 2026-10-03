@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../core/application_logger.dart';
 import '../core/settings.dart';
 import '../favorites/favorites_provider.dart';
 import '../i18n/i18n.dart';
@@ -56,7 +57,9 @@ class WatchBackupService {
         if (script == null || script.isEmpty) continue;
         plugins.add({'source': source.toJson(), 'script': script});
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLog.warn('backup', '备份收集插件数据失败: $e');
+    }
 
     // 设置写入 watch 槽位，移动端/桌面端预留空位互不影响。
     final settings = _ref.read(settingsProvider).valueOrNull;
@@ -92,6 +95,7 @@ class WatchBackupService {
     try {
       data = jsonDecode(json);
     } catch (_) {
+      // 解析兜底：统一转为用户可读的格式错误抛出
       throw FormatException(tr('文件不是有效的 JSON 格式'));
     }
     if (data is! Map || data['schema'] != _kBackupSchema) {
@@ -117,7 +121,9 @@ class WatchBackupService {
         if (e.path.isNotEmpty && await favManager.addIfAbsent(e)) {
           favorites++;
         }
-      } catch (_) {}
+      } catch (_) {
+        // 解析兜底：跳过损坏的收藏条目
+      }
     }
 
     // 歌单：按歌单名去重合并。
@@ -156,9 +162,13 @@ class WatchBackupService {
             versionOverride: source.version.isNotEmpty ? source.version : null,
           );
           plugins++;
-        } catch (_) {}
+        } catch (e) {
+          AppLog.warn('backup', '恢复插件失败: $e');
+        }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLog.warn('backup', '恢复插件数据失败: $e');
+    }
 
     // 设置：写入 watch 槽位。
     final settings = map['settings'];
@@ -173,7 +183,9 @@ class WatchBackupService {
             await _ref.read(settingsProvider.notifier).saveAll(restored);
             settingsApplied = 1;
           }
-        } catch (_) {}
+        } catch (e) {
+          AppLog.warn('backup', '恢复设置失败: $e');
+        }
       }
     }
 
@@ -260,7 +272,8 @@ Future<String?> readLatestLocalBackupFile() async {
       ..sort((a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()));
     if (files.isEmpty) return null;
     return await files.first.readAsString();
-  } catch (_) {
+  } catch (e) {
+    AppLog.warn('backup', '读取本地备份文件失败: $e');
     return null;
   }
 }

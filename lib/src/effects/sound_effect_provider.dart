@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/application_logger.dart';
 import '../i18n/i18n.dart';
 
 final bool kDspPipelineSupported = !kIsWeb && Platform.isAndroid;
@@ -673,7 +674,9 @@ class SoundEffectManager extends StateNotifier<SoundEffectState> {
             .toList();
         state = SoundEffectState(settings: s, customEqPresets: customs);
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLog.warn('effect', '加载音效设置失败: $e');
+    }
   }
 
   Future<void> _update(
@@ -713,7 +716,9 @@ class SoundEffectManager extends StateNotifier<SoundEffectState> {
           'customEqPresets': s.customEqPresets.map((p) => p.toJson()).toList(),
         }),
       );
-    } catch (_) {}
+    } catch (e) {
+      AppLog.debug('effect', '保存音效设置失败: $e');
+    }
   }
 
   Future<void> set(SoundEffectSettings s) => _update(s);

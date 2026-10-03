@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'application_logger.dart';
+
 extension WatchFitContext on BuildContext {
   double watchScale() =>
       (MediaQuery.of(this).size.shortestSide / 200).clamp(0.85, 1.30);
@@ -15,7 +17,8 @@ class WatchScreenShape {
     try {
       final r = await _ch.invokeMethod<bool>('isRound');
       if (r != null) isRound = r;
-    } catch (_) {
+    } catch (e) {
+      AppLog.debug('watch', '探测屏幕形状失败: $e');
     }
     if (!isRound) {
       final views = WidgetsBinding.instance.platformDispatcher.views;

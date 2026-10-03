@@ -2,17 +2,14 @@ import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 
+import '../core/application_logger.dart';
 import '../player/player_provider.dart';
 import '../i18n/i18n.dart';
 import '../rust/api.dart';
-import 'kg_sheet_import.dart';
-import 'kw_sheet_import.dart';
+import 'host_sheet_import.dart';
 import 'plugin_engine.dart';
 import 'plugin_host_fallback.dart';
 import 'plugin_models.dart';
-import 'qishui_sheet_import.dart';
-import 'tx_sheet_import.dart';
-import 'wy_sheet_import.dart';
 
 class MfSheetItem {
   final String id;
@@ -155,7 +152,8 @@ class PluginCatalogService {
         }
       }
       return items;
-    } catch (_) {
+    } catch (e) {
+      AppLog.warn('plugin', '[toplist] ${source.name} 获取榜单失败: $e');
       return const [];
     }
   }
@@ -637,7 +635,8 @@ class PluginCatalogService {
       final info = await _call(source, 'getArtistInfo', [item]);
       if (info is! Map) return '';
       return _extractDescription(info.cast<String, dynamic>());
-    } catch (_) {
+    } catch (e) {
+      AppLog.debug('plugin', '[artist] ${source.name} 获取歌手简介失败: $e');
       return '';
     }
   }
@@ -766,7 +765,8 @@ class PluginCatalogService {
   ) async {
     try {
       return await _call(source, method, args);
-    } catch (_) {
+    } catch (e) {
+      AppLog.debug('plugin', '[catalog] ${source.name}/$method 调用失败: $e');
       return null;
     }
   }
@@ -779,7 +779,8 @@ class PluginCatalogService {
     try {
       final result = await _call(source, method, args);
       return extractMfResultList(result);
-    } catch (_) {
+    } catch (e) {
+      AppLog.debug('plugin', '[catalog] ${source.name}/$method 列表调用失败: $e');
       return const [];
     }
   }
@@ -1286,7 +1287,9 @@ String? _decodeLxCoverResult(String raw) {
   try {
     final v = jsonDecode(raw);
     if (v is String && v.isNotEmpty) return v;
-  } catch (_) {}
+  } catch (_) {
+    // 解析兜底：非 JSON 结果回退按原始串处理
+  }
   if (raw.startsWith('http')) return raw;
   return null;
 }
@@ -1324,7 +1327,8 @@ Future<String?> fetchLxCoverForSong(
     final cover = _decodeLxCoverResult(raw);
     if (cover == null || cover.isEmpty) return null;
     return _normalizeCoverUrl(cover);
-  } catch (_) {
+  } catch (e) {
+    AppLog.debug('plugin', '[cover] 获取插件封面失败: $e');
     return null;
   }
 }

@@ -92,6 +92,22 @@ pub fn decrypt_plugin_lyric(encrypted_hex: String) -> Result<String, String> {
 }
 
 // =========================================================================
+// 歌单导入（下沉自移动端 playlist_fetcher，对齐前端 playlistImport*.ts）
+// =========================================================================
+
+/// 从指定音源抓取歌单详情（wy/tx/kw/kg/qishui）。
+///
+/// - `raw_id`：歌单 ID / 链接 / 短码原文
+///
+/// 返回 `PlaylistImportResult{source,songs,total,info}`（camelCase）的 JSON；
+/// serde 字段名与桌面端契约冻结一致。
+pub async fn fetch_playlist_from_source(source: String, raw_id: String) -> Result<String, String> {
+    let result =
+        crate::music::playlist_fetcher::fetch_playlist_from_source(source, raw_id).await?;
+    serde_json::to_string(&result).map_err(|e| e.to_string())
+}
+
+// =========================================================================
 // WebDAV 云盘（第四批）
 // =========================================================================
 
@@ -323,12 +339,6 @@ pub(crate) fn open_scan_conn(db_path: &str) -> Result<rusqlite::Connection, Stri
 // 音乐库扫描（第六批）
 // =========================================================================
 
-fn derive_cover_cache_dir(db_path: &str) -> Option<std::path::PathBuf> {
-    let db = std::path::Path::new(db_path);
-    let cache_root = db.parent()?.join("cover_cache");
-    Some(crate::music::covers::get_cover_cache_dir(&cache_root))
-}
-
 pub fn scan_music_folder(
     db_path: String,
     folder_path: String,
@@ -339,7 +349,7 @@ pub fn scan_music_folder(
     let db_conn = std::sync::Arc::new(std::sync::Mutex::new(conn));
     let options =
         crate::music::scanner::ScanOptions::new(minimum_duration_seconds, allowed_formats);
-    let cover_cache_dir = derive_cover_cache_dir(&db_path);
+    let cover_cache_dir = crate::music::scanner::derive_cover_cache_dir(&db_path);
     let songs = crate::music::scanner::scan_single_directory_internal(
         folder_path,
         db_conn,
@@ -812,7 +822,7 @@ pub fn refresh_folder_songs(
 ) -> Result<String, String> {
     let conn = open_scan_conn(&db_path)?;
     let db_conn = std::sync::Arc::new(std::sync::Mutex::new(conn));
-    let cover_cache_dir = derive_cover_cache_dir(&db_path);
+    let cover_cache_dir = crate::music::scanner::derive_cover_cache_dir(&db_path);
     let songs = crate::toolbox::refresh_folder_songs(
         db_conn,
         folder_path,
@@ -1046,7 +1056,7 @@ pub fn host_kugou_sign(params: String, platform: String, body: Option<String>) -
 }
 
 pub fn host_kugou_request_key() -> String {
-    crate::host_crypto::KG_SALT_ANDROID.to_string()
+    crate::host_crypto::host_kugou_request_key()
 }
 
 pub fn host_migu_sign(text: String, time: String) -> String {
@@ -1519,7 +1529,7 @@ pub fn scan_library(
 ) -> Result<String, String> {
     let conn = open_scan_conn(&db_path)?;
     let shared = std::sync::Arc::new(std::sync::Mutex::new(conn));
-    let cover_cache_dir = derive_cover_cache_dir(&db_path);
+    let cover_cache_dir = crate::music::scanner::derive_cover_cache_dir(&db_path);
     let songs =
         crate::music::library::scan_library(shared, minimum_duration_seconds, cover_cache_dir)?;
     serde_json::to_string(&songs).map_err(|e| e.to_string())
@@ -1757,15 +1767,8 @@ pub async fn plugin_engine_store_snapshot(data_dir: String) -> Result<String, St
 // =========================================================================
 // =========================================================================
 
-use crate::dlna::{DlnaCore, DlnaDevice, MediaPayload, TransportState};
-
-fn parse_device(device_json: &str) -> Result<DlnaDevice, String> {
-    serde_json::from_str(device_json).map_err(|e| format!("设备参数解析失败: {e}"))
-}
-
-fn parse_media(media_json: &str) -> Result<MediaPayload, String> {
-    serde_json::from_str(media_json).map_err(|e| format!("媒体参数解析失败: {e}"))
-}
+use crate::dlna::types::{parse_device, parse_media};
+use crate::dlna::{DlnaCore, TransportState};
 
 pub async fn dlna_search_devices(timeout_ms: u64) -> Result<String, String> {
     let devices = DlnaCore::shared().search_devices(timeout_ms).await;

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/application_logger.dart';
 import '../../core/watch_fit.dart';
 import '../../i18n/i18n.dart';
 import '../../plugin/plugin_catalog.dart';
@@ -53,7 +54,9 @@ class _TopListPageState extends ConsumerState<TopListPage> {
               for (final it in lists) {
                 merged.add((s, it));
               }
-            } catch (_) {}
+            } catch (e) {
+              AppLog.warn('plugin', '[toplist] ${s.name} 榜单获取失败: $e');
+            }
           }(),
       ]);
       if (!mounted) return;

@@ -4,6 +4,8 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'application_logger.dart';
+
 Future<String> _resolveAppDataDir() async {
   final base = await getApplicationSupportDirectory();
   final dir = p.join(base.path, 'xianyu');
@@ -27,7 +29,9 @@ final coverCacheRootProvider = FutureProvider<String>((ref) async {
   if (legacy.existsSync()) {
     try {
       legacy.deleteSync(recursive: true);
-    } catch (_) {}
+    } catch (e) {
+      AppLog.warn('cache', '清理旧封面缓存失败: $e');
+    }
   }
   final root = Directory(p.join(appData, 'cover_cache'));
   if (!root.existsSync()) root.createSync(recursive: true);

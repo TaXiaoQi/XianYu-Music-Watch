@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:just_audio/just_audio.dart';
 
+import '../core/application_logger.dart';
+
 class StreamCache {
   StreamCache._();
 
@@ -46,7 +48,9 @@ class StreamCache {
     _activeFile = null;
     try {
       await enforceBudget();
-    } catch (_) {}
+    } catch (e) {
+      AppLog.debug('cache', '清理流缓存超限文件失败: $e');
+    }
   }
 
   Future<void> evict(String url) async {
@@ -58,7 +62,9 @@ class StreamCache {
         if (_activeFile?.path == f.path) _activeFile = null;
         await f.delete();
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLog.warn('cache', '删除流缓存文件失败: $e');
+    }
   }
 
   Future<void> enforceBudget() async {
@@ -71,7 +77,9 @@ class StreamCache {
       try {
         final stat = await e.stat();
         entries.add((e, stat.size, stat.modified));
-      } catch (_) {}
+      } catch (err) {
+        AppLog.debug('cache', '读取缓存文件信息失败: $err');
+      }
     }
     var total = entries.fold<int>(0, (sum, e) => sum + e.$2);
     if (total <= budgetBytes) return;
@@ -82,7 +90,9 @@ class StreamCache {
       try {
         await file.delete();
         total -= size;
-      } catch (_) {}
+      } catch (err) {
+        AppLog.debug('cache', '删除超限缓存文件失败: $err');
+      }
     }
   }
 
@@ -94,7 +104,9 @@ class StreamCache {
       if (e is! File || !e.path.endsWith('.audio')) continue;
       try {
         total += (await e.stat()).size;
-      } catch (_) {}
+      } catch (err) {
+        AppLog.debug('cache', '统计缓存文件大小失败: $err');
+      }
     }
     return total;
   }
@@ -107,7 +119,9 @@ class StreamCache {
       if (_activeFile?.path == e.path) continue;
       try {
         await e.delete();
-      } catch (_) {}
+      } catch (err) {
+        AppLog.warn('cache', '清空流缓存失败: $err');
+      }
     }
   }
 

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../auth/auth_provider.dart';
+import '../core/application_logger.dart';
 import '../i18n/i18n.dart';
 import 'player_provider.dart';
 
@@ -156,7 +157,8 @@ class ListenStatsNotifier extends StateNotifier<ListenStatsState> {
         synced: true,
       );
       _schedulePersist();
-    } catch (_) {
+    } catch (e) {
+      AppLog.warn('stats', '上报听歌时长失败: $e');
     } finally {
       _reportBusy = false;
     }
@@ -248,7 +250,9 @@ class ListenStatsNotifier extends StateNotifier<ListenStatsState> {
             '"synced":${s.synced ? 1 : 0},'
             '"dailyDate":"$date"}',
       );
-    } catch (_) {}
+    } catch (e) {
+      AppLog.warn('stats', '听歌时长本地保存失败: $e');
+    }
   }
 
   @override

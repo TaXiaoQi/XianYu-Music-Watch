@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../player/listen_stats.dart';
 import '../player/player_provider.dart' show audioHandler;
 import '../player/watch_audio_service.dart';
+import 'application_logger.dart';
 import 'rust_init.dart';
 
 const appModeKey = 'appMode';
@@ -47,7 +48,9 @@ class AppModeNotifier extends Notifier<String> {
     } else {
       try {
         await audioHandler?.pause();
-      } catch (_) {}
+      } catch (e) {
+        AppLog.warn('player', '暂停播放器失败: $e');
+      }
     }
   }
 }

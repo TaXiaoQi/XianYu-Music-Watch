@@ -297,7 +297,9 @@ CloudSong cloudSongOfFavorite(FavoriteEntry e) {
         final mi = map['musicInfo'];
         if (mi is Map) musicInfo = mi.cast<String, dynamic>();
       }
-    } catch (_) {}
+    } catch (_) {
+      // 解析兜底：损坏的收藏 JSON 按本地歌曲处理
+    }
   }
   return CloudSong(
     path: e.path,

@@ -94,6 +94,20 @@ Future<String> fetchLyricFromSource({
 Future<String> decryptPluginLyric({required String encryptedHex}) =>
     RustLib.instance.api.crateApiDecryptPluginLyric(encryptedHex: encryptedHex);
 
+/// 从指定音源抓取歌单详情（wy/tx/kw/kg/qishui）。
+///
+/// - `raw_id`：歌单 ID / 链接 / 短码原文
+///
+/// 返回 `PlaylistImportResult{source,songs,total,info}`（camelCase）的 JSON；
+/// serde 字段名与桌面端契约冻结一致。
+Future<String> fetchPlaylistFromSource({
+  required String source,
+  required String rawId,
+}) => RustLib.instance.api.crateApiFetchPlaylistFromSource(
+  source: source,
+  rawId: rawId,
+);
+
 Future<void> webdavTestConnection({required String sourceJson}) =>
     RustLib.instance.api.crateApiWebdavTestConnection(sourceJson: sourceJson);
 

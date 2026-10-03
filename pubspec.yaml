@@ -39,6 +39,15 @@ dependencies:
   crypto: ^3.0.3
   # 插件同步：用户变量 AES-256-CBC 加密（对齐桌面/移动协议）
   encrypt: ^5.0.3
+  # 敏感凭据安全存储（Android Keystore / iOS Keychain）：
+  # 登录 token 加密密钥。鸿蒙由下方 vendored 插件提供真安全存储（HUKS），
+  # 插件缺失时 SecureStore 回退 SharedPreferences
+  flutter_secure_storage: ^11.2.0
+  # 鸿蒙原生实现（仅声明 ohos 平台，Android/iOS 构建零参与）：
+  # vendor 自 SIG fluttertpc fork 并剥离 Dart 层，官方主包经同名
+  # MethodChannel 直连原生实现，详见 third_party/.../README.md
+  flutter_secure_storage_ohos:
+    path: third_party/flutter_secure_storage_ohos
   # 账号扫码登录二维码渲染（与桌面端同款 generate_tv_login_code 流程）
   qr_flutter: ^4.1.0
   # 本地音乐扫描运行时权限

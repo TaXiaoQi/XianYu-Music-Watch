@@ -1,12 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../auth/auth_provider.dart';
+import '../core/app_http.dart' show appRequest;
+import '../core/application_logger.dart';
 import '../core/settings.dart';
 import '../i18n/i18n.dart';
 import '../player/player_provider.dart';
@@ -305,7 +306,9 @@ Future<void> _searchAll(
             score: task.strategy.weight * 0.6 + (1 - rank / _searchLimit) * 0.4,
           ));
         }
-      } catch (_) {}
+      } catch (e) {
+        AppLog.debug('home', '推荐候选搜索失败: $e');
+      }
     }
   }
 
@@ -332,7 +335,9 @@ Future<List<PluginSearchResult>> _searchPlugin(
       merged.addAll(
         await engine.searchInPlugin(plugin, key, keyword, limit: _searchLimit),
       );
-    } catch (_) {}
+    } catch (e) {
+      AppLog.debug('home', '${plugin.name}/$key 搜索失败: $e');
+    }
   }
   return merged;
 }
@@ -424,6 +429,7 @@ class _DailyCache {
     try {
       algorithm = DailyRecommendAlgorithm.fromJson(algoRaw);
     } catch (_) {
+      // 解析兜底：缓存算法结构异常按无缓存处理
       return null;
     }
     final candidates = (j['candidates'] as List? ?? const [])
@@ -456,7 +462,8 @@ Future<_DailyCache?> _loadCache() async {
     final raw = prefs.getString(_cacheKey);
     if (raw == null || raw.isEmpty) return null;
     return _DailyCache.fromJson(jsonDecode(raw) as Map<String, dynamic>);
-  } catch (_) {
+  } catch (e) {
+    AppLog.warn('home', '读取每日推荐缓存失败: $e');
     return null;
   }
 }
@@ -465,14 +472,18 @@ Future<void> _saveCache(_DailyCache cache) async {
   try {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_cacheKey, jsonEncode(cache.toJson()));
-  } catch (_) {}
+  } catch (e) {
+    AppLog.warn('home', '写入每日推荐缓存失败: $e');
+  }
 }
 
 Future<void> clearDailyRecommendCache() async {
   try {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_cacheKey);
-  } catch (_) {}
+  } catch (e) {
+    AppLog.debug('home', '清理每日推荐缓存失败: $e');
+  }
 }
 
 // ─── 网易云缺省元数据补齐 ─────────────────────────────────────────
@@ -492,7 +503,6 @@ Future<Map<String, _WyTrackPatch>> _fetchWyTrackMeta(List<String> ids) async {
   final all = ids.where((id) => RegExp(r'^\d+$').hasMatch(id)).toList();
   if (all.isEmpty) return result;
 
-  HttpClient? client;
   try {
     final payload = jsonEncode({
       'c': '[${all.map((id) => '{"id":$id}').join(',')}]',
@@ -507,26 +517,20 @@ Future<Map<String, _WyTrackPatch>> _fetchWyTrackMeta(List<String> ids) async {
     final body =
         'params=${Uri.encodeComponent(params)}&encSecKey=${Uri.encodeComponent(encSecKey)}';
 
-    client = HttpClient()..connectionTimeout = const Duration(seconds: 12);
-    final req = await client.postUrl(
+    final resp = await appRequest(
+      'POST',
       Uri.parse('https://music.163.com/weapi/v3/song/detail'),
-    );
-    req.headers
-      ..set('Content-Type', 'application/x-www-form-urlencoded')
-      ..set(
-        'User-Agent',
-        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
             '(KHTML, like Gecko) Chrome/60.0.3112.90 Safari/537.36',
-      )
-      ..set('Origin', 'https://music.163.com')
-      ..set('Referer', 'https://music.163.com/');
-    req.write(body);
-    final resp = await req.close().timeout(const Duration(seconds: 15));
+        'Origin': 'https://music.163.com',
+        'Referer': 'https://music.163.com/',
+      },
+      body: body,
+    ).timeout(const Duration(seconds: 15));
     if (resp.statusCode < 200 || resp.statusCode >= 400) return result;
-    final text = await resp
-        .transform(utf8.decoder)
-        .join()
-        .timeout(const Duration(seconds: 15));
+    final text = await resp.transform(utf8.decoder).join();
     final data = jsonDecode(text);
     if (data is! Map || data['code'] != 200) return result;
     final songs = data['songs'];
@@ -548,9 +552,8 @@ Future<Map<String, _WyTrackPatch>> _fetchWyTrackMeta(List<String> ids) async {
       final dur = dtRaw is num && dtRaw > 0 ? dtRaw.toInt() : 0;
       result[id] = (coverUrl: img, durationMs: dur);
     }
-  } catch (_) {
-  } finally {
-    client?.close(force: true);
+  } catch (e) {
+    AppLog.debug('home', '获取网易云歌曲元信息失败: $e');
   }
   return result;
 }
@@ -682,7 +685,9 @@ class DailyRecommendNotifier extends AsyncNotifier<DailyRecommendState> {
           loggedIn: cur.loggedIn,
         ),
       );
-    } catch (_) {}
+    } catch (e) {
+      AppLog.debug('home', '补齐网易云封面/时长失败: $e');
+    }
   }
 
   Future<void> refresh() async {

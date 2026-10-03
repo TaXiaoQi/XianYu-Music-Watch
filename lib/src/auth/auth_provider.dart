@@ -1,16 +1,17 @@
 import 'dart:convert';
-import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/app_http.dart' show appGet;
+import '../core/application_logger.dart';
 import '../core/db_path.dart';
+import '../core/secure_store.dart' show kTokenSealPrefix, sealToken, unsealToken;
 import '../i18n/i18n.dart';
 import '../rust/api.dart' as rust;
 
 const defaultAuthBaseUrl = 'https://api.xianyumusic.cn/api';
-const defaultAuthApiSecret = 'acca7562ecaf830fcce45814f110eacea83ecf9cf52320c3';
 
 /// 已验签内测资格响应的本地缓存键（fail-closed：断网凭缓存放行，无缓存/过期则锁）。
 const _betaAccessCacheKey = 'beta_access_signed_payload_v1';
@@ -172,21 +173,45 @@ class AuthNotifier extends StateNotifier<AuthState> {
   Future<void> init() async {
     try {
       final dir = await _dataDir();
-      await rust.authSetBaseUrl(dataDir: dir, baseUrl: defaultAuthBaseUrl);
-      await rust.authSetApiSecret(
-        dataDir: dir,
-        apiSecret: defaultAuthApiSecret,
-      );
+      // base_url / api_secret 不再由 Dart 侧写盘：Rust 侧缺文件时用内置默认，
+      // 自建服务器用户保存的自定义值不会被启动覆盖
       final credsJson = await rust.authGetCredentials(dataDir: dir);
       if (credsJson.trim().isNotEmpty && credsJson != 'null') {
         final j = jsonDecode(credsJson) as Map<String, dynamic>;
-        _token = (j['token'] as String?) ?? '';
+        final stored = (j['token'] as String?) ?? '';
         final userJson = j['user'];
+        AuthUser? user;
         if (userJson is Map<String, dynamic>) {
-          state = AuthState(user: AuthUser.fromJson(userJson));
+          user = AuthUser.fromJson(userJson);
+          state = AuthState(user: user);
+        }
+        if (stored.isNotEmpty) {
+          final token = await unsealToken(stored);
+          if (token == null || token.isEmpty) {
+            // 加密密钥丢失/密文损坏：会话不可恢复，按未登录处理并清理
+            _token = null;
+            state = const AuthState();
+            try {
+              await rust.authClearCredentials(dataDir: dir);
+            } catch (e) {
+              AppLog.warn('auth', '失效凭据清理失败: $e');
+            }
+          } else {
+            _token = token;
+            if (!stored.startsWith(kTokenSealPrefix)) {
+              // 旧版明文 token：升级为加密落盘
+              await rust.authSaveCredentials(
+                dataDir: dir,
+                token: await sealToken(token),
+                userJson: jsonEncode(user?.toJson()),
+              );
+            }
+          }
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLog.warn('auth', '凭据恢复失败: $e');
+    }
   }
 
   Future<Map<String, dynamic>> requestAction(
@@ -292,7 +317,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
       );
       _captchaConfigCache = (cfg, DateTime.now());
       return cfg;
-    } catch (_) {
+    } catch (e) {
+      AppLog.warn('auth', '获取验证码配置失败: $e');
       if (cached != null) return cached.$1;
       return const HumanCaptchaConfig();
     }
@@ -311,7 +337,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     final dir = await _dataDir();
     await rust.authSaveCredentials(
       dataDir: dir,
-      token: token,
+      token: await sealToken(token),
       userJson: jsonEncode(user.toJson()),
     );
   }
@@ -352,16 +378,15 @@ class AuthNotifier extends StateNotifier<AuthState> {
       if (e.code == 404 || e.code == 403) {
         onStatus?.call('invalid');
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLog.warn('auth', '轮询扫码登录失败: $e');
+    }
     return null;
   }
 
   Future<String> _ipLocation() async {
-    final client = HttpClient();
     try {
-      final res = await client
-          .getUrl(Uri.parse('https://ipapi.co/json/'))
-          .then((r) => r.close())
+      final res = await appGet(Uri.parse('https://ipapi.co/json/'))
           .timeout(const Duration(milliseconds: 2500));
       if (res.statusCode == 200) {
         final body = await res
@@ -375,10 +400,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
           j['country_name'],
         ].whereType<String>().where((s) => s.isNotEmpty).toList();
         if (parts.isNotEmpty) return parts.join(' ');
+      } else {
+        await res.drain<void>();
       }
-    } catch (_) {
-    } finally {
-      client.close(force: true);
+    } catch (e) {
+      AppLog.debug('auth', 'IP 归属地查询失败: $e');
     }
     return '手表';
   }
@@ -396,7 +422,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
     _token = null;
     try {
       await rust.authClearCredentials(dataDir: await _dataDir());
-    } catch (_) {}
+    } catch (e) {
+      AppLog.warn('auth', '清除本地凭据失败: $e');
+    }
   }
 
   /// 拉取服务端下发的腕上关于页配置（watch 平台）。
@@ -405,7 +433,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
       final data = await requestAction(
           'get_about_config', {'platform': 'watch'});
       return WatchAboutConfig.fromJson(data);
-    } catch (_) {
+    } catch (e) {
+      AppLog.warn('auth', '获取关于页配置失败: $e');
       return const WatchAboutConfig();
     }
   }
@@ -419,7 +448,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
       });
       if (data['version'] == null) return null;
       return LatestVersion.fromJson(data);
-    } catch (_) {
+    } catch (e) {
+      AppLog.warn('auth', '检查服务端更新失败: $e');
       return null;
     }
   }
@@ -443,7 +473,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
         await prefs.setString(_betaAccessCacheKey, jsonEncode(data));
         return parsed;
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLog.warn('auth', '校验内测资格失败: $e');
+    }
     return _readCachedBetaAccess(deviceId);
   }
 
@@ -467,7 +499,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
         signature: signature,
       );
       if (ok) return (allowed, pending);
-    } catch (_) {}
+    } catch (e) {
+      AppLog.warn('auth', '内测资格验签异常: $e');
+    }
     return null;
   }
 
@@ -480,7 +514,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
       if (decoded is! Map) return null;
       return await _parseSignedBetaAccess(
           Map<String, dynamic>.from(decoded), deviceId);
-    } catch (_) {
+    } catch (e) {
+      AppLog.warn('auth', '读取内测资格缓存失败: $e');
       return null;
     }
   }
