@@ -9,6 +9,7 @@ mod http_util;
 mod qrc_crypto;
 mod source_kg;
 mod source_kw;
+mod source_migu;
 mod source_tx;
 mod source_wy;
 
@@ -16,6 +17,7 @@ pub(crate) use http_util::*;
 pub(crate) use qrc_crypto::*;
 pub(crate) use source_kg::*;
 pub(crate) use source_kw::*;
+pub(crate) use source_migu::*;
 pub(crate) use source_tx::*;
 pub(crate) use source_wy::*;
 
@@ -162,6 +164,8 @@ pub async fn fetch_lyric_from_source(
     let result = match source.as_str() {
         "kg" => fetch_kg_lyric(&song_info).await?,
         "kw" => fetch_kw_lyric(&song_info).await?,
+        // 咪咕：copyrightId 资源接口 + 回退端点（对齐移动端 source_migu.rs）
+        "mg" => fetch_mg_lyric(&song_info).await?,
         "tx" => fetch_tx_lyric(&song_info).await?,
         "wy" => fetch_wy_lyric(&song_info).await?,
         _ => return Ok(None),
