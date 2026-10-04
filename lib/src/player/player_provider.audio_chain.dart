@@ -36,6 +36,10 @@ extension PlayerNotifierAudioChain on PlayerNotifier {
         bitPerfect: false,
         dsdNativePassthrough: false,
         sharedMode: true,
+        // 跳过静音：腕端暂无设置入口，启动时关闭（运行期可经 set_usb_exclusive_skip_silence 切换）
+        skipSilenceEnabled: false,
+        skipSilenceThresholdDb: -45.0,
+        skipSilenceKeepMs: 500,
       );
       _dspActive = true;
       _startDspPolling();

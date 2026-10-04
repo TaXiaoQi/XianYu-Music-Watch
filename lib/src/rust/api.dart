@@ -7,7 +7,7 @@ import 'frb_generated.dart';
 import 'music/types.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `derive_cover_cache_dir`, `global_playback_session`, `open_scan_conn`, `open_stats_conn`, `parse_device`, `parse_media`, `parse_remote_source`, `stats_schema_ready`
+// These functions are ignored because they are not marked as `pub`: `global_playback_session`, `open_scan_conn`, `open_stats_conn`, `parse_remote_source`, `stats_schema_ready`
 
 Future<String> parseLyrics({required String rawLyrics}) =>
     RustLib.instance.api.crateApiParseLyrics(rawLyrics: rawLyrics);
@@ -620,6 +620,14 @@ Future<String> resolveDownloadFullPath({
   overwriteExisting: overwriteExisting,
 );
 
+/// 启动 USB 独占播放。返回设备名或错误信息。
+/// `device_id` = AAudio 设备 ID（USB DAC），-1 = 默认设备。
+/// `bit_perfect` = Bit-perfect 直出（绕过响度/EQ/音效/音量，按源位深整数直出）。
+/// `dsd_native_passthrough` = DSD(.dsf/.dff) 原生 DoP 直通开关。
+/// `stream_cache_url` = 在线流缓存直读 URL（对齐桌面端 StreamingTempFile 模型，
+/// 经 Rust 流缓存 Reader 解码，单上游连接；与预热线程 `stream_cache_begin_url_download`
+/// 按 URL 命中同一缓存条目）。`stream_cache_headers` = 直链上游请求头 JSON 对象字符串，
+/// 供缓存下载线程冷启动使用。
 Future<String> startUsbExclusivePlayback({
   required String path,
   required int deviceId,
@@ -632,6 +640,11 @@ Future<String> startUsbExclusivePlayback({
   required bool bitPerfect,
   required bool dsdNativePassthrough,
   required bool sharedMode,
+  String? streamCacheUrl,
+  String? streamCacheHeaders,
+  required bool skipSilenceEnabled,
+  required double skipSilenceThresholdDb,
+  required int skipSilenceKeepMs,
 }) => RustLib.instance.api.crateApiStartUsbExclusivePlayback(
   path: path,
   deviceId: deviceId,
@@ -644,6 +657,11 @@ Future<String> startUsbExclusivePlayback({
   bitPerfect: bitPerfect,
   dsdNativePassthrough: dsdNativePassthrough,
   sharedMode: sharedMode,
+  streamCacheUrl: streamCacheUrl,
+  streamCacheHeaders: streamCacheHeaders,
+  skipSilenceEnabled: skipSilenceEnabled,
+  skipSilenceThresholdDb: skipSilenceThresholdDb,
+  skipSilenceKeepMs: skipSilenceKeepMs,
 );
 
 Future<void> stopUsbExclusivePlayback() =>
@@ -690,6 +708,44 @@ Future<String> getUsbExclusiveDeviceInfo() =>
 
 Future<double> getUsbExclusivePositionSecs() =>
     RustLib.instance.api.crateApiGetUsbExclusivePositionSecs();
+
+/// 运行时切换跳过静音：静音段只保留 `keep_ms`，多出来的丢掉。
+/// 位置上报会把丢掉的时长加回去，所以进度条仍按原曲时间轴走。
+Future<void> setUsbExclusiveSkipSilence({
+  required bool enabled,
+  required double thresholdDb,
+  required int keepMs,
+}) => RustLib.instance.api.crateApiSetUsbExclusiveSkipSilence(
+  enabled: enabled,
+  thresholdDb: thresholdDb,
+  keepMs: keepMs,
+);
+
+/// 预排下一首：格式与当前流一致时，当前曲播完直接接上（无缝），
+/// 不一致或准备失败会自动退回普通切歌，不需要前端处理。
+Future<void> setUsbExclusiveNext({
+  required String path,
+  String? streamCacheUrl,
+  String? streamCacheHeadersJson,
+}) => RustLib.instance.api.crateApiSetUsbExclusiveNext(
+  path: path,
+  streamCacheUrl: streamCacheUrl,
+  streamCacheHeadersJson: streamCacheHeadersJson,
+);
+
+/// 取消预排（手动切歌/插队/seek 越界时调用）。
+Future<void> cancelUsbExclusiveNext() =>
+    RustLib.instance.api.crateApiCancelUsbExclusiveNext();
+
+/// 设置曲间交叉淡入淡出时长（毫秒，0 = 关闭）。运行期可改，不用重启管线。
+Future<void> setUsbExclusiveCrossfade({required int ms}) =>
+    RustLib.instance.api.crateApiSetUsbExclusiveCrossfade(ms: ms);
+
+/// 取出并清空当前管线的诊断信息（seek/拼接/交叉/跳过静音等关键事件）。
+///
+/// 供前端在排查「无缝/淡入淡出/跳静音有没有真的生效」时打日志用。
+Future<String> takeUsbExclusivePipelineDiag() =>
+    RustLib.instance.api.crateApiTakeUsbExclusivePipelineDiag();
 
 /// 下载在线歌曲真实音源直链到指定路径（流式写入 + QMC2/CENC 解密），返回最终路径。
 ///
@@ -818,6 +874,66 @@ Future<bool> verifyBetaAccessSignature({
   exp: exp,
   signature: signature,
 );
+
+/// 加载兜底模块（验签 + 编译 + 硬校验一体），返回 `FallbackLoadResult` JSON。
+Future<String> fallbackModuleLoad({
+  required String dataDir,
+  required String moduleKey,
+  required PlatformInt64 version,
+  required String code,
+  required String signature,
+  required String appVersion,
+}) => RustLib.instance.api.crateApiFallbackModuleLoad(
+  dataDir: dataDir,
+  moduleKey: moduleKey,
+  version: version,
+  code: code,
+  signature: signature,
+  appVersion: appVersion,
+);
+
+/// 调用兜底模块方法，返回 `FallbackCallResult` JSON（`ok`/`error`/`data`/`logs`）。
+Future<String> fallbackModuleCall({
+  required String dataDir,
+  required String moduleKey,
+  required String method,
+  required String argsJson,
+  BigInt? timeoutMs,
+}) => RustLib.instance.api.crateApiFallbackModuleCall(
+  dataDir: dataDir,
+  moduleKey: moduleKey,
+  method: method,
+  argsJson: argsJson,
+  timeoutMs: timeoutMs,
+);
+
+/// 保序逐项批量调用，返回 `FallbackCallManyResult` JSON；单项失败不影响后续。
+Future<String> fallbackModuleCallMany({
+  required String dataDir,
+  required String moduleKey,
+  required String method,
+  required List<String> argsJsonList,
+  BigInt? timeoutMs,
+}) => RustLib.instance.api.crateApiFallbackModuleCallMany(
+  dataDir: dataDir,
+  moduleKey: moduleKey,
+  method: method,
+  argsJsonList: argsJsonList,
+  timeoutMs: timeoutMs,
+);
+
+/// 整包替换配置快照，返回所存配置的 sha256-hex（对原始入参字符串取摘要）。
+Future<String> fallbackModuleUpdateConfig({
+  required String dataDir,
+  required String configJson,
+}) => RustLib.instance.api.crateApiFallbackModuleUpdateConfig(
+  dataDir: dataDir,
+  configJson: configJson,
+);
+
+/// 启动对账：返回当前已存配置的 hash（未推送过为空串），比对不一致即重推。
+Future<String> fallbackModuleConfigHash({required String dataDir}) =>
+    RustLib.instance.api.crateApiFallbackModuleConfigHash(dataDir: dataDir);
 
 Future<void> pluginEngineInit({required String dataDir}) =>
     RustLib.instance.api.crateApiPluginEngineInit(dataDir: dataDir);
@@ -1201,6 +1317,77 @@ Future<bool> waitStreamComplete({
   url: url,
   timeoutSecs: timeoutSecs,
 );
+
+/// 设置流缓存持久化目录。须在首次触碰流缓存前调用
+/// （默认 temp_dir 在 Android 不可持久，对齐桌面端 set_stream_cache_dir）。
+Future<void> setStreamCacheDir({required String path}) =>
+    RustLib.instance.api.crateApiSetStreamCacheDir(path: path);
+
+/// 查询 URL 缓存状态，返回 JSON：
+/// `{"exists":bool,"complete":bool,"failed":bool,"downloaded":u64,"total":u64|null}`。
+Future<String> streamCacheUrlStatus({required String url}) =>
+    RustLib.instance.api.crateApiStreamCacheUrlStatus(url: url);
+
+/// 启动/复用该 URL 的流式下载（代理预热缓存写入）。
+/// `headers` 为 JSON 对象字符串（上游请求头，含 Referer/Cookie/UA 等）。
+Future<void> streamCacheBeginUrlDownload({
+  required String url,
+  required String headers,
+}) => RustLib.instance.api.crateApiStreamCacheBeginUrlDownload(
+  url: url,
+  headers: headers,
+);
+
+/// 按区间读取缓存内容（阻塞至该区间有数据或下载结束）。
+/// 返回空字节串表示 EOF（完成/失败/无缓存）。
+Future<Uint8List> streamCacheReadUrl({
+  required String url,
+  required BigInt offset,
+  required int maxLen,
+}) => RustLib.instance.api.crateApiStreamCacheReadUrl(
+  url: url,
+  offset: offset,
+  maxLen: maxLen,
+);
+
+/// 批量音频格式转换入口。
+/// `options_json` 格式：`{"targetFormat":"wav"|"flac", "sampleRate": null|u32}`
+/// 返回 `ConvertResult[]` JSON，每项含 inputPath / outputPath / success / error / durationSecs。
+Future<String> convertAudioBatch({
+  required List<String> inputPaths,
+  required String outDir,
+  required String optionsJson,
+}) => RustLib.instance.api.crateApiConvertAudioBatch(
+  inputPaths: inputPaths,
+  outDir: outDir,
+  optionsJson: optionsJson,
+);
+
+/// 查询输入文件是否可被本模块解码。
+Future<List<String>> audioConvertSupportedInputs() =>
+    RustLib.instance.api.crateApiAudioConvertSupportedInputs();
+
+/// 本模块支持的目标输出格式。
+Future<List<String>> audioConvertSupportedOutputs() =>
+    RustLib.instance.api.crateApiAudioConvertSupportedOutputs();
+
+/// 单文件音频剪辑（时间段截取 + 重编码）。
+/// `options_json` 格式：`{"targetFormat":"wav"|"flac"|"mp3","sampleRate":null|u32,
+/// "startSecs":f64,"endSecs":f64,"keepCover":bool,"keepLyrics":bool,"outStem":null|String}`
+/// 返回单个 `ConvertResult` JSON。
+Future<String> trimAudio({
+  required String inputPath,
+  required String outDir,
+  required String optionsJson,
+}) => RustLib.instance.api.crateApiTrimAudio(
+  inputPath: inputPath,
+  outDir: outDir,
+  optionsJson: optionsJson,
+);
+
+/// 探测音频时长（秒）。容器/头信息可估算时直接返回，否则完整解码统计。
+Future<double> audioProbeDuration({required String path}) =>
+    RustLib.instance.api.crateApiAudioProbeDuration(path: path);
 
 Future<String> updateLoudnessSettings({
   required String dbPath,

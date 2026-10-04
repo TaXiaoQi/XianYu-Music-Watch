@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/db_path.dart';
 import '../player/player_provider.dart';
+import '../plugin/fallback_modules/registry.dart';
+import '../plugin/fallback_modules/types.dart';
 import '../plugin/plugin_provider.dart';
 import '../rust/api.dart';
 import 'lyric_model.dart';
@@ -56,14 +58,23 @@ class LyricsRepository {
   }
 
   Future<String> _fetchFromBuiltinSource(String source, String infoJson) async {
-    final rawResult = await fetchLyricFromSource(
-      source: source,
-      songInfoJson: infoJson,
-    );
-    if (rawResult == 'null' || rawResult.isEmpty) return '';
-    String text = '';
     try {
-      final obj = jsonDecode(rawResult) as Map<String, dynamic>;
+      // 先走服务端热修模块（lx_lyric/fetchLyric），未加载/失败回退 Rust 内置实现
+      final obj = await dispatchFallbackModule<Map<String, dynamic>?>(
+        kFallbackModuleLxLyric,
+        'fetchLyric',
+        {'source': source, 'songInfo': jsonDecode(infoJson)},
+        () async {
+          final raw = await fetchLyricFromSource(
+            source: source,
+            songInfoJson: infoJson,
+          );
+          if (raw.isEmpty || raw == 'null') return null;
+          return jsonDecode(raw) as Map<String, dynamic>;
+        },
+      );
+      if (obj == null) return '';
+      String text = '';
       final lxlyric = obj['lxlyric'] as String? ?? '';
       final lyric = obj['lyric'] as String? ?? '';
       final tlyric = obj['tlyric'] as String? ?? '';
@@ -72,11 +83,11 @@ class LyricsRepository {
       } else if (lyric.trim().isNotEmpty) {
         text = tlyric.trim().isNotEmpty ? '$lyric\n$tlyric' : lyric;
       }
+      if (text.trim().isEmpty) return '';
+      return await parseLyrics(rawLyrics: text);
     } catch (_) {
-      text = rawResult;
+      return '';
     }
-    if (text.trim().isEmpty) return '';
-    return parseLyrics(rawLyrics: text);
   }
 
   Future<String> _fetchPluginLyric(QueueItem item) async {

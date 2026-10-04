@@ -454,6 +454,30 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
+  /// 拉取服务端下发的兜底（热修）模块清单
+  Future<Map<String, dynamic>> fetchFallbackModules() =>
+      requestAction('get_fallback_modules', {});
+
+  /// 兜底模块降级/熔断事件上报（fire-and-forget，失败不影响主流程）
+  Future<void> reportError({
+    required String errorType,
+    required String errorMessage,
+    String page = '',
+  }) async {
+    try {
+      await requestAction('error', {
+        'device_id': await _deviceId(),
+        'platform': 'watch',
+        'error_type': errorType,
+        'error_message': errorMessage,
+        'error_stack': '',
+        'page': page,
+      });
+    } catch (_) {
+      // 上报失败静默（诊断通道不干扰业务）
+    }
+  }
+
   /// 内测资格验证（fail-closed，供启动锁使用）：
   /// 1) 联网请求 check_beta_access 并验签（ed25519，绑定 device_id + 过期时间），
   ///    验签通过则更新本地缓存；
