@@ -1075,6 +1075,8 @@ class LinkController extends StateNotifier<LinkState>
   }
 
   void _onAuthProof(LinkMessage msg) {
+    // 已鉴权后到达的重复/杂散 proof 一律忽略，不得拆除健康链路
+    if (_peerAuthed) return;
     final proof = msg.payload['proof'] as String? ?? '';
     final request = msg.payload['request'] == true;
     final nonce = _myAuthNonce;
