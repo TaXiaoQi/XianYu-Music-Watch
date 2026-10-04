@@ -1,4 +1,4 @@
-#![allow(dead_code)] // 实现
+﻿#![allow(dead_code)]
 
 use core::f32::consts::PI;
 
@@ -6,12 +6,12 @@ use core::f32::consts::PI;
 // ===== BiquadState =====
 
 #[derive(Default, Clone)]
-pub struct BiquadState { // BiquadState
+pub struct BiquadState {
 	s1: f32,
 	s2: f32,
 }
 
-pub struct Biquad { // Biquad
+pub struct Biquad {
 	pub b0: f32,
 	pub b1: f32,
 	pub b2: f32,
@@ -21,7 +21,7 @@ pub struct Biquad { // Biquad
 	pub passthrough: bool,
 }
 
-impl Biquad { // Biquad
+impl Biquad {
 	pub fn new(channels: usize) -> Self {
 		Self {
 			b0: 1.0,
@@ -234,14 +234,14 @@ impl Biquad { // Biquad
 // OnePole（一阶低通/高通，用于包络跟随、空气吸收低通）
 // ===== OnePole =====
 
-pub struct OnePole { // OnePole
+pub struct OnePole {
 	pub z1: f32,
 	pub a0: f32,
 	pub b1: f32,
 	pub is_lowpass: bool,
 }
 
-impl OnePole { // OnePole
+impl OnePole {
 	pub fn lowpass(cutoff: f32, sample_rate: f32) -> Self {
 		let cutoff = cutoff.clamp(10.0, sample_rate * 0.45);
 		let b1 = (-2.0 * PI * cutoff / sample_rate).exp();
@@ -289,13 +289,13 @@ impl OnePole { // OnePole
 // DC Blocker（一阶高通 @ ~20Hz，去除直流偏移）
 // ===== DcBlocker =====
 
-pub struct DcBlocker { // DcBlocker
+pub struct DcBlocker {
 	pub r: f32,
 	pub prev_in: f32,
 	pub prev_out: f32,
 }
 
-impl DcBlocker { // DcBlocker
+impl DcBlocker {
 	pub fn new(sample_rate: f32) -> Self {
 		let r = 1.0 - (2.0 * PI * 20.0 / sample_rate).min(PI);
 		Self {
@@ -322,13 +322,13 @@ impl DcBlocker { // DcBlocker
 // DelayLine（线性插值读，用于镶边/相位/延迟/混响）
 // ===== DelayLine =====
 
-pub struct DelayLine { // DelayLine
+pub struct DelayLine {
 	pub buffer: Vec<f32>,
 	pub mask: usize,
 	pub write_pos: usize,
 }
 
-impl DelayLine { // DelayLine
+impl DelayLine {
 	pub fn new(size: usize) -> Self {
 		let size = size.next_power_of_two().max(2);
 		Self {
@@ -375,12 +375,12 @@ impl DelayLine { // DelayLine
 // AllPass（带增益的 Schroeder 全通，用于混响/相位）
 // ===== AllPass =====
 
-pub struct AllPass { // AllPass
+pub struct AllPass {
 	pub delay: DelayLine,
 	pub gain: f32,
 }
 
-impl AllPass { // AllPass
+impl AllPass {
 	pub fn new(size: usize, gain: f32) -> Self {
 		Self {
 			delay: DelayLine::new(size),
@@ -408,13 +408,13 @@ impl AllPass { // AllPass
 // SmoothedValue（指数平滑，参数变更无 click）
 // ===== SmoothedValue =====
 
-pub struct SmoothedValue { // SmoothedValue
+pub struct SmoothedValue {
 	pub current: f32,
 	pub target: f32,
 	pub coeff: f32,
 }
 
-impl SmoothedValue { // SmoothedValue
+impl SmoothedValue {
 	pub fn new(initial: f32) -> Self {
 		Self {
 			current: initial,
@@ -451,13 +451,13 @@ impl SmoothedValue { // SmoothedValue
 // EnvelopeFollower（峰值检测，attack/release 秒）
 // ===== EnvelopeFollower =====
 
-pub struct EnvelopeFollower { // EnvelopeFollower
+pub struct EnvelopeFollower {
 	pub envelope: f32,
 	pub attack_coeff: f32,
 	pub release_coeff: f32,
 }
 
-impl EnvelopeFollower { // EnvelopeFollower
+impl EnvelopeFollower {
 	pub fn new(attack_ms: f32, release_ms: f32, sample_rate: f32) -> Self {
 		let mut ef = Self {
 			envelope: 0.0,
@@ -493,7 +493,7 @@ impl EnvelopeFollower { // EnvelopeFollower
 // LFO（低频振荡器，正弦/三角）
 // ===== Lfo =====
 
-pub struct Lfo { // Lfo
+pub struct Lfo {
 	pub phase: f32,
 	pub phase_inc: f32,
 }
@@ -541,17 +541,17 @@ impl Lfo {
 }
 
 #[inline]
-pub fn db_to_gain(db: f32) -> f32 { // db_to_gain
+pub fn db_to_gain(db: f32) -> f32 {
 	10.0_f32.powf(db / 20.0)
 }
 
 #[inline]
-pub fn gain_to_db(gain: f32) -> f32 { // gain_to_db
+pub fn gain_to_db(gain: f32) -> f32 {
 	20.0 * gain.max(1e-10).log10()
 }
 
 #[inline]
-pub fn soft_clip(x: f32) -> f32 { // soft_clip
+pub fn soft_clip(x: f32) -> f32 {
 	const THRESHOLD: f32 = 0.95;
 	let ax = x.abs();
 	if ax <= THRESHOLD {

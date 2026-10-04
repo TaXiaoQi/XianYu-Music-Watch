@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+﻿#![allow(dead_code)]
 
 use super::dsp::{SmoothedValue, soft_clip};
 use super::{SoundEffectSettings, ReverbKind};
@@ -12,7 +12,7 @@ const WET_BOOST: f32 = 1.000;
 const ER_GAIN: f32 = 0.0;
 const SCALE_ROOM: f32 = 0.280;
 const OFFSET_ROOM: f32 = 0.700;
-const ROOM_EXTEND_SLOPE: f32 = 0.015; // 实现
+const ROOM_EXTEND_SLOPE: f32 = 0.015;
 const FEEDBACK_MAX: f32 = 0.92;
 const SCALE_DAMP: f32 = 0.55;
 const ALLPASS_FEEDBACK: f32 = 0.500;

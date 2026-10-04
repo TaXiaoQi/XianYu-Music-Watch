@@ -1,7 +1,7 @@
-use super::dsp::{SmoothedValue, Biquad};
+﻿use super::dsp::{SmoothedValue, Biquad};
 use crate::player::sound_effect::SoundEffectSettings;
 
-pub struct ShaperRack { // ShaperRack
+pub struct ShaperRack {
 	sample_rate: f32,
 	wet_distortion: SmoothedValue,
 	wet_exciter: SmoothedValue,
@@ -15,7 +15,7 @@ pub struct ShaperRack { // ShaperRack
 	lofi_held: Vec<f32>,
 }
 
-impl ShaperRack { // ShaperRack
+impl ShaperRack {
 	pub fn new() -> Self {
 		Self {
 			sample_rate: 44100.0,
@@ -175,7 +175,7 @@ impl ShaperRack { // ShaperRack
 	}
 }
 
-fn pseudo_noise() -> f32 { // 伪随机噪声
+fn pseudo_noise() -> f32 {
 	use std::cell::Cell;
 	thread_local! {
 			static STATE: Cell<u32> = Cell::new(0x12345678);

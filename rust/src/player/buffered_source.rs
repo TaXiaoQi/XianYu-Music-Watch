@@ -1,4 +1,4 @@
-use std::collections::{VecDeque};
+﻿use std::collections::{VecDeque};
 use std::marker::{PhantomData};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender};
@@ -12,22 +12,22 @@ const CHANNEL_BLOCKS: usize = 64usize;
 
 const BACKOFF: Duration = Duration::from_micros(400_u64);
 
-#[cfg(test)] // 实现
+#[cfg(test)]
 const CONSUMER_WAIT_TIMEOUT: Duration = Duration::from_millis(500);
 #[cfg(not(test))]
 const CONSUMER_WAIT_TIMEOUT: Duration = BACKOFF;
 
 #[cfg(windows)]
 #[link(name = "kernel32")] // 链接系统库
-extern "system" { // 外部函数
+extern "system" {
 	fn GetCurrentThread() -> isize;
 	fn SetThreadPriority(handle: isize, priority: i32) -> i32;
 }
 #[cfg(windows)]
-const THREAD_PRIORITY_ABOVE_NORMAL: i32 = 1; // 实现
+const THREAD_PRIORITY_ABOVE_NORMAL: i32 = 1;
 
 #[cfg(windows)]
-fn elevate_thread_priority() { // 提升线程优先级
+fn elevate_thread_priority() {
 	unsafe {
 		let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
 	}
@@ -36,12 +36,12 @@ fn elevate_thread_priority() { // 提升线程优先级
 #[inline]
 fn elevate_thread_priority() { /* 平台占位 */ }
 
-enum Command { // 生产者命令
+enum Command {
 	Seek(Duration),
 	Stop,
 }
 
-enum SeekAck { // 定位应答
+enum SeekAck {
 	Ok,
 	Failed,
 }

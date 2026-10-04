@@ -1,4 +1,4 @@
-use serde::Deserialize;
+﻿use serde::Deserialize;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -7,7 +7,7 @@ pub const BANDS: [f32; 10] = [
 ];
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct EqualizerSettings { // EqualizerSettings
+pub struct EqualizerSettings {
 	#[serde(default)]
 	pub enabled: bool,
 	#[serde(default)]
@@ -16,7 +16,7 @@ pub struct EqualizerSettings { // EqualizerSettings
 	pub gains: [f32; 10],
 }
 
-impl Default for EqualizerSettings { // Default
+impl Default for EqualizerSettings {
 	fn default() -> Self {
 		Self {
 			enabled: false,
@@ -26,12 +26,12 @@ impl Default for EqualizerSettings { // Default
 	}
 }
 
-pub struct EqualizerHandle { // EqualizerHandle
+pub struct EqualizerHandle {
 	pub settings: Arc<Mutex<EqualizerSettings>>,
 	pub dirty: Arc<AtomicBool>,
 }
 
-impl EqualizerHandle { // EqualizerHandle
+impl EqualizerHandle {
 	pub fn new(settings: EqualizerSettings) -> Self {
 		Self {
 			settings: Arc::new(Mutex::new(settings)),

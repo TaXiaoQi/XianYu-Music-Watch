@@ -1,7 +1,7 @@
-use super::dsp::{soft_clip, Biquad, DelayLine, Lfo, SmoothedValue};
+﻿use super::dsp::{soft_clip, Biquad, DelayLine, Lfo, SmoothedValue};
 use crate::player::sound_effect::SoundEffectSettings;
 
-pub struct ModulationRack { // ModulationRack
+pub struct ModulationRack {
 	sample_rate: f32,
 	wet_tremolo: SmoothedValue,
 	wet_vibrato: SmoothedValue,
@@ -22,7 +22,7 @@ pub struct ModulationRack { // ModulationRack
 	delay_dl: [DelayLine; 2],
 }
 
-impl ModulationRack { // ModulationRack
+impl ModulationRack {
 	pub fn new() -> Self {
 		Self {
 			sample_rate: 44100.0,

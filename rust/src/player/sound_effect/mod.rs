@@ -1,12 +1,12 @@
-pub mod channel; // 实现
+﻿pub mod channel;
 pub mod convolver;
-pub mod dsp; // 实现
-pub mod dynamics; // 实现
-pub mod modulation; // 实现
-pub mod pitch; // 实现
-pub mod reverb; // 实现
-pub mod shaper; // 实现
-pub mod spatial; // 实现
+pub mod dsp;
+pub mod dynamics;
+pub mod modulation;
+pub mod pitch;
+pub mod reverb;
+pub mod shaper;
+pub mod spatial;
 
 use serde::{Serialize, Deserialize};
 
@@ -14,8 +14,8 @@ use serde::{Serialize, Deserialize};
 // ===== 混响类型 =====
 
 #[derive(Default, Deserialize, Serialize, Hash, Eq, PartialEq, Debug, Clone)]
-#[serde(rename_all = "lowercase")] // 实现
-pub enum ReverbKind { // 混响类型
+#[serde(rename_all = "lowercase")]
+pub enum ReverbKind {
 	#[default]
 	None,
 	Algorithmic,
@@ -23,8 +23,8 @@ pub enum ReverbKind { // 混响类型
 }
 
 #[derive(Default, Deserialize, Serialize, Eq, PartialEq, Debug, Clone)]
-#[serde(rename_all = "lowercase")] // 实现
-pub enum SpatialMode { // 空间模式
+#[serde(rename_all = "lowercase")]
+pub enum SpatialMode {
 	#[default]
 	None,
 	Surround3d,
@@ -34,23 +34,23 @@ pub enum SpatialMode { // 空间模式
 }
 
 #[derive(Default, Deserialize, Serialize, Eq, PartialEq, Debug, Clone)]
-#[serde(rename_all = "lowercase")] // 实现
-pub enum DistortionType { // 失真类型
+#[serde(rename_all = "lowercase")]
+pub enum DistortionType {
 	#[default]
 	Soft,
 	Hard,
 }
 
 #[derive(Default, Deserialize, Serialize, Eq, PartialEq, Debug, Clone)]
-#[serde(rename_all = "lowercase")] // 实现
-pub enum DelayType { // 延迟类型
+#[serde(rename_all = "lowercase")]
+pub enum DelayType {
 	#[default]
 	Single,
 	Pingpong,
 }
 
 #[derive(Default, Deserialize, Serialize, Eq, PartialEq, Debug, Clone)]
-pub enum VirtualSurroundMode { // 虚拟环绕模式
+pub enum VirtualSurroundMode {
 	#[serde(rename = "5.1")]
 	FiveOne,
 	#[serde(rename = "7.1")]
@@ -63,7 +63,7 @@ pub enum VirtualSurroundMode { // 虚拟环绕模式
 
 #[derive(Deserialize, Serialize, Default, Debug, Clone)]
 #[serde(default, rename_all = "camelCase")]
-pub struct ModulationParams { // ModulationParams
+pub struct ModulationParams {
 	#[serde(default)]
 	pub enabled: bool,
 	#[serde(default)]
@@ -74,22 +74,7 @@ pub struct ModulationParams { // ModulationParams
 
 #[derive(Deserialize, Serialize, Default, Debug, Clone)]
 #[serde(default, rename_all = "camelCase")]
-pub struct FlangerParams { // FlangerParams
-	#[serde(default)]
-	pub enabled: bool,
-	#[serde(default)]
-	pub rate: f32,
-	#[serde(default)]
-	pub depth: f32,
-	#[serde(default)]
-	pub feedback: f32,
-	#[serde(default)]
-	pub mix: f32,
-}
-
-#[derive(Deserialize, Serialize, Default, Debug, Clone)]
-#[serde(default, rename_all = "camelCase")]
-pub struct PhaserParams { // PhaserParams
+pub struct FlangerParams {
 	#[serde(default)]
 	pub enabled: bool,
 	#[serde(default)]
@@ -104,7 +89,22 @@ pub struct PhaserParams { // PhaserParams
 
 #[derive(Deserialize, Serialize, Default, Debug, Clone)]
 #[serde(default, rename_all = "camelCase")]
-pub struct DelayParams { // DelayParams
+pub struct PhaserParams {
+	#[serde(default)]
+	pub enabled: bool,
+	#[serde(default)]
+	pub rate: f32,
+	#[serde(default)]
+	pub depth: f32,
+	#[serde(default)]
+	pub feedback: f32,
+	#[serde(default)]
+	pub mix: f32,
+}
+
+#[derive(Deserialize, Serialize, Default, Debug, Clone)]
+#[serde(default, rename_all = "camelCase")]
+pub struct DelayParams {
 	#[serde(default)]
 	pub enabled: bool,
 	#[serde(default)]
@@ -119,7 +119,7 @@ pub struct DelayParams { // DelayParams
 
 #[derive(Deserialize, Serialize, Default, Debug, Clone)]
 #[serde(default, rename_all = "camelCase")]
-pub struct CompressorParams { // CompressorParams
+pub struct CompressorParams {
 	#[serde(default)]
 	pub enabled: bool,
 	#[serde(default)]
@@ -134,7 +134,7 @@ pub struct CompressorParams { // CompressorParams
 
 #[derive(Deserialize, Serialize, Default, Debug, Clone)]
 #[serde(default, rename_all = "camelCase")]
-pub struct MultibandParams { // MultibandParams
+pub struct MultibandParams {
 	#[serde(default)]
 	pub enabled: bool,
 	#[serde(default)]
@@ -149,7 +149,7 @@ pub struct MultibandParams { // MultibandParams
 
 #[derive(Deserialize, Serialize, Default, Debug, Clone)]
 #[serde(default, rename_all = "camelCase")]
-pub struct LimiterParams { // LimiterParams
+pub struct LimiterParams {
 	#[serde(default)]
 	pub enabled: bool,
 	#[serde(default)]
@@ -158,7 +158,7 @@ pub struct LimiterParams { // LimiterParams
 
 #[derive(Deserialize, Serialize, Default, Debug, Clone)]
 #[serde(default, rename_all = "camelCase")]
-pub struct NoiseGateParams { // NoiseGateParams
+pub struct NoiseGateParams {
 	#[serde(default)]
 	pub enabled: bool,
 	#[serde(default)]
@@ -171,7 +171,7 @@ pub struct NoiseGateParams { // NoiseGateParams
 
 #[derive(Deserialize, Serialize, Default, Debug, Clone)]
 #[serde(default, rename_all = "camelCase")]
-pub struct ExpanderParams { // ExpanderParams
+pub struct ExpanderParams {
 	#[serde(default)]
 	pub enabled: bool,
 	#[serde(default)]
@@ -182,7 +182,7 @@ pub struct ExpanderParams { // ExpanderParams
 
 #[derive(Deserialize, Serialize, Default, Debug, Clone)]
 #[serde(default, rename_all = "camelCase")]
-pub struct AgcParams { // AgcParams
+pub struct AgcParams {
 	#[serde(default)]
 	pub enabled: bool,
 	#[serde(default)]
@@ -191,7 +191,7 @@ pub struct AgcParams { // AgcParams
 
 #[derive(Deserialize, Serialize, Default, Debug, Clone)]
 #[serde(default, rename_all = "camelCase")]
-pub struct DeEsserParams { // DeEsserParams
+pub struct DeEsserParams {
 	#[serde(default)]
 	pub enabled: bool,
 	#[serde(default)]
@@ -202,7 +202,7 @@ pub struct DeEsserParams { // DeEsserParams
 
 #[derive(Deserialize, Serialize, Default, Debug, Clone)]
 #[serde(default, rename_all = "camelCase")]
-pub struct DistortionParams { // DistortionParams
+pub struct DistortionParams {
 	#[serde(default)]
 	pub enabled: bool,
 	#[serde(default)]
@@ -213,7 +213,7 @@ pub struct DistortionParams { // DistortionParams
 
 #[derive(Deserialize, Serialize, Default, Debug, Clone)]
 #[serde(default, rename_all = "camelCase")]
-pub struct ExciterParams { // ExciterParams
+pub struct ExciterParams {
 	#[serde(default)]
 	pub enabled: bool,
 	#[serde(default)]
@@ -224,7 +224,7 @@ pub struct ExciterParams { // ExciterParams
 
 #[derive(Deserialize, Serialize, Default, Debug, Clone)]
 #[serde(default, rename_all = "camelCase")]
-pub struct SubBassParams { // SubBassParams
+pub struct SubBassParams {
 	#[serde(default)]
 	pub enabled: bool,
 	#[serde(default)]
@@ -235,7 +235,7 @@ pub struct SubBassParams { // SubBassParams
 
 #[derive(Deserialize, Serialize, Default, Debug, Clone)]
 #[serde(default, rename_all = "camelCase")]
-pub struct LoFiParams { // LoFiParams
+pub struct LoFiParams {
 	#[serde(default)]
 	pub enabled: bool,
 	#[serde(default)]
@@ -248,7 +248,7 @@ pub struct LoFiParams { // LoFiParams
 
 #[derive(Deserialize, Serialize, Default, Debug, Clone)]
 #[serde(default, rename_all = "camelCase")]
-pub struct BitcrushParams { // BitcrushParams
+pub struct BitcrushParams {
 	#[serde(default)]
 	pub enabled: bool,
 	#[serde(default)]
@@ -257,7 +257,7 @@ pub struct BitcrushParams { // BitcrushParams
 
 #[derive(Deserialize, Serialize, Default, Debug, Clone)]
 #[serde(default, rename_all = "camelCase")]
-pub struct StereoWidenParams { // StereoWidenParams
+pub struct StereoWidenParams {
 	#[serde(default)]
 	pub enabled: bool,
 	#[serde(default)]
@@ -266,7 +266,7 @@ pub struct StereoWidenParams { // StereoWidenParams
 
 #[derive(Deserialize, Serialize, Default, Debug, Clone)]
 #[serde(default, rename_all = "camelCase")]
-pub struct StereoSepParams { // StereoSepParams
+pub struct StereoSepParams {
 	#[serde(default)]
 	pub enabled: bool,
 	#[serde(default)]
@@ -277,7 +277,7 @@ pub struct StereoSepParams { // StereoSepParams
 
 #[derive(Deserialize, Serialize, Default, Debug, Clone)]
 #[serde(default, rename_all = "camelCase")]
-pub struct CrossfeedParams { // CrossfeedParams
+pub struct CrossfeedParams {
 	#[serde(default)]
 	pub enabled: bool,
 	#[serde(default)]
@@ -286,7 +286,7 @@ pub struct CrossfeedParams { // CrossfeedParams
 
 #[derive(Deserialize, Serialize, Default, Debug, Clone)]
 #[serde(default, rename_all = "camelCase")]
-pub struct BassBoostParams { // BassBoostParams
+pub struct BassBoostParams {
 	#[serde(default)]
 	pub enabled: bool,
 	#[serde(default)]
@@ -306,14 +306,14 @@ pub struct TrebleParams {
 
 #[derive(Deserialize, Serialize, Default, Debug, Clone)]
 #[serde(default, rename_all = "camelCase")]
-pub struct DynamicEqParams { // DynamicEqParams
+pub struct DynamicEqParams {
 	#[serde(default)]
 	pub enabled: bool,
 }
 
 #[derive(Deserialize, Serialize, Default, Debug, Clone)]
 #[serde(default, rename_all = "camelCase")]
-pub struct PitchDriftParams { // PitchDriftParams
+pub struct PitchDriftParams {
 	#[serde(default)]
 	pub enabled: bool,
 	#[serde(default, alias = "rate")]
@@ -324,13 +324,13 @@ pub struct PitchDriftParams { // PitchDriftParams
 
 // ===== default_pitch_rate =====
 
-fn default_pitch_rate() -> f32 { // default_pitch_rate
+fn default_pitch_rate() -> f32 {
 	100.0
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(default, rename_all = "camelCase")]
-pub struct SoundEffectSettings { // SoundEffectSettings
+pub struct SoundEffectSettings {
 	#[serde(default = "default_pitch_rate")]
 	pub pitch_shift: f32,
 	#[serde(default = "default_pitch_rate")]
@@ -379,7 +379,7 @@ pub struct SoundEffectSettings { // SoundEffectSettings
 	pub audio_boost: f32,
 }
 
-impl Default for SoundEffectSettings { // Default
+impl Default for SoundEffectSettings {
 	fn default() -> Self {
 		Self {
 			pitch_shift: 100.0,

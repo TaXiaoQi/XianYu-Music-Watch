@@ -756,13 +756,8 @@ pub fn get_song_detail(db_path: String, path: String) -> Result<String, String> 
 // 播放会话（第十二批）
 // =========================================================================
 
-use crate::player::session::PlaybackSessionState;
+use crate::player::session::global_playback_session;
 use crate::player::types::PlaybackSessionData;
-
-fn global_playback_session() -> &'static PlaybackSessionState {
-    static SESSION: std::sync::OnceLock<PlaybackSessionState> = std::sync::OnceLock::new();
-    SESSION.get_or_init(PlaybackSessionState::new)
-}
 
 pub fn save_playback_session(db_path: String, session_json: String) -> Result<(), String> {
     let conn = open_stats_conn(&db_path)?;
@@ -860,6 +855,15 @@ pub fn resolve_download_full_path(
 // USB 独占音频输出（仅 Android）
 // =========================================================================
 
+/// 启动 USB 独占播放。返回设备名或错误信息。
+/// `device_id` = AAudio 设备 ID（USB DAC），-1 = 默认设备。
+/// `bit_perfect` = Bit-perfect 直出（绕过响度/EQ/音效/音量，按源位深整数直出）。
+/// `dsd_native_passthrough` = DSD(.dsf/.dff) 原生 DoP 直通开关。
+/// `stream_cache_url` = 在线流缓存直读 URL（对齐桌面端 StreamingTempFile 模型，
+/// 经 Rust 流缓存 Reader 解码，单上游连接；与预热线程 `stream_cache_begin_url_download`
+/// 按 URL 命中同一缓存条目）。`stream_cache_headers` = 直链上游请求头 JSON 对象字符串，
+/// 供缓存下载线程冷启动使用。
+#[allow(clippy::too_many_arguments)]
 pub fn start_usb_exclusive_playback(
     path: String,
     device_id: i32,
@@ -872,7 +876,14 @@ pub fn start_usb_exclusive_playback(
     bit_perfect: bool,
     dsd_native_passthrough: bool,
     shared_mode: bool,
+    stream_cache_url: Option<String>,
+    stream_cache_headers: Option<String>,
+    skip_silence_enabled: bool,
+    skip_silence_threshold_db: f32,
+    skip_silence_keep_ms: u32,
 ) -> Result<String, String> {
+    let stream_cache_headers: Option<std::collections::HashMap<String, String>> =
+        stream_cache_headers.and_then(|s| serde_json::from_str(&s).ok());
     crate::player::commands::dispatch_playback_command(
         crate::player::commands::PlaybackCommand::Play {
             path,
@@ -886,6 +897,11 @@ pub fn start_usb_exclusive_playback(
             bit_perfect,
             dsd_native_passthrough,
             shared_mode,
+            stream_cache_url,
+            stream_cache_headers,
+            skip_silence_enabled,
+            skip_silence_threshold_db,
+            skip_silence_keep_ms,
         },
     )
 }
@@ -966,6 +982,66 @@ pub fn get_usb_exclusive_device_info() -> String {
 
 pub fn get_usb_exclusive_position_secs() -> f64 {
     crate::player::output::get_exclusive_position_secs()
+}
+
+/// 运行时切换跳过静音：静音段只保留 `keep_ms`，多出来的丢掉。
+/// 位置上报会把丢掉的时长加回去，所以进度条仍按原曲时间轴走。
+pub fn set_usb_exclusive_skip_silence(
+    enabled: bool,
+    threshold_db: f32,
+    keep_ms: u32,
+) {
+    crate::player::commands::dispatch_playback_command(
+        crate::player::commands::PlaybackCommand::SetSkipSilence {
+            enabled,
+            threshold_db,
+            keep_ms,
+        },
+    )
+    .ok();
+}
+
+/// 预排下一首：格式与当前流一致时，当前曲播完直接接上（无缝），
+/// 不一致或准备失败会自动退回普通切歌，不需要前端处理。
+pub fn set_usb_exclusive_next(
+    path: String,
+    stream_cache_url: Option<String>,
+    stream_cache_headers_json: Option<String>,
+) {
+    crate::player::commands::dispatch_playback_command(
+        crate::player::commands::PlaybackCommand::SetNext {
+            path,
+            stream_cache_url,
+            stream_cache_headers_json,
+        },
+    )
+    .ok();
+}
+
+/// 取消预排（手动切歌/插队/seek 越界时调用）。
+pub fn cancel_usb_exclusive_next() {
+    crate::player::commands::dispatch_playback_command(
+        crate::player::commands::PlaybackCommand::CancelNext,
+    )
+    .ok();
+}
+
+/// 设置曲间交叉淡入淡出时长（毫秒，0 = 关闭）。运行期可改，不用重启管线。
+pub fn set_usb_exclusive_crossfade(ms: u32) {
+    crate::player::commands::dispatch_playback_command(
+        crate::player::commands::PlaybackCommand::SetCrossfade(ms),
+    )
+    .ok();
+}
+
+/// 取出并清空当前管线的诊断信息（seek/拼接/交叉/跳过静音等关键事件）。
+///
+/// 供前端在排查「无缝/淡入淡出/跳静音有没有真的生效」时打日志用。
+pub fn take_usb_exclusive_pipeline_diag() -> String {
+    if crate::player::output::is_exclusive_active() {
+        return crate::player::output::take_exclusive_pipeline_diag();
+    }
+    String::new()
 }
 
 /// 下载在线歌曲真实音源直链到指定路径（流式写入 + QMC2/CENC 解密），返回最终路径。
@@ -1106,6 +1182,66 @@ pub fn verify_beta_access_signature(
         exp,
         &signature,
     )
+}
+
+// =========================================================================
+// 兜底模块宿主（QuickJS 热修沙箱，移植自桌面端 fallback_host）
+// =========================================================================
+
+/// 加载兜底模块（验签 + 编译 + 硬校验一体），返回 `FallbackLoadResult` JSON。
+pub async fn fallback_module_load(
+    data_dir: String,
+    module_key: String,
+    version: i64,
+    code: String,
+    signature: String,
+    app_version: String,
+) -> Result<String, String> {
+    let engine = crate::fallback_host::global_engine(&data_dir);
+    let result = engine
+        .load(&module_key, version, &code, &signature, &app_version)
+        .await;
+    serde_json::to_string(&result).map_err(|e| e.to_string())
+}
+
+/// 调用兜底模块方法，返回 `FallbackCallResult` JSON（`ok`/`error`/`data`/`logs`）。
+pub async fn fallback_module_call(
+    data_dir: String,
+    module_key: String,
+    method: String,
+    args_json: String,
+    timeout_ms: Option<u64>,
+) -> Result<String, String> {
+    let engine = crate::fallback_host::global_engine(&data_dir);
+    let result = engine
+        .call(&module_key, &method, &args_json, timeout_ms.unwrap_or(0))
+        .await;
+    serde_json::to_string(&result).map_err(|e| e.to_string())
+}
+
+/// 保序逐项批量调用，返回 `FallbackCallManyResult` JSON；单项失败不影响后续。
+pub async fn fallback_module_call_many(
+    data_dir: String,
+    module_key: String,
+    method: String,
+    args_json_list: Vec<String>,
+    timeout_ms: Option<u64>,
+) -> Result<String, String> {
+    let engine = crate::fallback_host::global_engine(&data_dir);
+    let result = engine
+        .call_many(&module_key, &method, &args_json_list, timeout_ms.unwrap_or(0))
+        .await;
+    serde_json::to_string(&result).map_err(|e| e.to_string())
+}
+
+/// 整包替换配置快照，返回所存配置的 sha256-hex（对原始入参字符串取摘要）。
+pub fn fallback_module_update_config(data_dir: String, config_json: String) -> Result<String, String> {
+    crate::fallback_host::global_engine(&data_dir).update_config(&config_json)
+}
+
+/// 启动对账：返回当前已存配置的 hash（未推送过为空串），比对不一致即重推。
+pub fn fallback_module_config_hash(data_dir: String) -> Result<String, String> {
+    Ok(crate::fallback_host::global_engine(&data_dir).config_hash())
 }
 
 // =========================================================================
@@ -1643,6 +1779,108 @@ pub async fn wait_stream_complete(url: String, timeout_secs: u64) -> bool {
     })
     .await
     .unwrap_or(false)
+}
+
+/// 设置流缓存持久化目录。须在首次触碰流缓存前调用
+/// （默认 temp_dir 在 Android 不可持久，对齐桌面端 set_stream_cache_dir）。
+pub fn set_stream_cache_dir(path: String) {
+    crate::player::stream_cache::set_cache_dir_override(path);
+}
+
+/// 查询 URL 缓存状态，返回 JSON：
+/// `{"exists":bool,"complete":bool,"failed":bool,"downloaded":u64,"total":u64|null}`。
+pub fn stream_cache_url_status(url: String) -> String {
+    let s = crate::player::stream_cache::url_cache_status(&url);
+    serde_json::json!({
+        "exists": s.exists,
+        "complete": s.complete,
+        "failed": s.failed,
+        "downloaded": s.downloaded_bytes,
+        "total": s.total_bytes,
+    })
+    .to_string()
+}
+
+/// 启动/复用该 URL 的流式下载（代理预热缓存写入）。
+/// `headers` 为 JSON 对象字符串（上游请求头，含 Referer/Cookie/UA 等）。
+pub fn stream_cache_begin_url_download(url: String, headers: String) -> Result<(), String> {
+    let map: std::collections::HashMap<String, String> =
+        serde_json::from_str(&headers).unwrap_or_default();
+    crate::player::stream_cache::begin_url_download(&url, &map)
+}
+
+/// 按区间读取缓存内容（阻塞至该区间有数据或下载结束）。
+/// 返回空字节串表示 EOF（完成/失败/无缓存）。
+pub async fn stream_cache_read_url(
+    url: String,
+    offset: u64,
+    max_len: u32,
+) -> Result<Vec<u8>, String> {
+    tokio::task::spawn_blocking(move || {
+        crate::player::stream_cache::read_url_range(&url, offset, max_len)
+    })
+    .await
+    .map_err(|e| format!("读取流缓存失败: {}", e))
+}
+
+// =========================================================================
+// 无损音频格式转换（纯 Rust，无需 FFmpeg）
+// =========================================================================
+
+/// 批量音频格式转换入口。
+/// `options_json` 格式：`{"targetFormat":"wav"|"flac", "sampleRate": null|u32}`
+/// 返回 `ConvertResult[]` JSON，每项含 inputPath / outputPath / success / error / durationSecs。
+pub async fn convert_audio_batch(
+    input_paths: Vec<String>,
+    out_dir: String,
+    options_json: String,
+) -> Result<String, String> {
+    let opts: crate::audio_convert::ConvertOptions =
+        serde_json::from_str(&options_json).map_err(|e| format!("options 解析失败：{e}"))?;
+    let results = crate::audio_convert::convert_audio(input_paths, out_dir, opts).await;
+    serde_json::to_string(&results).map_err(|e| e.to_string())
+}
+
+/// 查询输入文件是否可被本模块解码。
+pub fn audio_convert_supported_inputs() -> Vec<String> {
+    vec![
+        "mp3".to_string(),
+        "flac".to_string(),
+        "m4a".to_string(),
+        "aac".to_string(),
+        "ogg".to_string(),
+        "wav".to_string(),
+        "aif".to_string(),
+        "aiff".to_string(),
+        "alac".to_string(),
+        "ape".to_string(),
+        "wv".to_string(),
+    ]
+}
+
+/// 本模块支持的目标输出格式。
+pub fn audio_convert_supported_outputs() -> Vec<String> {
+    vec!["wav".to_string(), "flac".to_string(), "mp3".to_string()]
+}
+
+/// 单文件音频剪辑（时间段截取 + 重编码）。
+/// `options_json` 格式：`{"targetFormat":"wav"|"flac"|"mp3","sampleRate":null|u32,
+/// "startSecs":f64,"endSecs":f64,"keepCover":bool,"keepLyrics":bool,"outStem":null|String}`
+/// 返回单个 `ConvertResult` JSON。
+pub async fn trim_audio(
+    input_path: String,
+    out_dir: String,
+    options_json: String,
+) -> Result<String, String> {
+    let opts: crate::audio_convert::TrimOptions =
+        serde_json::from_str(&options_json).map_err(|e| format!("options 解析失败：{e}"))?;
+    let result = crate::audio_convert::trim_audio(input_path, out_dir, opts).await;
+    serde_json::to_string(&result).map_err(|e| e.to_string())
+}
+
+/// 探测音频时长（秒）。容器/头信息可估算时直接返回，否则完整解码统计。
+pub async fn audio_probe_duration(path: String) -> Result<f64, String> {
+    crate::audio_convert::audio_probe_duration(path).await
 }
 
 // =========================================================================

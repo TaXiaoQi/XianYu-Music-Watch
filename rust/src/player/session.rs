@@ -1,13 +1,21 @@
+//! 播放会话状态管理（纯逻辑存储层）。
+//!
+//! 将播放队列、当前歌曲、进度、播放模式等状态持久化到 SQLite，
+//! 实现跨重启恢复。运行时播放编排权威在前端（Flutter），本模块仅负责存储与分发。
 
 use super::types::PlaybackSessionData;
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 use std::time::{Instant, UNIX_EPOCH};
 
+/// 进度持久化防抖间隔：避免每次都写 SQLite
 const POSITION_PERSIST_INTERVAL_MS: u128 = 5000;
 
+/// 播放会话托管状态
 pub struct PlaybackSessionState {
+    /// 内存中的权威状态
     inner: Arc<Mutex<PlaybackSessionData>>,
+    /// 上次进度持久化时间（防抖）
     last_position_persist: Arc<Mutex<Instant>>,
 }
 
@@ -19,6 +27,7 @@ impl PlaybackSessionState {
         }
     }
 
+    /// 从 SQLite 加载持久化的会话状态（启动时调用）
     pub fn load_from_db(&self, conn: &Connection) -> Result<(), String> {
         let result: Result<Option<String>, rusqlite::Error> = conn
             .query_row("SELECT data FROM playback_session WHERE id = 1", [], |row| {
@@ -46,6 +55,7 @@ impl PlaybackSessionState {
         Ok(())
     }
 
+    /// 将当前内存状态持久化到 SQLite
     fn persist_to_db_internal(data: &PlaybackSessionData, conn: &Connection) -> Result<(), String> {
         let json_str =
             serde_json::to_string(data).map_err(|e| format!("序列化播放会话失败: {}", e))?;
@@ -62,6 +72,7 @@ impl PlaybackSessionState {
         Ok(())
     }
 
+    /// 保存完整播放会话状态（切歌/队列变更时调用），写入内存 + SQLite。
     pub fn save_playback_session(
         &self,
         conn: &Connection,
@@ -91,6 +102,7 @@ impl PlaybackSessionState {
         Ok(())
     }
 
+    /// 高频更新播放进度（仅内存 + 防抖写 SQLite）。
     pub fn update_playback_position(
         &self,
         conn: &Connection,
@@ -123,6 +135,7 @@ impl PlaybackSessionState {
         Ok(())
     }
 
+    /// 强制将内存状态持久化到 SQLite（定时刷新或应用退出时调用）。
     pub fn flush_playback_session(&self, conn: &Connection) -> Result<(), String> {
         let inner = self.inner.lock().map_err(|e| e.to_string())?;
         if inner.current_song_path.is_none() && inner.play_queue_paths.is_empty() {
@@ -132,6 +145,7 @@ impl PlaybackSessionState {
         Ok(())
     }
 
+    /// 获取当前播放会话状态（从内存读取权威状态）。
     pub fn get_playback_session(&self) -> PlaybackSessionData {
         let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         inner.clone()
@@ -142,6 +156,12 @@ impl Default for PlaybackSessionState {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// 进程级共享会话单例（FFI 门面各入口共用同一份内存状态）。
+pub(crate) fn global_playback_session() -> &'static PlaybackSessionState {
+    static SESSION: std::sync::OnceLock<PlaybackSessionState> = std::sync::OnceLock::new();
+    SESSION.get_or_init(PlaybackSessionState::new)
 }
 
 #[cfg(test)]
@@ -187,6 +207,7 @@ mod tests {
             .save_playback_session(&conn, session.clone())
             .expect("save session");
 
+        // 新实例从 DB 加载
         let state2 = PlaybackSessionState::new();
         state2.load_from_db(&conn).expect("load session");
         let loaded = state2.get_playback_session();
@@ -212,11 +233,15 @@ mod tests {
         assert_eq!(count, 0);
     }
 
+    /// 模拟 Flutter 端 save_playback_session 的完整链路：
+    /// Dart 构造 camelCase JSON → serde 反序列化 → 写库 → 重新加载。
+    /// 验证字段命名（camelCase）与 queueSongMeta 的往返完整性。
     #[test]
     fn test_flutter_camel_case_json_round_trip() {
         let conn = setup_db();
         let state = PlaybackSessionState::new();
 
+        // 与 Dart _persistSession 构造的 JSON 完全一致（camelCase）
         let dart_json = r#"{
             "currentSongPath": "lx://kw/12345",
             "playQueuePaths": ["lx://kw/12345", "/music/local.flac"],
@@ -251,6 +276,7 @@ mod tests {
             "updatedAt": 1760000000000
         }"#;
 
+        // 走 api::save_playback_session 同样的反序列化路径
         let session: PlaybackSessionData =
             serde_json::from_str(dart_json).expect("反序列化 Dart JSON");
         assert_eq!(session.current_song_path.as_deref(), Some("lx://kw/12345"));
@@ -259,6 +285,7 @@ mod tests {
 
         state.save_playback_session(&conn, session).expect("save");
 
+        // 新实例重新加载（模拟应用重启后 load_playback_session）
         let state2 = PlaybackSessionState::new();
         state2.load_from_db(&conn).expect("load");
         let loaded = state2.get_playback_session();
@@ -288,6 +315,7 @@ mod tests {
             .save_playback_session(&conn, session)
             .expect("save session");
 
+        // 更新位置（防抖间隔内，不强制持久化；但保存时已写入）
         state
             .update_playback_position(&conn, 10.0, true)
             .expect("update position");

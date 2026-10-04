@@ -1,10 +1,10 @@
-use super::SoundEffectSettings;
+﻿use super::SoundEffectSettings;
 use std::collections::{VecDeque};
 
 const OLA_SEG: usize = 1024;
 const OLA_HOP: usize = OLA_SEG / 2;
 
-pub struct PitchRateProcessor { // PitchRateProcessor
+pub struct PitchRateProcessor {
 	channels: usize,
 	sample_rate: f32,
 
@@ -27,7 +27,7 @@ pub struct PitchRateProcessor { // PitchRateProcessor
 	read_src_pos: f64,
 }
 
-impl PitchRateProcessor { // PitchRateProcessor
+impl PitchRateProcessor {
 	pub fn new(channels: u16, sample_rate: u32) -> Self {
 		let ch = (channels as usize).max(1);
 		let mut win = vec![0.0f32; OLA_SEG];

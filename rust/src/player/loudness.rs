@@ -1,4 +1,4 @@
-use lofty::prelude::*;
+﻿use lofty::prelude::*;
 use lofty::tag::ItemKey;
 use rusqlite::{params, Connection, OptionalExtension};
 use std::fs;
@@ -91,13 +91,13 @@ pub struct VolumeNormalizerHandle {
 	target_gain: Arc<AtomicU32>,
 }
 
-impl VolumeNormalizerHandle { // VolumeNormalizerHandle
+impl VolumeNormalizerHandle {
 	pub fn set_target_gain(&self, gain: f32) {
 		self.target_gain.store(gain.to_bits(), Ordering::Relaxed);
 	}
 }
 
-pub struct GainRamp { // GainRamp
+pub struct GainRamp {
 	target_gain: Arc<AtomicU32>,
 	last_target_gain: f32,
 	current_gain: f32,
@@ -107,7 +107,7 @@ pub struct GainRamp { // GainRamp
 	is_ramping: bool,
 }
 
-impl GainRamp { // GainRamp
+impl GainRamp {
 	pub fn new(initial_gain: f32, sample_rate: u32, ramp_ms: u32) -> Self {
 		let ramp_frames = ((ramp_ms as f64 / 1000.0) * sample_rate as f64).round() as usize;
 		Self {
@@ -232,10 +232,10 @@ pub struct LoudnessRecord {
 	pub error_message: Option<String>,
 }
 
-pub fn get_song_loudness_record( // get_song_loudness_record
+pub fn get_song_loudness_record(
 	conn: &Connection,
 	song_id: i64,
-) -> Result<Option<LoudnessRecord>, String> { // 实现
+) -> Result<Option<LoudnessRecord>, String> {
 	let mut stmt = conn
         .prepare(
             "SELECT song_id, song_path, loudness_lufs, estimated_loudness_lufs, sample_peak, true_peak,
@@ -280,7 +280,7 @@ pub fn get_song_loudness_record( // get_song_loudness_record
 pub fn upsert_song_loudness_record(
 	conn: &Connection,
 	record: &LoudnessRecord,
-) -> Result<(), String> { // 实现
+) -> Result<(), String> {
 	conn.execute(
         "INSERT INTO song_loudness (
             song_id, song_path, loudness_lufs, estimated_loudness_lufs, sample_peak, true_peak,
@@ -336,13 +336,13 @@ pub fn upsert_song_loudness_record(
 	Ok(())
 }
 
-pub fn create_pending_loudness_record( // create_pending_loudness_record
+pub fn create_pending_loudness_record(
 	conn: &Connection,
 	song_id: i64,
 	song_path: &str,
 	file_size: i64,
 	file_modified_at: i64,
-) -> Result<(), String> { // 实现
+) -> Result<(), String> {
 	conn
 		.execute(
 			"INSERT INTO song_loudness (

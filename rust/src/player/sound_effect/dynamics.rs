@@ -1,12 +1,12 @@
-use super::dsp::{db_to_gain, gain_to_db, soft_clip, Biquad, EnvelopeFollower, SmoothedValue};
+﻿use super::dsp::{db_to_gain, gain_to_db, soft_clip, Biquad, EnvelopeFollower, SmoothedValue};
 use crate::player::sound_effect::SoundEffectSettings;
 
-struct LinkwitzRiley { // LinkwitzRiley
+struct LinkwitzRiley {
 	s1: [Biquad; 2],
 	s2: [Biquad; 2],
 }
 
-impl LinkwitzRiley { // LinkwitzRiley
+impl LinkwitzRiley {
 	fn new() -> Self {
 		Self {
 			s1: [Biquad::new(2), Biquad::new(2)],
@@ -45,7 +45,7 @@ impl LinkwitzRiley { // LinkwitzRiley
 	}
 }
 
-pub struct DynamicsRack { // DynamicsRack
+pub struct DynamicsRack {
 	sample_rate: f32,
 	wet_gate: SmoothedValue,
 	wet_expander: SmoothedValue,
@@ -77,7 +77,7 @@ pub struct DynamicsRack { // DynamicsRack
 	mb_gain: [f32; 3],
 }
 
-impl DynamicsRack { // DynamicsRack
+impl DynamicsRack {
 	pub fn new() -> Self {
 		Self {
 			sample_rate: 44100.0,

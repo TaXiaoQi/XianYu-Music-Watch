@@ -1,4 +1,4 @@
-use rustfft::num_complex::{Complex};
+﻿use rustfft::num_complex::{Complex};
 use rustfft::{FftPlanner, Fft};
 use std::sync::{OnceLock, Arc};
 use std::time::Instant;
@@ -23,7 +23,7 @@ fn plan_fft(sample_count: usize) -> Arc<dyn Fft<f32>> {
 	planner.plan_fft_forward(sample_count)
 }
 
-pub fn build_frequency_bands(samples: &[f32], sample_rate: u32, band_count: usize) -> Vec<f32> { // build_frequency_bands
+pub fn build_frequency_bands(samples: &[f32], sample_rate: u32, band_count: usize) -> Vec<f32> {
 	if band_count == 0 {
 		return Vec::new();
 	}

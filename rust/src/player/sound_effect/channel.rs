@@ -1,7 +1,7 @@
-use super::dsp::{db_to_gain, gain_to_db, Biquad, EnvelopeFollower, SmoothedValue};
+﻿use super::dsp::{db_to_gain, gain_to_db, Biquad, EnvelopeFollower, SmoothedValue};
 use crate::player::sound_effect::SoundEffectSettings;
 
-pub struct ChannelRack { // ChannelRack
+pub struct ChannelRack {
 	sample_rate: f32,
 
 	// ---- wet 混合平滑 ----
@@ -37,7 +37,7 @@ pub struct ChannelRack { // ChannelRack
 	dyn_comp_reduction: [f32; 2],
 }
 
-impl ChannelRack { // ChannelRack
+impl ChannelRack {
 	pub fn new() -> Self {
 		Self {
 			sample_rate: 44100.0,

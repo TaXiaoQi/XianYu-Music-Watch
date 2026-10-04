@@ -11,9 +11,11 @@ pub mod remote;
 pub mod statistics;
 pub mod plugins;
 pub mod plugin_host;
+pub mod fallback_host;
 pub mod recognize;
 pub mod custom_fonts;
 pub mod toolbox;
+pub mod audio_convert;
 mod frb_generated;
 
 pub mod api;

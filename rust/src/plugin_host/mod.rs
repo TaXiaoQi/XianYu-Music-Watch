@@ -587,6 +587,11 @@ impl PluginEngine {
         Ok((runtime, ctx, deadline))
     }
 
+    /// 兜底模块宿主复用同一 HttpBridge（SSRF 防护与 Cookie 存储共享）。
+    pub fn http_bridge(&self) -> Arc<HttpBridge> {
+        self.http.clone()
+    }
+
     async fn setup_context(
         &self,
         ctx: &AsyncContext,
