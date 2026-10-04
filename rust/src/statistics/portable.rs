@@ -785,43 +785,6 @@ pub fn reset_local_statistics(conn: &rusqlite::Connection) -> Result<(), String>
     Ok(())
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
-pub struct CloudMergeResult {
-    pub total_duration: u64,
-    pub merged: bool,
-}
-
-pub fn merge_cloud_listen_duration(
-    conn: &rusqlite::Connection,
-    total_seconds: i64,
-) -> Result<CloudMergeResult, String> {
-    let _ = conn.execute(
-        "INSERT INTO global_stats (id, total_play_count, total_play_time_ms) VALUES (1, 0, 0) \
-         ON CONFLICT(id) DO NOTHING",
-        [],
-    );
-
-    let cur_ms: i64 = conn
-        .query_row(
-            "SELECT total_play_time_ms FROM global_stats WHERE id = 1",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap_or(0);
-
-    let target_ms = total_seconds.max(0) * 1000;
-    conn.execute(
-        "UPDATE global_stats SET total_play_time_ms = MAX(total_play_time_ms, ?) WHERE id = 1",
-        [target_ms],
-    )
-    .map_err(|e| e.to_string())?;
-
-    Ok(CloudMergeResult {
-        total_duration: (target_ms.max(cur_ms) / 1000) as u64,
-        merged: target_ms > cur_ms,
-    })
-}
-
 pub fn record_play(
     conn: &mut rusqlite::Connection,
     payload: RecordPlayPayload,

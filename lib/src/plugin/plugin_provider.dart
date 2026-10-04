@@ -55,23 +55,6 @@ Future<String?> fetchPluginScript(String url, {bool Function()? cancelled}) asyn
       'Accept': '*/*',
     }).timeout(const Duration(seconds: 20));
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      // 部分源站会封伪装浏览器的 UA（如 guazi 接口专拒 NT+Chrome 组合，对
-      // lx-music / 无 UA 放行）。与移动端 fetchPluginScriptWithRetry 同款
-      // 兜底：403 时改用 LX 客户端 UA 重试一次。
-      if (resp.statusCode == 403) {
-        try {
-          final retryResp = await appGet(uri, headers: const {
-            'User-Agent': 'lx-music-desktop/2.0.0',
-            'Accept': '*/*',
-          }).timeout(const Duration(seconds: 20));
-          if (retryResp.statusCode >= 200 && retryResp.statusCode < 300) {
-            return await retryResp.transform(utf8.decoder).join().timeout(_bodyTimeout);
-          }
-          await retryResp.drain<void>();
-        } catch (e) {
-          AppLog.debug('plugin', '[fetchScript] UA 重试请求失败: $e');
-        }
-      }
       await resp.drain<void>();
       return null;
     }
