@@ -207,6 +207,14 @@ class _PlaybackPage extends ConsumerWidget {
             .read(settingsProvider.notifier)
             .setAutoResumeAfterInterruption(v),
       ),
+      _switchRow(
+        s: s,
+        title: tr('显示真实音质体积'),
+        subtitle: tr('开启后每首歌对音源多发约 5~8 次请求，可能触发限流；关闭时仅按需解析，体积显示插件自报值'),
+        value: settings.showRealQualitySizes,
+        onChanged: (v) =>
+            ref.read(settingsProvider.notifier).setShowRealQualitySizes(v),
+      ),
       _actionRow(
         s: s,
         icon: Icon(Icons.volume_up_rounded, size: 24 * s),

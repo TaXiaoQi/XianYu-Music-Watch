@@ -73,6 +73,7 @@ class AppSettings {
     this.onlineFailureBehavior = 'autoswitch',
     this.streamCacheSizeMB = 200,
     this.autoResumeAfterInterruption = true,
+    this.showRealQualitySizes = false,
     this.language = 'system',
     this.hubEntryOrder = kDefaultHubEntryOrder,
   });
@@ -101,6 +102,10 @@ class AppSettings {
 
   final bool autoResumeAfterInterruption;
 
+  /// 音质菜单真实体积探测+全档位预解析开关（默认关：仅按需解析，
+  /// 避免每首歌对音源多发 5~8 次请求）
+  final bool showRealQualitySizes;
+
   /// 'system' | 'zhCN' | 'zhTW' | 'en'
   final String language;
 
@@ -122,6 +127,7 @@ class AppSettings {
     String? onlineFailureBehavior,
     int? streamCacheSizeMB,
     bool? autoResumeAfterInterruption,
+    bool? showRealQualitySizes,
     String? language,
     List<String>? hubEntryOrder,
   }) {
@@ -144,6 +150,8 @@ class AppSettings {
       streamCacheSizeMB: streamCacheSizeMB ?? this.streamCacheSizeMB,
       autoResumeAfterInterruption:
           autoResumeAfterInterruption ?? this.autoResumeAfterInterruption,
+      showRealQualitySizes:
+          showRealQualitySizes ?? this.showRealQualitySizes,
       language: language ?? this.language,
       hubEntryOrder: hubEntryOrder ?? this.hubEntryOrder,
     );
@@ -187,6 +195,7 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
       streamCacheSizeMB: prefs.getInt('streamCacheSizeMB') ?? 200,
       autoResumeAfterInterruption:
           prefs.getBool('autoResumeAfterInterruption') ?? true,
+      showRealQualitySizes: prefs.getBool('showRealQualitySizes') ?? false,
       language: prefs.getString('language') ?? 'system',
       hubEntryOrder:
           normalizeHubEntryOrder(prefs.getStringList('hubEntryOrder')),
@@ -212,6 +221,7 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
       prefs.setInt('streamCacheSizeMB', next.streamCacheSizeMB),
       prefs.setBool('autoResumeAfterInterruption',
           next.autoResumeAfterInterruption),
+      prefs.setBool('showRealQualitySizes', next.showRealQualitySizes),
       prefs.setString('language', next.language),
       prefs.setStringList('hubEntryOrder', next.hubEntryOrder),
     ]);
@@ -246,6 +256,9 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
 
   Future<void> setAutoResumeAfterInterruption(bool v) async =>
       _save((await _current()).copyWith(autoResumeAfterInterruption: v));
+
+  Future<void> setShowRealQualitySizes(bool v) async =>
+      _save((await _current()).copyWith(showRealQualitySizes: v));
 
   Future<void> setLanguage(String v) async =>
       _save((await _current()).copyWith(language: v));

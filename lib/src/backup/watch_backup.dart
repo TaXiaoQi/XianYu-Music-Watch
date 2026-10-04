@@ -212,6 +212,7 @@ class WatchBackupService {
         'onlineFailureBehavior': s.onlineFailureBehavior,
         'streamCacheSizeMB': s.streamCacheSizeMB,
         'autoResumeAfterInterruption': s.autoResumeAfterInterruption,
+        'showRealQualitySizes': s.showRealQualitySizes,
         'language': s.language,
       };
 
@@ -237,6 +238,7 @@ class WatchBackupService {
       onlineFailureBehavior: asStr('onlineFailureBehavior'),
       streamCacheSizeMB: asInt('streamCacheSizeMB'),
       autoResumeAfterInterruption: asBool('autoResumeAfterInterruption'),
+      showRealQualitySizes: asBool('showRealQualitySizes'),
       language: asStr('language'),
     );
   }
