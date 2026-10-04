@@ -114,3 +114,28 @@ class PlaybackState {
 }
 
 const Object _noChange = Object();
+
+/// 云端歌曲入队（playlist_store 不再依赖 player 层，收敛为 extension）。
+extension CloudSongQueueItem on CloudSong {
+  QueueItem toQueueItem() {
+    String? onlineSongJson;
+    if (isOnline && pluginId.isNotEmpty) {
+      onlineSongJson = jsonEncode({
+        'pluginId': pluginId,
+        'format': format.isEmpty ? 'lx' : format,
+        'source': source,
+        'musicInfo': musicInfo,
+      });
+    }
+    return QueueItem(
+      path: path,
+      title: title,
+      artist: artist,
+      album: album,
+      durationMs: durationSec * 1000,
+      coverUrl: coverUrl,
+      source: source.isEmpty ? null : source,
+      onlineSongJson: onlineSongJson,
+    );
+  }
+}

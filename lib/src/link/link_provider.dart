@@ -12,6 +12,7 @@ import '../core/ambient.dart';
 import '../core/application_logger.dart';
 import '../effects/sound_effect_provider.dart';
 import 'cloud_client.dart';
+import 'link_auth.dart';
 import 'protocol.dart';
 import 'rfcomm_client.dart';
 
@@ -223,6 +224,17 @@ class LinkController extends StateNotifier<LinkState>
 
   Completer<String>? _backupAckCompleter;
 
+  // ---- 链路鉴权（HMAC 挑战-应答，未通过前丢弃业务帧） ----
+
+  bool _peerAuthed = false;
+  String? _myAuthNonce;
+  String? _pairSecret;
+  Timer? _authTimer;
+
+  /// 本次链路是否由用户手动发起（选设备/接受配对/重试）：
+  /// 仅此场景才允许向对端授予/重授配对密钥。
+  bool _userInitiated = false;
+
   // ---- 音效远程镜像（联动模式下手表音效页镜像手机设置） ----
 
   SoundEffectManager? _fxMgr;
@@ -318,6 +330,7 @@ class LinkController extends StateNotifier<LinkState>
     _interpolate?.cancel();
     _reconnect?.cancel();
     _connectWatchdog?.cancel();
+    _authTimer?.cancel();
     _stopBtProbe();
     _cloud.close();
     _channel.disconnect();
@@ -328,6 +341,7 @@ class LinkController extends StateNotifier<LinkState>
 
   Future<void> selectDevice(BondedDevice dev) async {
     _reconnect?.cancel();
+    _userInitiated = true;
     _backoff = _minBackoff;
     state = state.copyWith(
       pairedAddress: dev.address,
@@ -345,6 +359,8 @@ class LinkController extends StateNotifier<LinkState>
 
   Future<void> disconnectManually() async {
     _reconnect?.cancel();
+    _resetAuth();
+    _userInitiated = false;
     _stopAlive();
     _stopBtProbe();
     _viaCloud = false;
@@ -380,8 +396,8 @@ class LinkController extends StateNotifier<LinkState>
   // ---- 控制命令（手表 → 手机） ----
 
   void toggle() {
-    if (state.phase != LinkPhase.connected) return;
-    // 乐观更新图标：立即反映点击，回执(state)回来后再二次校验
+    // 鉴权窗口内命令会被 _sendCmd 丢弃，乐观翻图标会造成假反馈
+    if (state.phase != LinkPhase.connected || !_peerAuthed) return;
     state = state.copyWith(isPlaying: !state.isPlaying);
     _sendCmd(LinkCmdAction.toggle);
   }
@@ -397,6 +413,7 @@ class LinkController extends StateNotifier<LinkState>
 
   void retry() {
     _reconnect?.cancel();
+    _userInitiated = true;
     _backoff = _minBackoff;
     _btPhaseStart = null;
     state = state.copyWith(phase: LinkPhase.disconnected);
@@ -424,6 +441,7 @@ class LinkController extends StateNotifier<LinkState>
 
   Future<void> acceptIncoming() async {
     _reconnect?.cancel();
+    _userInitiated = true;
     _backoff = _minBackoff;
     final addr = state.incomingAddress;
     final name = state.incomingName;
@@ -464,7 +482,7 @@ class LinkController extends StateNotifier<LinkState>
   Future<void> requestBluetoothPermission() => _channel.requestPermission();
 
   void _sendCmd(String action, {Map<String, dynamic>? arg}) {
-    if (state.phase != LinkPhase.connected) return;
+    if (state.phase != LinkPhase.connected || !_peerAuthed) return;
     _send(LinkMessage.cmd(action, arg));
   }
 
@@ -481,7 +499,9 @@ class LinkController extends StateNotifier<LinkState>
     required String content,
     Duration timeout = const Duration(seconds: 30),
   }) async {
-    if (state.phase != LinkPhase.connected) return backupPushOffline;
+    if (state.phase != LinkPhase.connected || !_peerAuthed) {
+      return backupPushOffline;
+    }
     final pending = Completer<String>();
     _backupAckCompleter = pending;
     try {
@@ -500,7 +520,9 @@ class LinkController extends StateNotifier<LinkState>
     required String content,
     Duration timeout = const Duration(seconds: 30),
   }) async {
-    if (state.phase != LinkPhase.connected) return backupPushOffline;
+    if (state.phase != LinkPhase.connected || !_peerAuthed) {
+      return backupPushOffline;
+    }
     final pending = Completer<String>();
     _backupAckCompleter = pending;
     try {
@@ -590,6 +612,7 @@ class LinkController extends StateNotifier<LinkState>
     } else {
       final wasConnected = state.phase == LinkPhase.connected;
       _stopAlive();
+      _resetAuth();
       state = state.copyWith(
         phase: LinkPhase.disconnected,
         now: null,
@@ -717,6 +740,7 @@ class LinkController extends StateNotifier<LinkState>
     _viaCloud = viaCloud;
     _btPhaseStart = null;
     _decoder = FrameDecoder();
+    _resetAuth();
     _backoff = _minBackoff;
     _lastFrame = DateTime.now();
     state = state.copyWith(
@@ -731,6 +755,7 @@ class LinkController extends StateNotifier<LinkState>
     _send(
       LinkMessage.hello(ver: kLinkProtocolVersion, role: 'watch', name: '弦予腕上'),
     );
+    _startAuth();
     _startAlive();
     // 走云时开回探（争取升级回蓝牙），走蓝牙时停掉。
     if (viaCloud) {
@@ -743,6 +768,8 @@ class LinkController extends StateNotifier<LinkState>
   void _killLink({required bool reschedule}) {
     _stopAlive();
     _stopBtProbe();
+    _resetAuth();
+    _userInitiated = false;
     final wasCloud = _viaCloud;
     _viaCloud = false;
     _cloudTryActive = false;
@@ -837,6 +864,10 @@ class LinkController extends StateNotifier<LinkState>
   }
 
   void _onMessage(LinkMessage msg) {
+    if (_requiresAuth(msg.type) && !_peerAuthed) {
+      AppLog.debug('link', '未鉴权丢弃业务帧: 0x${msg.type.toRadixString(16)}');
+      return;
+    }
     switch (msg.type) {
       case LinkMsgType.state:
         state = state.copyWith(
@@ -911,10 +942,18 @@ class LinkController extends StateNotifier<LinkState>
           _lyricCache[pid] = plyric;
         }
       case LinkMsgType.hello:
-        break;
+        final ver = msg.payload['ver'] as int?;
+        if (ver != null && ver < kLinkProtocolVersion) {
+          AppLog.warn('link', '对端协议版本过低（$ver），断开重连');
+          _killLink(reschedule: true);
+        }
       case LinkMsgType.pong:
       case LinkMsgType.bye:
         break;
+      case LinkMsgType.authChallenge:
+        _onAuthChallenge(msg);
+      case LinkMsgType.authProof:
+        _onAuthProof(msg);
       case LinkMsgType.effects:
         final fx = msg.payload['fx'];
         if (fx is Map) {
@@ -956,6 +995,137 @@ class LinkController extends StateNotifier<LinkState>
       _reconnect?.cancel();
       _backoff = _minBackoff;
       _attemptConnect();
+    }
+  }
+
+  // ---- 链路鉴权（HMAC-SHA256 挑战-应答，详见 link_auth.dart） ----
+
+  /// 未鉴权前必须丢弃的业务帧（hello/ping/pong/bye/鉴权帧除外）。
+  /// cloudBind 尤其关键：否则任意连接方可投喂恶意中继地址与密钥。
+  static bool _requiresAuth(int t) =>
+      t == LinkMsgType.state ||
+      t == LinkMsgType.nowPlaying ||
+      t == LinkMsgType.position ||
+      t == LinkMsgType.lyric ||
+      t == LinkMsgType.precache ||
+      t == LinkMsgType.effects ||
+      t == LinkMsgType.cloudBind ||
+      t == LinkMsgType.backupAck;
+
+  void _resetAuth() {
+    _authTimer?.cancel();
+    _authTimer = null;
+    _peerAuthed = false;
+    _myAuthNonce = null;
+  }
+
+  /// 链路建立后发起鉴权：手表是密钥唯一授予方，无密钥则生成并持久化。
+  Future<void> _startAuth() async {
+    _authTimer?.cancel();
+    _authTimer = Timer(kLinkAuthTimeout, () {
+      if (_disposed || _peerAuthed) return;
+      AppLog.warn('link', '链路鉴权超时，断开重连');
+      _killLink(reschedule: true);
+    });
+    if (_pairSecret == null) {
+      try {
+        _pairSecret = await readPairSecret() ?? await _newPairSecret();
+      } catch (e) {
+        AppLog.warn('link', '加载配对密钥失败: $e');
+        return;
+      }
+    }
+    if (_disposed ||
+        _pairSecret == null ||
+        state.phase != LinkPhase.connected) {
+      return;
+    }
+    final nonce = randomNonceHex();
+    _myAuthNonce = nonce;
+    _send(LinkMessage.authChallenge(nonce: nonce));
+  }
+
+  Future<String> _newPairSecret() async {
+    final fresh = generatePairSecret();
+    await writePairSecret(fresh);
+    return fresh;
+  }
+
+  Future<void> _onAuthChallenge(LinkMessage msg) async {
+    final nonce = msg.payload['nonce'] as String? ?? '';
+    // grant 仅手机侧消费：手表是授予方，忽略该字段
+    var secret = _pairSecret;
+    if (secret == null) {
+      // _startAuth 的异步加载尚未完成时质询可能先到：按需重读而不是丢弃，
+      // 否则对端收不到 proof 会走 10s 超时判死（冷启动首连被踢的根源）
+      try {
+        secret = await readPairSecret();
+        _pairSecret = secret;
+      } catch (e) {
+        AppLog.warn('link', '读取配对密钥失败: $e');
+      }
+    }
+    if (nonce.isEmpty || secret == null) {
+      AppLog.warn('link', '收到鉴权质询但无配对密钥，忽略');
+      return;
+    }
+    _send(LinkMessage.authProof(
+      proof: authProofHex(nonceHex: nonce, secretBase64: secret),
+    ));
+  }
+
+  void _onAuthProof(LinkMessage msg) {
+    final proof = msg.payload['proof'] as String? ?? '';
+    final request = msg.payload['request'] == true;
+    final nonce = _myAuthNonce;
+    final secret = _pairSecret;
+    if (nonce != null &&
+        secret != null &&
+        verifyAuthProof(
+          nonceHex: nonce,
+          secretBase64: secret,
+          proofHex: proof,
+        )) {
+      _onPeerAuthed();
+      return;
+    }
+    // 对端无密钥（重装/清数据）：仅用户手动发起的链路才重新授予，
+    // 自动重连一律拒绝，防配对失效后被静默放行
+    if (request && _userInitiated && state.phase == LinkPhase.connected) {
+      _grantNewSecret();
+      return;
+    }
+    if (request) {
+      AppLog.warn('link', '对端请求授予配对密钥，但本次非用户发起，拒绝');
+    } else {
+      AppLog.warn('link', '配对密钥校验失败，断开链路');
+    }
+    _killLink(reschedule: true);
+  }
+
+  /// 重新生成密钥授予对端（仅用户手动发起的链路）。
+  Future<void> _grantNewSecret() async {
+    try {
+      _pairSecret = await _newPairSecret();
+    } catch (e) {
+      AppLog.warn('link', '生成新配对密钥失败: $e');
+      _killLink(reschedule: true);
+      return;
+    }
+    if (_disposed || state.phase != LinkPhase.connected) return;
+    final nonce = randomNonceHex();
+    _myAuthNonce = nonce;
+    _send(LinkMessage.authChallenge(nonce: nonce, grant: _pairSecret));
+  }
+
+  void _onPeerAuthed() {
+    _authTimer?.cancel();
+    _authTimer = null;
+    _myAuthNonce = null;
+    _userInitiated = false;
+    if (!_peerAuthed) {
+      _peerAuthed = true;
+      AppLog.debug('link', '链路鉴权通过');
     }
   }
 

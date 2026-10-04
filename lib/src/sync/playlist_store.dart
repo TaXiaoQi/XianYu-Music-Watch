@@ -2,8 +2,6 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../player/player_provider.dart' show QueueItem;
-
 class CloudSong {
   final String path;
   final String title;
@@ -73,28 +71,6 @@ class CloudSong {
         'musicInfo': musicInfo,
         'addedInApp': addedInApp,
       };
-
-  QueueItem toQueueItem() {
-    String? onlineSongJson;
-    if (isOnline && pluginId.isNotEmpty) {
-      onlineSongJson = jsonEncode({
-        'pluginId': pluginId,
-        'format': format.isEmpty ? 'lx' : format,
-        'source': source,
-        'musicInfo': musicInfo,
-      });
-    }
-    return QueueItem(
-      path: path,
-      title: title,
-      artist: artist,
-      album: album,
-      durationMs: durationSec * 1000,
-      coverUrl: coverUrl,
-      source: source.isEmpty ? null : source,
-      onlineSongJson: onlineSongJson,
-    );
-  }
 }
 
 class CloudPlaylist {
@@ -165,7 +141,8 @@ class CloudPlaylistStore {
   static Future<List<CloudPlaylist>> loadAll() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_key);
-    if (raw == null || raw.isEmpty) return const [];
+    // 返回可变列表：调用方（备份导入）会在其上做去重合并
+    if (raw == null || raw.isEmpty) return [];
     try {
       final list = jsonDecode(raw) as List;
       return list

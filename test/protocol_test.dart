@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xianyu_watch/src/link/link_auth.dart';
 import 'package:xianyu_watch/src/link/protocol.dart';
 
 void main() {
@@ -205,6 +206,95 @@ void main() {
     final lyric = all[0].payload['lyric'] as Map;
     expect(lyric['id'], 'song-1');
     expect(lyric['payload'], bigPayload);
+  });
+
+  test('auth 帧编解码往返（challenge 含/不含 grant，proof 含/不含 request）', () {
+    final seq = makeSeqGenerator();
+    final decoder = FrameDecoder();
+
+    final ch = LinkMessage.authChallenge(nonce: 'ab' * 16);
+    final out = decoder.feed(encodeFrames(ch, nextSeq: seq)[0]);
+    expect(out.single.type, LinkMsgType.authChallenge);
+    expect(out.single.payload['nonce'], 'ab' * 16);
+    expect(out.single.payload.containsKey('grant'), isFalse);
+
+    final chGrant = LinkMessage.authChallenge(nonce: 'cd' * 16, grant: 'X' * 44);
+    final out2 = decoder.feed(encodeFrames(chGrant, nextSeq: seq)[0]);
+    expect(out2.single.type, LinkMsgType.authChallenge);
+    expect(out2.single.payload['grant'], 'X' * 44);
+
+    final pf = LinkMessage.authProof(proof: 'ff' * 32);
+    final out3 = decoder.feed(encodeFrames(pf, nextSeq: seq)[0]);
+    expect(out3.single.type, LinkMsgType.authProof);
+    expect(out3.single.payload['proof'], 'ff' * 32);
+    expect(out3.single.payload.containsKey('request'), isFalse);
+
+    final pfReq = LinkMessage.authProof(proof: '', request: true);
+    final out4 = decoder.feed(encodeFrames(pfReq, nextSeq: seq)[0]);
+    expect(out4.single.type, LinkMsgType.authProof);
+    expect(out4.single.payload['proof'], '');
+    expect(out4.single.payload['request'], true);
+  });
+
+  test('link_auth：proof 生成与校验往返', () {
+    final secret = generatePairSecret();
+    expect(base64Decode(secret).length, 32);
+    final nonce = randomNonceHex();
+    expect(nonce.length, 32);
+
+    final proof = authProofHex(nonceHex: nonce, secretBase64: secret);
+    expect(proof.length, 64);
+    expect(
+      verifyAuthProof(nonceHex: nonce, secretBase64: secret, proofHex: proof),
+      isTrue,
+    );
+    // 错误证明 / 错误密钥 / 错误 nonce / 空输入 均拒绝
+    expect(
+      verifyAuthProof(nonceHex: nonce, secretBase64: secret, proofHex: '0' * 64),
+      isFalse,
+    );
+    expect(
+      verifyAuthProof(
+        nonceHex: nonce,
+        secretBase64: generatePairSecret(),
+        proofHex: proof,
+      ),
+      isFalse,
+    );
+    expect(
+      verifyAuthProof(
+        nonceHex: 'ff' * 16,
+        secretBase64: secret,
+        proofHex: proof,
+      ),
+      isFalse,
+    );
+    expect(
+      verifyAuthProof(nonceHex: '', secretBase64: secret, proofHex: proof),
+      isFalse,
+    );
+  });
+
+  test('link_auth：非法/非 32B 密钥按无密钥处理', () {
+    // 非 base64
+    expect(
+      verifyAuthProof(
+        nonceHex: 'ab' * 16,
+        secretBase64: 'not-base64!!',
+        proofHex: 'a' * 64,
+      ),
+      isFalse,
+    );
+    // 16B 密钥（长度不符）即使 proof 自洽也拒绝
+    final short = base64Encode(List<int>.generate(16, (_) => 1));
+    expect(
+      verifyAuthProof(
+        nonceHex: 'ab' * 16,
+        secretBase64: short,
+        proofHex: authProofHex(nonceHex: 'ab' * 16, secretBase64: short),
+      ),
+      isFalse,
+    );
   });
 }
 

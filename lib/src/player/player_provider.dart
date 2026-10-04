@@ -27,6 +27,7 @@ import '../plugin/plugin_models.dart';
 import '../plugin/plugin_provider.dart';
 import '../plugin/plugin_search.dart';
 import '../rust/api.dart';
+import '../sync/playlist_store.dart';
 import 'media_url.dart';
 import 'online_quality_probe.dart';
 import 'stream_cache.dart';
