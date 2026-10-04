@@ -1830,34 +1830,6 @@ pub fn update_loudness_settings(
     Ok(serde_json::json!({ "enabled": enabled, "targetGain": gain }).to_string())
 }
 
-pub fn stats_export_listen_snapshot(db_path: String) -> Result<String, String> {
-    let conn = open_stats_conn(&db_path)?;
-    let v = crate::statistics::export_listen_stats_snapshot(&conn)?;
-    serde_json::to_string(&v).map_err(|e| e.to_string())
-}
-
-pub fn stats_import_listen_snapshot(
-    db_path: String,
-    snapshot_json: String,
-) -> Result<String, String> {
-    let snapshot: crate::statistics::ListenStatsSnapshot =
-        serde_json::from_str(&snapshot_json).map_err(|e| e.to_string())?;
-    let mut conn = open_stats_conn(&db_path)?;
-    let result = crate::statistics::import_listen_stats_snapshot(&mut conn, &snapshot)?;
-    serde_json::to_string(&result).map_err(|e| e.to_string())
-}
-
-pub fn stats_import_listen_snapshot_add(
-    db_path: String,
-    snapshot_json: String,
-) -> Result<String, String> {
-    let snapshot: crate::statistics::ListenStatsSnapshot =
-        serde_json::from_str(&snapshot_json).map_err(|e| e.to_string())?;
-    let mut conn = open_stats_conn(&db_path)?;
-    let result = crate::statistics::import_listen_stats_snapshot_add(&mut conn, &snapshot)?;
-    serde_json::to_string(&result).map_err(|e| e.to_string())
-}
-
 pub fn stats_clear_listen_stats(db_path: String) -> Result<(), String> {
     let conn = open_stats_conn(&db_path)?;
     crate::statistics::clear_listen_stats(&conn)

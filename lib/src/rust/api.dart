@@ -1349,25 +1349,6 @@ Future<String> updateLoudnessSettings({
   preventClipping: preventClipping,
 );
 
-Future<String> statsExportListenSnapshot({required String dbPath}) =>
-    RustLib.instance.api.crateApiStatsExportListenSnapshot(dbPath: dbPath);
-
-Future<String> statsImportListenSnapshot({
-  required String dbPath,
-  required String snapshotJson,
-}) => RustLib.instance.api.crateApiStatsImportListenSnapshot(
-  dbPath: dbPath,
-  snapshotJson: snapshotJson,
-);
-
-Future<String> statsImportListenSnapshotAdd({
-  required String dbPath,
-  required String snapshotJson,
-}) => RustLib.instance.api.crateApiStatsImportListenSnapshotAdd(
-  dbPath: dbPath,
-  snapshotJson: snapshotJson,
-);
-
 Future<void> statsClearListenStats({required String dbPath}) =>
     RustLib.instance.api.crateApiStatsClearListenStats(dbPath: dbPath);
 

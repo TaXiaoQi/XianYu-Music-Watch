@@ -763,8 +763,6 @@ abstract class RustLibApi extends BaseApi {
 
   Future<void> crateApiStatsClearRecentHistory({required String dbPath});
 
-  Future<String> crateApiStatsExportListenSnapshot({required String dbPath});
-
   Future<String> crateApiStatsExportStatisticsFile({
     required String dbPath,
     required String optionsJson,
@@ -822,16 +820,6 @@ abstract class RustLibApi extends BaseApi {
     required String recentEntriesJson,
     String? query,
     required String sortMode,
-  });
-
-  Future<String> crateApiStatsImportListenSnapshot({
-    required String dbPath,
-    required String snapshotJson,
-  });
-
-  Future<String> crateApiStatsImportListenSnapshotAdd({
-    required String dbPath,
-    required String snapshotJson,
   });
 
   Future<String> crateApiStatsImportStatisticsFile({
@@ -6423,37 +6411,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
-  Future<String> crateApiStatsExportListenSnapshot({required String dbPath}) {
-    return handler.executeNormal(
-      NormalTask(
-        callFfi: (port_) {
-          final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_String(dbPath, serializer);
-          pdeCallFfi(
-            generalizedFrbRustBinding,
-            serializer,
-            funcId: 161,
-            port: port_,
-          );
-        },
-        codec: SseCodec(
-          decodeSuccessData: sse_decode_String,
-          decodeErrorData: sse_decode_String,
-        ),
-        constMeta: kCrateApiStatsExportListenSnapshotConstMeta,
-        argValues: [dbPath],
-        apiImpl: this,
-      ),
-    );
-  }
-
-  TaskConstMeta get kCrateApiStatsExportListenSnapshotConstMeta =>
-      const TaskConstMeta(
-        debugName: "stats_export_listen_snapshot",
-        argNames: ["dbPath"],
-      );
-
-  @override
   Future<String> crateApiStatsExportStatisticsFile({
     required String dbPath,
     required String optionsJson,
@@ -6916,76 +6873,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(
         debugName: "stats_get_recent_song_paths_view",
         argNames: ["dbPath", "recentEntriesJson", "query", "sortMode"],
-      );
-
-  @override
-  Future<String> crateApiStatsImportListenSnapshot({
-    required String dbPath,
-    required String snapshotJson,
-  }) {
-    return handler.executeNormal(
-      NormalTask(
-        callFfi: (port_) {
-          final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_String(dbPath, serializer);
-          sse_encode_String(snapshotJson, serializer);
-          pdeCallFfi(
-            generalizedFrbRustBinding,
-            serializer,
-            funcId: 175,
-            port: port_,
-          );
-        },
-        codec: SseCodec(
-          decodeSuccessData: sse_decode_String,
-          decodeErrorData: sse_decode_String,
-        ),
-        constMeta: kCrateApiStatsImportListenSnapshotConstMeta,
-        argValues: [dbPath, snapshotJson],
-        apiImpl: this,
-      ),
-    );
-  }
-
-  TaskConstMeta get kCrateApiStatsImportListenSnapshotConstMeta =>
-      const TaskConstMeta(
-        debugName: "stats_import_listen_snapshot",
-        argNames: ["dbPath", "snapshotJson"],
-      );
-
-  @override
-  Future<String> crateApiStatsImportListenSnapshotAdd({
-    required String dbPath,
-    required String snapshotJson,
-  }) {
-    return handler.executeNormal(
-      NormalTask(
-        callFfi: (port_) {
-          final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_String(dbPath, serializer);
-          sse_encode_String(snapshotJson, serializer);
-          pdeCallFfi(
-            generalizedFrbRustBinding,
-            serializer,
-            funcId: 176,
-            port: port_,
-          );
-        },
-        codec: SseCodec(
-          decodeSuccessData: sse_decode_String,
-          decodeErrorData: sse_decode_String,
-        ),
-        constMeta: kCrateApiStatsImportListenSnapshotAddConstMeta,
-        argValues: [dbPath, snapshotJson],
-        apiImpl: this,
-      ),
-    );
-  }
-
-  TaskConstMeta get kCrateApiStatsImportListenSnapshotAddConstMeta =>
-      const TaskConstMeta(
-        debugName: "stats_import_listen_snapshot_add",
-        argNames: ["dbPath", "snapshotJson"],
       );
 
   @override
