@@ -1,11 +1,7 @@
+//! DSD（DSF/DFF）容器元数据解析：供扫描器读取声道/DSD 采样率/时长。
 
 use std::fs::File;
-use std::io::{BufReader, Read, Seek, SeekFrom};
-
-pub const DOP_MARKER_LOW: u8 = 0x05;
-pub const DOP_MARKER_HIGH: u8 = 0xFA;
-
-const DFF_BUFFER_FRAMES: usize = 4096;
+use std::io::{Read, Seek, SeekFrom};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DsdFormat {
@@ -17,9 +13,7 @@ pub enum DsdFormat {
 pub struct DsdInfo {
     pub channels: u16,
     pub dsd_rate: u32,
-    pub block_size: u32,
     pub sample_count: u64,
-    pub data_offset: u64,
     pub data_size: u64,
     pub is_dst: bool,
     pub format: DsdFormat,
@@ -40,13 +34,6 @@ impl DsdInfo {
             (frames / u64::from(self.dsd_rate)) as u32
         }
     }
-}
-
-pub fn dop_pcm_rate(dsd_rate: u32) -> Option<u32> {
-    if dsd_rate == 0 || dsd_rate % 8 != 0 {
-        return None;
-    }
-    Some(dsd_rate / 8)
 }
 
 fn read_u32_le(buf: &[u8]) -> u32 {
@@ -79,11 +66,9 @@ pub fn parse_dsf_info(path: &str) -> Result<DsdInfo, String> {
 
     let mut channels = 0u16;
     let mut dsd_rate = 0u32;
-    let mut block_size = 0u32;
     let mut sample_count = 0u64;
     let mut bits_per_sample = 0u32;
     let mut format_id = 0u32;
-    let data_offset;
     let data_size;
 
     loop {
@@ -105,7 +90,6 @@ pub fn parse_dsf_info(path: &str) -> Result<DsdInfo, String> {
             dsd_rate = read_u32_le(&fmt[16..20]);
             bits_per_sample = read_u32_le(&fmt[20..24]);
             sample_count = read_u64_le(&fmt[24..32]);
-            block_size = read_u64_le(&fmt[32..40]) as u32;
             let skip = chunk_size as i64 - 52;
             if skip > 0 {
                 file.seek(SeekFrom::Current(skip)).map_err(|e| e.to_string())?;
@@ -114,7 +98,8 @@ pub fn parse_dsf_info(path: &str) -> Result<DsdInfo, String> {
             let mut inner = [0u8; 8];
             file.read_exact(&mut inner).map_err(|_| "bad data size".to_string())?;
             data_size = read_u64_le(&inner);
-            data_offset = file.stream_position().map_err(|e| e.to_string())?;
+            // data 载荷起点校验：截断/异常文件在此报错
+            file.stream_position().map_err(|e| e.to_string())?;
             break;
         } else if chunk_size > 12 && chunk_size <= 16 * 1024 * 1024 {
             file.seek(SeekFrom::Current((chunk_size - 12) as i64))
@@ -124,16 +109,14 @@ pub fn parse_dsf_info(path: &str) -> Result<DsdInfo, String> {
         }
     }
 
-    if channels == 0 || dsd_rate == 0 || block_size == 0 {
+    if channels == 0 || dsd_rate == 0 {
         return Err("invalid DSF fmt".to_string());
     }
 
     Ok(DsdInfo {
         channels,
         dsd_rate,
-        block_size,
         sample_count,
-        data_offset,
         data_size,
         is_dst: bits_per_sample != 1 || format_id != 0,
         format: DsdFormat::Dsf,
@@ -164,7 +147,6 @@ pub fn parse_dff_info(path: &str) -> Result<DsdInfo, String> {
     let mut channels = 0u16;
     let mut dsd_rate = 0u32;
     let mut is_dst = false;
-    let mut data_offset = 0u64;
     let mut data_size = 0u64;
 
     loop {
@@ -233,12 +215,10 @@ pub fn parse_dff_info(path: &str) -> Result<DsdInfo, String> {
                     .map_err(|e| e.to_string())?;
             }
             b"DSD " => {
-                data_offset = chunk_data_start;
                 data_size = chunk_size;
                 break;
             }
             b"DST " => {
-                data_offset = chunk_data_start;
                 data_size = chunk_size;
                 is_dst = true;
                 break;
@@ -257,9 +237,7 @@ pub fn parse_dff_info(path: &str) -> Result<DsdInfo, String> {
     Ok(DsdInfo {
         channels,
         dsd_rate,
-        block_size: 0,
         sample_count: 0,
-        data_offset,
         data_size,
         is_dst,
         format: DsdFormat::Dff,
@@ -276,141 +254,6 @@ pub fn parse_dsd_info(path: &str) -> Result<DsdInfo, String> {
         b"DSD " => parse_dsf_info(path),
         b"FRM8" => parse_dff_info(path),
         _ => Err("not a DSD file (expected DSD or FRM8 magic)".to_string()),
-    }
-}
-
-pub struct DopStreamSource {
-    reader: BufReader<File>,
-    start_offset: u64,
-    data_size: u64,
-    data_remaining: u64,
-    channels: usize,
-    block_size: usize,
-    cps: usize,
-    buf: Vec<u8>,
-    frames_in_buf: usize,
-    frames_left: usize,
-    frame_index: u64,
-    format: DsdFormat,
-}
-
-impl DopStreamSource {
-    pub fn open(path: &str, info: &DsdInfo) -> Result<Self, String> {
-        let mut file = File::open(path).map_err(|e| e.to_string())?;
-        file.seek(SeekFrom::Start(info.data_offset)).map_err(|e| e.to_string())?;
-        let (block_size, cps) = match info.format {
-            DsdFormat::Dsf => {
-                let bs = info.block_size as usize;
-                (bs, info.channels as usize * bs)
-            }
-            DsdFormat::Dff => {
-                let bs = DFF_BUFFER_FRAMES;
-                (bs, info.channels as usize * bs)
-            }
-        };
-        Ok(Self {
-            reader: BufReader::with_capacity(1 << 16, file),
-            start_offset: info.data_offset,
-            data_size: info.data_size,
-            data_remaining: info.data_size,
-            channels: info.channels as usize,
-            block_size,
-            cps,
-            buf: Vec::new(),
-            frames_in_buf: 0,
-            frames_left: 0,
-            frame_index: 0,
-            format: info.format,
-        })
-    }
-
-    fn load_block(&mut self) -> Result<bool, String> {
-        if self.data_remaining == 0 {
-            return Ok(false);
-        }
-        self.buf.resize(self.cps, 0);
-        let mut filled = 0usize;
-        while filled < self.cps {
-            let n = self.reader.read(&mut self.buf[filled..]).map_err(|e| e.to_string())?;
-            if n == 0 {
-                break;
-            }
-            filled += n;
-        }
-        self.data_remaining = self.data_remaining.saturating_sub(filled as u64);
-        if filled == 0 {
-            return Ok(false);
-        }
-        match self.format {
-            DsdFormat::Dsf => {
-                self.frames_in_buf = self.block_size;
-                self.frames_left = self.block_size;
-            }
-            DsdFormat::Dff => {
-                self.frames_in_buf = filled / self.channels;
-                self.frames_left = self.frames_in_buf;
-            }
-        }
-        Ok(true)
-    }
-
-    pub fn next_frames(&mut self, out: &mut Vec<u8>, max_frames: usize) -> Result<usize, String> {
-        let mut produced = 0usize;
-        while produced < max_frames {
-            if self.frames_left == 0 && !self.load_block()? {
-                break;
-            }
-            let frame_in_buf = self.frames_in_buf - self.frames_left;
-            let marker = if self.frame_index & 1 == 0 { DOP_MARKER_LOW } else { DOP_MARKER_HIGH };
-            for ch in 0..self.channels {
-                let db = match self.format {
-                    DsdFormat::Dsf => self.buf[frame_in_buf + ch * self.block_size],
-                    DsdFormat::Dff => self.buf[frame_in_buf * self.channels + ch],
-                };
-                out.push(db);
-                out.push(0);
-                out.push(marker);
-            }
-            self.frames_left -= 1;
-            self.frame_index += 1;
-            produced += 1;
-        }
-        Ok(produced)
-    }
-
-    pub fn seek_to_frame(&mut self, target_frame: u64) -> Result<u64, String> {
-        match self.format {
-            DsdFormat::Dsf => {
-                let block_size = self.block_size as u64;
-                let block_index = target_frame / block_size;
-                let aligned_frame = block_index * block_size;
-                let byte_off = block_index
-                    .saturating_mul(self.channels as u64 * block_size)
-                    .min(self.data_size);
-                self.reader
-                    .seek(SeekFrom::Start(self.start_offset + byte_off))
-                    .map_err(|e| e.to_string())?;
-                self.data_remaining = self.data_size - byte_off;
-                self.frames_in_buf = 0;
-                self.frames_left = 0;
-                self.frame_index = aligned_frame;
-                Ok(aligned_frame)
-            }
-            DsdFormat::Dff => {
-                let channels = self.channels as u64;
-                let byte_off = target_frame
-                    .saturating_mul(channels)
-                    .min(self.data_size);
-                self.reader
-                    .seek(SeekFrom::Start(self.start_offset + byte_off))
-                    .map_err(|e| e.to_string())?;
-                self.data_remaining = self.data_size - byte_off;
-                self.frames_in_buf = 0;
-                self.frames_left = 0;
-                self.frame_index = target_frame;
-                Ok(target_frame)
-            }
-        }
     }
 }
 
@@ -464,35 +307,8 @@ mod tests {
         let info = parse_dsf_info(&path).unwrap();
         assert_eq!(info.channels, 1);
         assert_eq!(info.dsd_rate, 2_822_400);
-        assert_eq!(info.block_size, 4);
         assert_eq!(info.sample_count, 4);
         assert!(!info.is_dst);
-        assert_eq!(dop_pcm_rate(info.dsd_rate), Some(352_800));
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[test]
-    fn mono_dop_frame_layout() {
-        let bytes = build_dsf(1, 4, 2_822_400, &[0xAA, 0x55, 0xFF, 0x00]);
-        let path = write_tmp(&bytes, "mono-frames");
-        let info = parse_dsf_info(&path).unwrap();
-        let mut src = DopStreamSource::open(&path, &info).unwrap();
-        let mut out = Vec::new();
-
-        for _ in 0..4 {
-            assert_eq!(src.next_frames(&mut out, 1).unwrap(), 1);
-        }
-        assert_eq!(out.len(), 4 * 3);
-
-        let mut i = 0;
-        for frame in 0..4 {
-            let marker = if frame & 1 == 0 { DOP_MARKER_LOW } else { DOP_MARKER_HIGH };
-            assert_eq!(out[i], [0xAA, 0x55, 0xFF, 0x00][frame]);
-            assert_eq!(out[i + 1], 0);
-            assert_eq!(out[i + 2], marker);
-            i += 3;
-        }
-        assert_eq!(src.next_frames(&mut out, 4).unwrap(), 0);
         let _ = std::fs::remove_file(&path);
     }
 

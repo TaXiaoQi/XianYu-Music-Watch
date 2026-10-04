@@ -1,31 +1,28 @@
 //! 统一播放命令层（Unified playback command layer）。
 //!
-//! 把移动端独占（AAudio）播放的所有控制命令收敛到单一枚举 + 单一分发入口，
+//! 把 AAudio DSP 管线播放的所有控制命令收敛到单一枚举 + 单一分发入口，
 //! 对齐桌面端 `AudioCommand` + session 运行时循环。前端任意播放控制
-//! （播放/暂停/恢复/跳转/停止/音量/响度/EQ/音效/Bit-perfect 直出）都经
+//! （播放/暂停/恢复/跳转/停止/音量/响度/EQ/音效）都经
 //! [`dispatch_playback_command`] 派发，避免散落的逐函数调用导致状态不一致。
 //!
-//! 说明：腕端常规播放由 Flutter 侧 just_audio 负责，Rust 仅接管 USB 独占
-//! 直出（AAudio）。因此本命令层面向独占引擎；对常规播放无副作用。
+//! 说明：腕端常规播放由 Flutter 侧 just_audio 负责，Rust 承接共享模式
+//! DSP 管线（手表音效页与蓝牙同步手机音效）。因此本命令层面向 AAudio
+//! 引擎；对常规播放无副作用。
 
 use crate::player::output;
 
 /// 统一播放命令。
 #[derive(Clone, Debug)]
 pub enum PlaybackCommand {
-    /// 启动播放（独占或共享 DSP 管线，见 `shared_mode`）。
+    /// 启动播放（共享模式 DSP 管线）。
     Play {
         path: String,
-        device_id: i32,
         volume: f32,
         start_time_secs: f64,
         is_playing: bool,
         volume_balance_gain: f32,
         equalizer_settings_json: String,
         sound_effect_settings_json: String,
-        bit_perfect: bool,
-        dsd_native_passthrough: bool,
-        shared_mode: bool,
         /// 在线流缓存直读 URL（对齐桌面端 StreamingTempFile 模型）。
         stream_cache_url: Option<String>,
         /// 流缓存直链上游请求头（冷启动下载用）。
@@ -43,7 +40,7 @@ pub enum PlaybackCommand {
     Seek { time_secs: f64, is_playing: bool },
     /// 停止并释放设备。
     Stop,
-    /// 设置用户音量（0.0–1.0）。Bit-perfect 直出时被旁通。
+    /// 设置用户音量（0.0–1.0）。
     SetVolume(f32),
     /// 更新响度归一化（ReplayGain）目标增益。
     SetVolumeBalanceGain(f32),
@@ -51,8 +48,6 @@ pub enum PlaybackCommand {
     SetEqualizer(String),
     /// 更新音效设置（camelCase JSON）。
     SetSoundEffect(String),
-    /// 运行时切换 Bit-perfect 直出（绕过响度/EQ/音效/音量）。
-    SetBitPerfect(bool),
     /// 跳过静音开关/阈值/保留时长（运行期切换，无需重启管线）。
     SetSkipSilence {
         enabled: bool,
@@ -73,21 +68,17 @@ pub enum PlaybackCommand {
 
 /// 统一分发入口。
 ///
-/// `Play` 返回设备名；其余返回空串。错误返回 `Err`（含「未处于独占播放」）。
+/// `Play` 返回设备描述；其余返回空串。错误返回 `Err`（含「未处于播放中」）。
 pub fn dispatch_playback_command(cmd: PlaybackCommand) -> Result<String, String> {
     match cmd {
         PlaybackCommand::Play {
             path,
-            device_id,
             volume,
             start_time_secs,
             is_playing,
             volume_balance_gain,
             equalizer_settings_json,
             sound_effect_settings_json,
-            bit_perfect,
-            dsd_native_passthrough,
-            shared_mode,
             stream_cache_url,
             stream_cache_headers,
             skip_silence_enabled,
@@ -96,16 +87,12 @@ pub fn dispatch_playback_command(cmd: PlaybackCommand) -> Result<String, String>
         } => {
             let request = output::ExclusivePlayRequest {
                 path,
-                device_id,
                 volume,
                 start_time_secs,
                 is_playing,
                 volume_balance_gain,
                 equalizer_settings_json,
                 sound_effect_settings_json,
-                bit_perfect,
-                dsd_native_passthrough,
-                shared_mode,
                 stream_cache_url,
                 stream_cache_headers,
                 skip_silence_enabled,
@@ -144,10 +131,6 @@ pub fn dispatch_playback_command(cmd: PlaybackCommand) -> Result<String, String>
         }
         PlaybackCommand::SetSoundEffect(json) => {
             output::set_exclusive_sound_effect(json)?;
-            Ok(String::new())
-        }
-        PlaybackCommand::SetBitPerfect(enabled) => {
-            output::set_exclusive_bit_perfect(enabled);
             Ok(String::new())
         }
         PlaybackCommand::SetSkipSilence {

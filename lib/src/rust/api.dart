@@ -7,7 +7,7 @@ import 'frb_generated.dart';
 import 'music/types.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `global_playback_session`, `open_scan_conn`, `open_stats_conn`, `parse_remote_source`, `stats_schema_ready`
+// These functions are ignored because they are not marked as `pub`: `open_scan_conn`, `open_stats_conn`, `parse_remote_source`, `stats_schema_ready`
 
 Future<String> parseLyrics({required String rawLyrics}) =>
     RustLib.instance.api.crateApiParseLyrics(rawLyrics: rawLyrics);
@@ -620,26 +620,19 @@ Future<String> resolveDownloadFullPath({
   overwriteExisting: overwriteExisting,
 );
 
-/// 启动 USB 独占播放。返回设备名或错误信息。
-/// `device_id` = AAudio 设备 ID（USB DAC），-1 = 默认设备。
-/// `bit_perfect` = Bit-perfect 直出（绕过响度/EQ/音效/音量，按源位深整数直出）。
-/// `dsd_native_passthrough` = DSD(.dsf/.dff) 原生 DoP 直通开关。
+/// 启动 AAudio 共享模式 DSP 播放（走系统混音器，输出到当前默认设备）。返回设备名或错误信息。
 /// `stream_cache_url` = 在线流缓存直读 URL（对齐桌面端 StreamingTempFile 模型，
 /// 经 Rust 流缓存 Reader 解码，单上游连接；与预热线程 `stream_cache_begin_url_download`
 /// 按 URL 命中同一缓存条目）。`stream_cache_headers` = 直链上游请求头 JSON 对象字符串，
 /// 供缓存下载线程冷启动使用。
 Future<String> startUsbExclusivePlayback({
   required String path,
-  required int deviceId,
   required double volume,
   required double startTimeSecs,
   required bool isPlaying,
   required double volumeBalanceGain,
   required String equalizerSettingsJson,
   required String soundEffectSettingsJson,
-  required bool bitPerfect,
-  required bool dsdNativePassthrough,
-  required bool sharedMode,
   String? streamCacheUrl,
   String? streamCacheHeaders,
   required bool skipSilenceEnabled,
@@ -647,16 +640,12 @@ Future<String> startUsbExclusivePlayback({
   required int skipSilenceKeepMs,
 }) => RustLib.instance.api.crateApiStartUsbExclusivePlayback(
   path: path,
-  deviceId: deviceId,
   volume: volume,
   startTimeSecs: startTimeSecs,
   isPlaying: isPlaying,
   volumeBalanceGain: volumeBalanceGain,
   equalizerSettingsJson: equalizerSettingsJson,
   soundEffectSettingsJson: soundEffectSettingsJson,
-  bitPerfect: bitPerfect,
-  dsdNativePassthrough: dsdNativePassthrough,
-  sharedMode: sharedMode,
   streamCacheUrl: streamCacheUrl,
   streamCacheHeaders: streamCacheHeaders,
   skipSilenceEnabled: skipSilenceEnabled,
@@ -696,12 +685,6 @@ Future<void> setUsbExclusiveSoundEffect({required String settingsJson}) =>
     RustLib.instance.api.crateApiSetUsbExclusiveSoundEffect(
       settingsJson: settingsJson,
     );
-
-Future<void> setUsbExclusiveBitPerfect({required bool enabled}) =>
-    RustLib.instance.api.crateApiSetUsbExclusiveBitPerfect(enabled: enabled);
-
-Future<bool> getUsbExclusiveBitPerfect() =>
-    RustLib.instance.api.crateApiGetUsbExclusiveBitPerfect();
 
 Future<String> getUsbExclusiveDeviceInfo() =>
     RustLib.instance.api.crateApiGetUsbExclusiveDeviceInfo();
@@ -1350,45 +1333,6 @@ Future<Uint8List> streamCacheReadUrl({
   maxLen: maxLen,
 );
 
-/// 批量音频格式转换入口。
-/// `options_json` 格式：`{"targetFormat":"wav"|"flac", "sampleRate": null|u32}`
-/// 返回 `ConvertResult[]` JSON，每项含 inputPath / outputPath / success / error / durationSecs。
-Future<String> convertAudioBatch({
-  required List<String> inputPaths,
-  required String outDir,
-  required String optionsJson,
-}) => RustLib.instance.api.crateApiConvertAudioBatch(
-  inputPaths: inputPaths,
-  outDir: outDir,
-  optionsJson: optionsJson,
-);
-
-/// 查询输入文件是否可被本模块解码。
-Future<List<String>> audioConvertSupportedInputs() =>
-    RustLib.instance.api.crateApiAudioConvertSupportedInputs();
-
-/// 本模块支持的目标输出格式。
-Future<List<String>> audioConvertSupportedOutputs() =>
-    RustLib.instance.api.crateApiAudioConvertSupportedOutputs();
-
-/// 单文件音频剪辑（时间段截取 + 重编码）。
-/// `options_json` 格式：`{"targetFormat":"wav"|"flac"|"mp3","sampleRate":null|u32,
-/// "startSecs":f64,"endSecs":f64,"keepCover":bool,"keepLyrics":bool,"outStem":null|String}`
-/// 返回单个 `ConvertResult` JSON。
-Future<String> trimAudio({
-  required String inputPath,
-  required String outDir,
-  required String optionsJson,
-}) => RustLib.instance.api.crateApiTrimAudio(
-  inputPath: inputPath,
-  outDir: outDir,
-  optionsJson: optionsJson,
-);
-
-/// 探测音频时长（秒）。容器/头信息可估算时直接返回，否则完整解码统计。
-Future<double> audioProbeDuration({required String path}) =>
-    RustLib.instance.api.crateApiAudioProbeDuration(path: path);
-
 Future<String> updateLoudnessSettings({
   required String dbPath,
   required bool enabled,
@@ -1403,14 +1347,6 @@ Future<String> updateLoudnessSettings({
   songPath: songPath,
   gainOffsetDb: gainOffsetDb,
   preventClipping: preventClipping,
-);
-
-Future<String> mergeCloudListenDuration({
-  required String dbPath,
-  required PlatformInt64 totalSeconds,
-}) => RustLib.instance.api.crateApiMergeCloudListenDuration(
-  dbPath: dbPath,
-  totalSeconds: totalSeconds,
 );
 
 Future<String> statsExportListenSnapshot({required String dbPath}) =>

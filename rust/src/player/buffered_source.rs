@@ -1,4 +1,4 @@
-﻿use std::collections::{VecDeque};
+use std::collections::{VecDeque};
 use std::marker::{PhantomData};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender};
@@ -124,14 +124,20 @@ where
 		let thread_handle = thread::Builder::new()
 			.name("xy-buffered-source".to_string())
 			.spawn(move || {
-				producer_loop(
-					producer,
-					cmd_rx,
-					sample_tx,
-					ack_tx,
-					stop_flag_clone,
-					monitor_clone,
-				)
+				// panic 捕获：生产者静默死亡会被音频侧当成自然 EOF，先留痕
+				let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+					producer_loop(
+						producer,
+						cmd_rx,
+						sample_tx,
+						ack_tx,
+						stop_flag_clone,
+						monitor_clone,
+					)
+				}));
+				if res.is_err() {
+					PRODUCER_PANICKED.store(true, Ordering::Relaxed);
+				}
 			})
 			.ok();
 
@@ -236,6 +242,22 @@ where
 		self.prefill_one_block();
 		Ok(())
 	}
+
+	/// 排空通道中未消费的样本块（seek 超时/失败路径用：生产者稍后补新位置的
+	/// 块，不排空会先回放 seek 前位置的样本）。
+	pub fn drain_stale(&mut self) {
+		while self.sample_rx.try_recv().is_ok() {}
+		self.current_block.clear();
+	}
+}
+
+/// 生产者线程 panic 标志：线程静默死亡会让音频侧把 panic 误判成自然 EOF，
+/// 这里置位后由播放引擎在 EOF 退出时读走，并入死亡消息保留真实死因。
+static PRODUCER_PANICKED: AtomicBool = AtomicBool::new(false);
+
+/// 读取并清除生产者 panic 标志。
+pub fn take_producer_panicked() -> bool {
+	PRODUCER_PANICKED.swap(false, Ordering::Relaxed)
 }
 
 fn producer_loop<P: BlockProducer + Send>(

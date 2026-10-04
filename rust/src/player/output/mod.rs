@@ -1,8 +1,6 @@
-//! Android USB 独占音频输出模块。
+//! Android AAudio 共享模式音频输出模块。
 //!
-//! 移植自 RawS 的 `native_audio_engine.cpp` AAudio DIRECT 路径。
-//! 通过 `AAUDIO_SHARING_MODE_EXCLUSIVE` 绕过 Android 混音器，
-//! 直接路由到 USB DAC，实现 bit-perfect 独占播放。
+//! 共享流走系统混音器，承接全效果链 DSP 管线（手表音效页/蓝牙同步手机音效）。
 //!
 //! 仅在 `target_os = "android"` 编译；其他平台提供桩函数返回不支持。
 
@@ -11,13 +9,11 @@ use serde::{Deserialize, Serialize};
 #[cfg(target_os = "android")]
 pub(crate) mod android_aaudio;
 
-/// 独占播放启动请求。
+/// DSP 管线播放启动请求。
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ExclusivePlayRequest {
-    /// 本地文件路径
+    /// 本地文件路径或流缓存直链 URL
     pub path: String,
-    /// AAudio 设备 ID（USB DAC），-1 = 默认设备
-    pub device_id: i32,
     /// 初始音量 0.0–1.0
     pub volume: f32,
     /// 起始播放位置（秒）
@@ -30,17 +26,6 @@ pub struct ExclusivePlayRequest {
     pub equalizer_settings_json: String,
     /// 音效设置 JSON（camelCase），空串 = 默认
     pub sound_effect_settings_json: String,
-    /// Bit-perfect 输出：绕过响度归一化/EQ/音效/用户音量，按源位深整数直出。
-    /// 开启时 DSP 全部旁通，仅保留安全限幅。
-    pub bit_perfect: bool,
-    /// DSD 原生 DoP 直通开关：仅对 .dsf/.dff 且为真时走 DoP 打包直出
-    /// （绕过解码器与 DSP）；为假时 DSD 容器按 PCM 解码走常规管线。
-    pub dsd_native_passthrough: bool,
-    /// 共享模式 DSP 管线（日常播放）：AAudio 共享流走系统混音器输出到
-    /// 当前默认设备，全效果链（EQ/混响/空间音效/变速变调）生效。
-    /// 共享模式下 bit_perfect/DSD 直通/device_id 均被忽略。
-    #[serde(default)]
-    pub shared_mode: bool,
     /// 在线流缓存直读 URL：Some(url) 时解码输入经 Rust 流缓存 Reader
     /// （复用/启动 `start_streaming_download` 下载线程，单上游连接），
     /// 对齐桌面端 StreamingTempFile 模型；`path` 字段此时仅作扩展名探测。
@@ -67,7 +52,7 @@ pub struct ExclusivePlayRequest {
 // 跨平台 API（非 Android 为桩实现）
 // =========================================================================
 
-/// 启动 USB 独占播放。返回设备名或错误信息。
+/// 启动共享模式 DSP 管线播放。返回设备描述或错误信息。
 pub fn start_exclusive_playback(request: ExclusivePlayRequest) -> Result<String, String> {
     #[cfg(target_os = "android")]
     {
@@ -76,7 +61,7 @@ pub fn start_exclusive_playback(request: ExclusivePlayRequest) -> Result<String,
     #[cfg(not(target_os = "android"))]
     {
         let _ = request;
-        Err("USB 独占模式仅在 Android 端可用".to_string())
+        Err("AAudio DSP 管线仅在 Android 端可用".to_string())
     }
 }
 
@@ -166,19 +151,6 @@ pub fn set_exclusive_sound_effect(settings_json: String) -> Result<(), String> {
     }
 }
 
-/// 运行时切换 Bit-perfect 直出：开启时立即绕过响度/EQ/音效/音量；
-/// 关闭时恢复当前 DSP 链。格式协商（整数 vs 浮点）在启动时按初始值确定。
-pub fn set_exclusive_bit_perfect(enabled: bool) {
-    #[cfg(target_os = "android")]
-    {
-        android_aaudio::set_exclusive_bit_perfect(enabled);
-    }
-    #[cfg(not(target_os = "android"))]
-    {
-        let _ = enabled;
-    }
-}
-
 /// 运行时切换跳过静音（开关 + 阈值 dBFS + 保留时长 ms），不需要重启管线。
 pub fn set_exclusive_skip_silence(enabled: bool, threshold_db: f32, keep_ms: u32) {
     #[cfg(target_os = "android")]
@@ -239,18 +211,6 @@ pub fn set_exclusive_crossfade(ms: u32) {
     }
 }
 
-/// 查询当前独占播放是否处于 Bit-perfect 直出状态。
-pub fn is_exclusive_bit_perfect() -> bool {
-    #[cfg(target_os = "android")]
-    {
-        android_aaudio::is_exclusive_bit_perfect()
-    }
-    #[cfg(not(target_os = "android"))]
-    {
-        false
-    }
-}
-
 /// 独占播放是否活跃。
 pub fn is_exclusive_active() -> bool {
     #[cfg(target_os = "android")]
@@ -275,18 +235,6 @@ pub fn get_exclusive_position_secs() -> f64 {
     }
 }
 
-/// 获取当前播放采样率。
-pub fn get_exclusive_sample_rate() -> u32 {
-    #[cfg(target_os = "android")]
-    {
-        android_aaudio::get_exclusive_sample_rate()
-    }
-    #[cfg(not(target_os = "android"))]
-    {
-        0
-    }
-}
-
 /// 查询当前独占播放输出设备/格式信息（JSON），用于前端展示已选输出。
 pub fn get_exclusive_device_info() -> String {
     #[cfg(target_os = "android")]
@@ -300,20 +248,7 @@ pub fn get_exclusive_device_info() -> String {
             "deviceName": "",
             "sampleRate": 0,
             "channels": 0,
-            "bitPerfect": false,
         })
         .to_string()
-    }
-}
-
-/// 获取当前声道数。
-pub fn get_exclusive_channels() -> u16 {
-    #[cfg(target_os = "android")]
-    {
-        android_aaudio::get_exclusive_channels()
-    }
-    #[cfg(not(target_os = "android"))]
-    {
-        0
     }
 }

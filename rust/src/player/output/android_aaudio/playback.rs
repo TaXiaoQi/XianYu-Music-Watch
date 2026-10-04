@@ -1,4 +1,4 @@
-//! 独占播放状态机：进度/命令通道、控制面 API 与后台播放循环。
+//! AAudio 共享模式 DSP 管线播放状态机：进度/命令通道、控制面 API 与后台播放循环。
 
 use super::*;
 
@@ -44,8 +44,6 @@ pub(crate) enum ExclusiveCommand {
     SetVolumeBalanceGain(f32),
     SetEqualizer(EqualizerSettings),
     SetSoundEffect(SoundEffectSettings),
-    /// Bit-perfect 直出运行时切换：开启即绕过响度/EQ/音效/音量。
-    SetBitPerfect(bool),
     /// 跳过静音运行时切换（开关 + 阈值 + 保留时长），无需重启管线。
     SetSkipSilence {
         enabled: bool,
@@ -73,10 +71,8 @@ pub(crate) struct AndroidExclusivePlayback {
     join_handle: Option<thread::JoinHandle<()>>,
     progress: Arc<ExclusiveProgress>,
     device_name: String,
-    /// Bit-perfect 直出当前状态（供外部查询，工作线程持有同一 Arc）。
-    bit_perfect: Arc<AtomicBool>,
-    /// 工作线程是否仍在运行（true=设备连接中且在播放循环内；
-    /// false=USB DAC 断开或播放结束已退出，供 Flutter 侧检测热插拔并自动回退）。
+    /// 工作线程是否仍在运行（true=播放循环内；false=设备断开或播放结束
+    /// 已退出，供 Flutter 侧检测并自动回退）。
     running: Arc<AtomicBool>,
     /// 工作线程退出原因（供 Flutter 侧日志诊断；空=正常 Stop）。
     last_error: Arc<Mutex<Option<String>>>,
@@ -105,13 +101,7 @@ pub(crate) fn instance() -> &'static Mutex<Option<AndroidExclusivePlayback>> {
 // 公共 API
 // =========================================================================
 
-pub fn start_exclusive_playback(
-    mut request: ExclusivePlayRequest,
-) -> Result<String, String> {
-    // 共享模式（日常 DSP 管线）不涉及 Bit-perfect 直出。
-    if request.shared_mode {
-        request.bit_perfect = false;
-    }
+pub fn start_exclusive_playback(request: ExclusivePlayRequest) -> Result<String, String> {
     // SSRF 纵深：HTTP 直链为 IP 字面量且命中禁区时拒绝（对齐桌面端 play_audio
     // 入口校验）。放行本机回环——在线播放的 DSP 管线输入是 Dart 本地回环代理
     // URL（插件头注入/缓存伺服），属进程内合法链路；云元数据/私网等仍拒绝。
@@ -128,15 +118,11 @@ pub fn start_exclusive_playback(
     let (tx, rx) = mpsc::channel::<ExclusiveCommand>();
     let (init_tx, init_rx) = mpsc::sync_channel::<Result<(String, u32, u16), String>>(1);
     let progress_clone = progress.clone();
-    let bit_perfect = Arc::new(AtomicBool::new(request.bit_perfect));
-    let bit_perfect_clone = bit_perfect.clone();
     let running = Arc::new(AtomicBool::new(true));
     let running_clone = running.clone();
     let last_error: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
     let last_error_clone = last_error.clone();
 
-    // 共享模式标记先取出：request 即将整体 move 进播放线程。
-    let shared_mode = request.shared_mode;
     // 流缓存直读路径：播放线程需等最小缓冲（≤8s）+ 探测 + 初始 seek 追下载进度，
     // 放宽初始化等待窗口；超时仍由调用方回退 ExoPlayer。
     let stream_cache = request.stream_cache_url.is_some();
@@ -149,7 +135,6 @@ pub fn start_exclusive_playback(
                 rx,
                 init_tx,
                 progress_clone,
-                bit_perfect_clone,
                 running_clone,
                 last_error_clone,
             );
@@ -161,10 +146,8 @@ pub fn start_exclusive_playback(
     // 缓冲等待与初始 seek 追下载，放宽到 15s；超时由调用方回退 ExoPlayer。
     let init_wait = if stream_cache {
         Duration::from_secs(15)
-    } else if shared_mode {
-        Duration::from_secs(6)
     } else {
-        Duration::from_secs(3)
+        Duration::from_secs(6)
     };
     let device_name = match init_rx.recv_timeout(init_wait) {
         Ok(Ok((name, sr, ch))) => {
@@ -187,7 +170,6 @@ pub fn start_exclusive_playback(
         join_handle: Some(handle),
         progress,
         device_name: device_name.clone(),
-        bit_perfect,
         running,
         last_error,
     };
@@ -285,25 +267,6 @@ pub fn resume_exclusive() {
     }
 }
 
-/// 运行时切换 Bit-perfect 直出。开启时 DSP 全部旁通、音量置 1.0；
-/// 关闭时恢复当前响度/EQ/音效/音量。
-pub fn set_exclusive_bit_perfect(enabled: bool) {
-    if let Ok(guard) = instance().lock() {
-        if let Some(playback) = guard.as_ref() {
-            let _ = playback.tx.send(ExclusiveCommand::SetBitPerfect(enabled));
-        }
-    }
-}
-
-pub fn is_exclusive_bit_perfect() -> bool {
-    if let Ok(guard) = instance().lock() {
-        if let Some(playback) = guard.as_ref() {
-            return playback.bit_perfect.load(Ordering::Relaxed);
-        }
-    }
-    false
-}
-
 /// 运行时切换跳过静音（开关 + 阈值 + 保留时长），不需要重启管线。
 pub fn set_exclusive_skip_silence(enabled: bool, threshold_db: f32, keep_ms: u32) {
     if let Ok(guard) = instance().lock() {
@@ -377,30 +340,12 @@ pub fn get_exclusive_position_secs() -> f64 {
     0.0
 }
 
-pub fn get_exclusive_sample_rate() -> u32 {
-    if let Ok(guard) = instance().lock() {
-        if let Some(playback) = guard.as_ref() {
-            return playback.progress.sample_rate.load(Ordering::Relaxed);
-        }
-    }
-    0
-}
-
-pub fn get_exclusive_channels() -> u16 {
-    if let Ok(guard) = instance().lock() {
-        if let Some(playback) = guard.as_ref() {
-            return playback.progress.channels.load(Ordering::Relaxed) as u16;
-        }
-    }
-    0
-}
-
 /// 查询当前独占播放输出设备/格式信息（用于前端展示已选输出）。
-/// `active` 反映工作线程真实运行态：USB DAC 拔出或播放结束后为 false，
-/// 供前端检测热插拔断开并自动回退到普通播放。
-/// 返回 `{"active":bool,"deviceName":String,"sampleRate":u32,"channels":u16,"bitPerfect":bool}` JSON。
+/// `active` 反映工作线程真实运行态：设备断开或播放结束后为 false，
+/// 供前端检测断开并自动回退到普通播放。
+/// 返回 `{"active":bool,"deviceName":String,"sampleRate":u32,"channels":u16,...}` JSON。
 pub fn get_exclusive_device_info() -> String {
-    let (active, device_name, sample_rate, channels, bit_perfect, duration_ms, last_error, transition_seq) =
+    let (active, device_name, sample_rate, channels, duration_ms, last_error, transition_seq) =
         if let Ok(guard) = instance().lock() {
             if let Some(playback) = guard.as_ref() {
                 (
@@ -408,7 +353,6 @@ pub fn get_exclusive_device_info() -> String {
                     playback.device_name.clone(),
                     playback.progress.sample_rate.load(Ordering::Relaxed),
                     playback.progress.channels.load(Ordering::Relaxed) as u16,
-                    playback.bit_perfect.load(Ordering::Relaxed),
                     playback.progress.duration_ms.load(Ordering::Relaxed),
                     playback
                         .last_error
@@ -419,17 +363,16 @@ pub fn get_exclusive_device_info() -> String {
                     playback.progress.transition_seq.load(Ordering::Relaxed),
                 )
             } else {
-                (false, String::new(), 0, 0, false, 0, String::new(), 0)
+                (false, String::new(), 0, 0, 0, String::new(), 0)
             }
         } else {
-            (false, String::new(), 0, 0, false, 0, String::new(), 0)
+            (false, String::new(), 0, 0, 0, String::new(), 0)
         };
     serde_json::json!({
         "active": active,
         "deviceName": device_name,
         "sampleRate": sample_rate,
         "channels": channels,
-        "bitPerfect": bit_perfect,
         "durationSecs": duration_ms as f64 / 1000.0,
         "lastError": last_error,
         "transitionSeq": transition_seq,
@@ -476,7 +419,6 @@ pub(crate) fn run_exclusive_playback(
     cmd_rx: Receiver<ExclusiveCommand>,
     init_tx: SyncSender<Result<(String, u32, u16), String>>,
     progress: Arc<ExclusiveProgress>,
-    bit_perfect: Arc<AtomicBool>,
     running: Arc<AtomicBool>,
     last_error: Arc<Mutex<Option<String>>>,
 ) {
@@ -492,29 +434,7 @@ pub(crate) fn run_exclusive_playback(
         }
     };
 
-    // 1.5 DSD（dsf/dff）原生 DoP 直出：仅当打开「DSD 原生直通」且当前处于
-    // Bit-perfect 直出状态才走 DoP 打包（绕过解码器与 DSP，逐帧打包 24-bit）。
-    // 关闭直通时 DSD 容器降级为 PCM 解码，走常规 DSP 管线。
-    // 共享模式不走 DoP（系统混音器无法透传 DSD）；流缓存直读（在线）同理。
-    if request.dsd_native_passthrough
-        && !request.shared_mode
-        && request.stream_cache_url.is_none()
-        && is_dsd_path(&request.path)
-    {
-        run_dsd_passthrough(
-            request,
-            lib,
-            cmd_rx,
-            init_tx,
-            progress,
-            bit_perfect,
-            running,
-            last_error,
-        );
-        return;
-    }
-
-    // 1.6 预构建流缓存直读 Reader（在线歌曲对齐桌面端 StreamingTempFile 模型）：
+    // 1.5 预构建流缓存直读 Reader（在线歌曲对齐桌面端 StreamingTempFile 模型）：
     // 复用/启动 start_streaming_download 下载线程（与 Dart 侧预热按 URL 命中
     // 同一条目，维持单上游连接），等最小缓冲（256KB）就绪后交解码器探测。
     let mut cache_state: Option<crate::player::stream_cache::StreamingTempFileState> = None;
@@ -587,10 +507,9 @@ pub(crate) fn run_exclusive_playback(
     let source_channels = decoder.channels;
     let total_duration = decoder.total_duration;
 
-    // 对齐桌面端策略：共享模式走系统混音器，>2 声道流（伪 6ch 全景声等）
-    // 混音器不做声道映射会直接破音，样本层下混为立体声（ITU BS.775）；
-    // 独占模式仍按源声道直出（USB DAC 支持时），失败照旧回退。
-    let playback_channels: u16 = if request.shared_mode && source_channels > 2 {
+    // 对齐桌面端策略：共享流走系统混音器，>2 声道流（伪 6ch 全景声等）
+    // 混音器不做声道映射会直接破音，样本层下混为立体声（ITU BS.775）。
+    let playback_channels: u16 = if source_channels > 2 {
         2
     } else {
         source_channels
@@ -642,24 +561,15 @@ pub(crate) fn run_exclusive_playback(
         }
     }
 
-    // 5. 装配 DSP 链。
-    // Bit-perfect 直出：绕过响度归一化/EQ/音效，音量恒为 1.0，仅保留安全限幅；
-    // 仍构造链对象以便运行时关闭直出后无缝恢复。
-    let initial_bit_perfect = request.bit_perfect;
+    // 5. 装配 DSP 链（响度归一化 → EQ → 音效 → 用户音量 → 安全限幅）。
     let (mut normalizer, normalizer_handle) = VolumeNormalizer::new(
-        if initial_bit_perfect {
-            1.0
-        } else {
-            request.volume_balance_gain
-        },
+        request.volume_balance_gain,
         source_sample_rate,
         playback_channels,
         100,
     );
 
-    let eq_settings: EqualizerSettings = if initial_bit_perfect {
-        EqualizerSettings::default()
-    } else if request.equalizer_settings_json.is_empty() {
+    let eq_settings: EqualizerSettings = if request.equalizer_settings_json.is_empty() {
         EqualizerSettings::default()
     } else {
         serde_json::from_str(&request.equalizer_settings_json).unwrap_or_default()
@@ -668,7 +578,7 @@ pub(crate) fn run_exclusive_playback(
     let mut equalizer = Equalizer::new(source_sample_rate, playback_channels, eq_handle.clone());
 
     let mut sound_effect = SoundEffectBlockProcessor::new(source_sample_rate, playback_channels);
-    if !initial_bit_perfect && !request.sound_effect_settings_json.is_empty() {
+    if !request.sound_effect_settings_json.is_empty() {
         if let Ok(se_settings) =
             serde_json::from_str::<SoundEffectSettings>(&request.sound_effect_settings_json)
         {
@@ -683,44 +593,15 @@ pub(crate) fn run_exclusive_playback(
     let user_volume = Arc::new(AtomicU32::new(request.volume.to_bits()));
     let is_paused = Arc::new(AtomicBool::new(!request.is_playing));
 
-    // 6. 创建 AAudio 流。
-    // 共享模式：SHARED 共享流走系统混音器（全效果链生效），输出到所选设备
-    //（-1 = 系统默认设备，对齐桌面端共享模式可选输出设备）。
-    // 独占 Bit-perfect 时优先按源位深协商整数格式（≤16bit→Int16，>16bit→Int24，
-    // 深层浮点回退），实现「按源位深整数直出」；常规独占仍 Float32→Int16。
-    let (stream, device_format, stream_sample_rate, stream_channels) = if request.shared_mode {
-        match create_aaudio_stream(&lib, request.device_id, source_sample_rate, playback_channels, true) {
+    // 6. 创建 AAudio 共享流：走系统混音器（全效果链生效）。
+    let (stream, device_format, stream_sample_rate, stream_channels) =
+        match create_aaudio_stream(&lib, source_sample_rate, playback_channels) {
             Ok(result) => result,
             Err(e) => {
                 let _ = init_tx.send(Err(e));
                 return;
             }
-        }
-    } else if initial_bit_perfect {
-        let depth = probe_source_bit_depth(&request.path);
-        match create_aaudio_stream_bitperfect(
-            &lib,
-            request.device_id,
-            source_sample_rate,
-            source_channels,
-            depth,
-        ) {
-            Ok(result) => result,
-            Err(e) => {
-                let _ = init_tx.send(Err(e));
-                return;
-            }
-        }
-    } else {
-        match create_aaudio_stream(&lib, request.device_id, source_sample_rate, source_channels, false)
-        {
-            Ok(result) => result,
-            Err(e) => {
-                let _ = init_tx.send(Err(e));
-                return;
-            }
-        }
-    };
+        };
 
     let effective_rate = sound_effect.effective_sample_rate();
     progress.sample_rate.store(effective_rate, Ordering::Relaxed);
@@ -747,29 +628,16 @@ pub(crate) fn run_exclusive_playback(
     }
 
     // 8. 通知初始化成功
-    let device_name = if request.shared_mode {
-        format!(
-            "系统混音器 ({}Hz, {}ch shared){}",
-            stream_sample_rate,
-            stream_channels,
-            if downmix_active {
-                format!(" {}ch→2ch 下混", source_channels)
-            } else {
-                String::new()
-            }
-        )
-    } else {
-        format!(
-            "USB DAC ({}Hz, {}ch, {}bit exclusive)",
-            stream_sample_rate,
-            stream_channels,
-            match device_format {
-                DeviceFormat::Float32 => 32,
-                DeviceFormat::Int16 => 16,
-                DeviceFormat::I24Packed => 24,
-            }
-        )
-    };
+    let device_name = format!(
+        "系统混音器 ({}Hz, {}ch shared){}",
+        stream_sample_rate,
+        stream_channels,
+        if downmix_active {
+            format!(" {}ch→2ch 下混", source_channels)
+        } else {
+            String::new()
+        }
+    );
     let _ = init_tx.send(Ok((device_name, stream_sample_rate, stream_channels)));
 
     // 9. 轮询循环
@@ -827,7 +695,6 @@ pub(crate) fn run_exclusive_playback(
                 let _ = unsafe { (lib.stream_request_start)(stream) };
             }
             Ok(ExclusiveCommand::SetVolume(vol)) => {
-                // Bit-perfect 直出时音量被旁通，仅记录供关闭直出后恢复。
                 user_volume.store(vol.to_bits(), Ordering::Relaxed);
             }
             Ok(ExclusiveCommand::SetVolumeBalanceGain(gain)) => {
@@ -839,20 +706,6 @@ pub(crate) fn run_exclusive_playback(
             }
             Ok(ExclusiveCommand::SetSoundEffect(settings)) => {
                 sound_effect.set_settings(settings);
-            }
-            Ok(ExclusiveCommand::SetBitPerfect(enabled)) => {
-                bit_perfect.store(enabled, Ordering::Relaxed);
-                if enabled {
-                    // 进入直出：清空 DSP 内部状态，避免关闭直出时的历史中间值。
-                    normalizer.reset();
-                    equalizer.reset();
-                    sound_effect.reset();
-                    if is_paused.load(Ordering::Relaxed) {
-                        let _ = unsafe { (lib.stream_request_start)(stream) };
-                    }
-                    is_paused.store(false, Ordering::Relaxed);
-                }
-                // 关闭直出：仅恢复绕过的 DSP 链，不改变暂停状态。
             }
             Ok(ExclusiveCommand::SetSkipSilence {
                 enabled,
@@ -989,20 +842,13 @@ pub(crate) fn run_exclusive_playback(
             block
         };
 
-        // DSP 链处理。Bit-perfect 直出：绕过响度/EQ/音效/主音量，仅保留安全限幅（对齐桌面端）。
-        let do_bypass = bit_perfect.load(Ordering::Relaxed);
-        let mut effected = if do_bypass {
-            block
-        } else {
-            let normalized = normalizer.process_block(&block);
-            let eq_applied = equalizer.process_block(&normalized);
-            sound_effect.process_block(eq_applied)
-        };
+        // DSP 链处理（响度归一化 → EQ → 音效，对齐桌面端）。
+        let normalized = normalizer.process_block(&block);
+        let eq_applied = equalizer.process_block(&normalized);
+        let mut effected = sound_effect.process_block(eq_applied);
 
-        // 用户音量渐变（直出时旁通，对齐桌面端 bit-perfect 分支）+ 最终安全限幅。
-        if !do_bypass {
-            user_volume_source.process_block(&mut effected, playback_channels, &user_volume);
-        }
+        // 用户音量渐变 + 最终安全限幅。
+        user_volume_source.process_block(&mut effected, playback_channels, &user_volume);
         clip_guard.process_block(&mut effected);
 
         // 格式转换（音量/限幅已在缓冲级应用）

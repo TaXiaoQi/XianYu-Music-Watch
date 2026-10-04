@@ -852,13 +852,10 @@ pub fn resolve_download_full_path(
 }
 
 // =========================================================================
-// USB 独占音频输出（仅 Android）
+// AAudio 共享模式 DSP 管线（仅 Android；frb 函数名保留 usb_exclusive 前缀）
 // =========================================================================
 
-/// 启动 USB 独占播放。返回设备名或错误信息。
-/// `device_id` = AAudio 设备 ID（USB DAC），-1 = 默认设备。
-/// `bit_perfect` = Bit-perfect 直出（绕过响度/EQ/音效/音量，按源位深整数直出）。
-/// `dsd_native_passthrough` = DSD(.dsf/.dff) 原生 DoP 直通开关。
+/// 启动 AAudio 共享模式 DSP 播放（走系统混音器，输出到当前默认设备）。返回设备名或错误信息。
 /// `stream_cache_url` = 在线流缓存直读 URL（对齐桌面端 StreamingTempFile 模型，
 /// 经 Rust 流缓存 Reader 解码，单上游连接；与预热线程 `stream_cache_begin_url_download`
 /// 按 URL 命中同一缓存条目）。`stream_cache_headers` = 直链上游请求头 JSON 对象字符串，
@@ -866,16 +863,12 @@ pub fn resolve_download_full_path(
 #[allow(clippy::too_many_arguments)]
 pub fn start_usb_exclusive_playback(
     path: String,
-    device_id: i32,
     volume: f32,
     start_time_secs: f64,
     is_playing: bool,
     volume_balance_gain: f32,
     equalizer_settings_json: String,
     sound_effect_settings_json: String,
-    bit_perfect: bool,
-    dsd_native_passthrough: bool,
-    shared_mode: bool,
     stream_cache_url: Option<String>,
     stream_cache_headers: Option<String>,
     skip_silence_enabled: bool,
@@ -887,16 +880,12 @@ pub fn start_usb_exclusive_playback(
     crate::player::commands::dispatch_playback_command(
         crate::player::commands::PlaybackCommand::Play {
             path,
-            device_id,
             volume,
             start_time_secs,
             is_playing,
             volume_balance_gain,
             equalizer_settings_json,
             sound_effect_settings_json,
-            bit_perfect,
-            dsd_native_passthrough,
-            shared_mode,
             stream_cache_url,
             stream_cache_headers,
             skip_silence_enabled,
@@ -963,17 +952,6 @@ pub fn set_usb_exclusive_sound_effect(settings_json: String) -> Result<(), Strin
         crate::player::commands::PlaybackCommand::SetSoundEffect(settings_json),
     )
     .map(|_| ())
-}
-
-pub fn set_usb_exclusive_bit_perfect(enabled: bool) {
-    crate::player::commands::dispatch_playback_command(
-        crate::player::commands::PlaybackCommand::SetBitPerfect(enabled),
-    )
-    .ok();
-}
-
-pub fn get_usb_exclusive_bit_perfect() -> bool {
-    crate::player::output::is_exclusive_bit_perfect()
 }
 
 pub fn get_usb_exclusive_device_info() -> String {
@@ -1824,68 +1802,7 @@ pub async fn stream_cache_read_url(
 }
 
 // =========================================================================
-// 无损音频格式转换（纯 Rust，无需 FFmpeg）
-// =========================================================================
-
-/// 批量音频格式转换入口。
-/// `options_json` 格式：`{"targetFormat":"wav"|"flac", "sampleRate": null|u32}`
-/// 返回 `ConvertResult[]` JSON，每项含 inputPath / outputPath / success / error / durationSecs。
-pub async fn convert_audio_batch(
-    input_paths: Vec<String>,
-    out_dir: String,
-    options_json: String,
-) -> Result<String, String> {
-    let opts: crate::audio_convert::ConvertOptions =
-        serde_json::from_str(&options_json).map_err(|e| format!("options 解析失败：{e}"))?;
-    let results = crate::audio_convert::convert_audio(input_paths, out_dir, opts).await;
-    serde_json::to_string(&results).map_err(|e| e.to_string())
-}
-
-/// 查询输入文件是否可被本模块解码。
-pub fn audio_convert_supported_inputs() -> Vec<String> {
-    vec![
-        "mp3".to_string(),
-        "flac".to_string(),
-        "m4a".to_string(),
-        "aac".to_string(),
-        "ogg".to_string(),
-        "wav".to_string(),
-        "aif".to_string(),
-        "aiff".to_string(),
-        "alac".to_string(),
-        "ape".to_string(),
-        "wv".to_string(),
-    ]
-}
-
-/// 本模块支持的目标输出格式。
-pub fn audio_convert_supported_outputs() -> Vec<String> {
-    vec!["wav".to_string(), "flac".to_string(), "mp3".to_string()]
-}
-
-/// 单文件音频剪辑（时间段截取 + 重编码）。
-/// `options_json` 格式：`{"targetFormat":"wav"|"flac"|"mp3","sampleRate":null|u32,
-/// "startSecs":f64,"endSecs":f64,"keepCover":bool,"keepLyrics":bool,"outStem":null|String}`
-/// 返回单个 `ConvertResult` JSON。
-pub async fn trim_audio(
-    input_path: String,
-    out_dir: String,
-    options_json: String,
-) -> Result<String, String> {
-    let opts: crate::audio_convert::TrimOptions =
-        serde_json::from_str(&options_json).map_err(|e| format!("options 解析失败：{e}"))?;
-    let result = crate::audio_convert::trim_audio(input_path, out_dir, opts).await;
-    serde_json::to_string(&result).map_err(|e| e.to_string())
-}
-
-/// 探测音频时长（秒）。容器/头信息可估算时直接返回，否则完整解码统计。
-pub async fn audio_probe_duration(path: String) -> Result<f64, String> {
-    crate::audio_convert::audio_probe_duration(path).await
-}
-
-// =========================================================================
-// 响度目标设置 + 云端时长合并（对齐桌面端 update_loudness_settings /
-// merge_cloud_listen_duration）
+// 响度目标设置（对齐桌面端 update_loudness_settings）
 // =========================================================================
 
 pub fn update_loudness_settings(
@@ -1911,12 +1828,6 @@ pub fn update_loudness_settings(
         1.0
     };
     Ok(serde_json::json!({ "enabled": enabled, "targetGain": gain }).to_string())
-}
-
-pub fn merge_cloud_listen_duration(db_path: String, total_seconds: i64) -> Result<String, String> {
-    let conn = open_stats_conn(&db_path)?;
-    let result = crate::statistics::merge_cloud_listen_duration(&conn, total_seconds)?;
-    serde_json::to_string(&result).map_err(|e| e.to_string())
 }
 
 pub fn stats_export_listen_snapshot(db_path: String) -> Result<String, String> {

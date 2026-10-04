@@ -26,16 +26,12 @@ extension PlayerNotifierAudioChain on PlayerNotifier {
       final vol = _ref.read(settingsProvider).valueOrNull?.volume ?? 1.0;
       await startUsbExclusivePlayback(
         path: path,
-        deviceId: -1,
         volume: vol,
         startTimeSecs: startAtSecs,
         isPlaying: true,
         volumeBalanceGain: 1.0,
         equalizerSettingsJson: jsonEncode(sfx.toEqualizerRustJson()),
         soundEffectSettingsJson: jsonEncode(sfx.toRustJson()),
-        bitPerfect: false,
-        dsdNativePassthrough: false,
-        sharedMode: true,
         // 跳过静音：腕端暂无设置入口，启动时关闭（运行期可经 set_usb_exclusive_skip_silence 切换）
         skipSilenceEnabled: false,
         skipSilenceThresholdDb: -45.0,

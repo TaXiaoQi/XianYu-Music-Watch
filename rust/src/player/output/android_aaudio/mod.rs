@@ -1,8 +1,15 @@
+//! AAudio 音频输出实现（仅 Android）：共享模式 DSP 管线。
+//!
+//! 共享流（`AAUDIO_SHARING_MODE_SHARED`）走系统混音器输出到当前默认设备，
+//! 承接全效果链（响度/EQ/音效/跳静音/无缝拼接/交叉淡入淡出）；失败时返回
+//! 明确错误，供调用方降级到 `just_audio`。
+//!
+//! 动态加载 `libaaudio.so`（API 26+），低版本自动降级。
+//!
+//! 拆分说明：FFI 绑定见 ffi，解码见 decoder，播放状态机见 playback，流创建见 stream。
 #![allow(dead_code)]
-
 pub(crate) use crate::player::buffered_source::{BlockProducer, BufferedSource};
 pub(crate) use crate::player::output::ExclusivePlayRequest;
-pub(crate) use crate::player::dsd_dop::{parse_dsd_info, DopStreamSource};
 pub(crate) use crate::player::equalizer::{
     ClipGuardSource, Equalizer, EqualizerHandle, EqualizerSettings, UserVolumeSource,
 };
@@ -14,27 +21,65 @@ pub(crate) use std::io::{Read, Seek, SeekFrom};
 pub(crate) use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 pub(crate) use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
 pub(crate) use std::sync::{Arc, Mutex, OnceLock};
+/// 记录工作线程退出原因到共享 slot（诊断用：Flutter 侧在 active=false 时读取展示）。
+/// 模块级定义（macro_rules! 仅对定义点之后的代码可见）。
+macro_rules! set_exit_reason {
+    ($last_error:expr, $msg:expr) => {
+        if let Ok(mut slot) = $last_error.lock() {
+            *slot = Some($msg.to_string());
+        }
+    };
+}
 pub(crate) use std::thread;
 pub(crate) use std::time::Duration;
 
 mod decoder;
-mod dsd;
 mod ffi;
 mod playback;
 mod stream;
 
-pub use playback::{
-    get_exclusive_channels, get_exclusive_device_info, get_exclusive_position_secs,
-    get_exclusive_sample_rate, is_exclusive_active, is_exclusive_bit_perfect, pause_exclusive,
-    resume_exclusive, seek_exclusive, set_exclusive_bit_perfect, set_exclusive_equalizer,
-    set_exclusive_sound_effect, set_exclusive_volume, set_exclusive_volume_balance_gain,
-    start_exclusive_playback, stop_exclusive_playback,
-};
+pub use playback::*;
 pub(crate) use decoder::*;
-pub(crate) use dsd::*;
 pub(crate) use ffi::*;
-pub(crate) use playback::*;
 pub(crate) use stream::*;
+
+/// 管线内诊断事件环（seek/panic 等，容量 16）：音频线程 EOF 退出时并入
+/// last_error 上报 Flutter——管线线程的 eprintln 在 Android 上不可见，
+/// 死亡消息是唯一能带出运行时现场的信道路径。
+pub(crate) static PIPELINE_DIAG: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
+
+pub(crate) fn record_pipeline_diag(msg: &str) {
+    let slot = PIPELINE_DIAG.get_or_init(|| Mutex::new(Vec::new()));
+    if let Ok(mut guard) = slot.lock() {
+        guard.push(msg.to_string());
+        if guard.len() > 16 {
+            guard.remove(0);
+        }
+    }
+}
+
+pub fn take_pipeline_diag() -> String {
+    let slot = PIPELINE_DIAG.get_or_init(|| Mutex::new(Vec::new()));
+    match slot.lock() {
+        Ok(mut g) => std::mem::take(&mut *g).join(" | "),
+        Err(_) => String::new(),
+    }
+}
+
+/// 管线启动时清空上一会话的诊断残留。DECODER_LAST_ERROR 跨播放不重置，
+/// 曾把新会话的死因误注解成旧会话的「end of stream」，排障被严重误导。
+pub fn reset_pipeline_diag() {
+    if let Some(slot) = DECODER_LAST_ERROR.get() {
+        if let Ok(mut guard) = slot.lock() {
+            *guard = None;
+        }
+    }
+    if let Some(slot) = PIPELINE_DIAG.get() {
+        if let Ok(mut guard) = slot.lock() {
+            guard.clear();
+        }
+    }
+}
 
 // =========================================================================
 // 测试
