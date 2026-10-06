@@ -87,6 +87,7 @@ function Exit-XianyuOhosPubState {
     $backup = Join-Path $Root 'build\ohos\pubspec.lock.android'
     $lock = Join-Path $Root 'pubspec.lock'
     if (Test-Path $backup) { Copy-Item $backup $lock -Force }
+    else { Write-Host '[ohos-pub] android lock 快照缺失（build 目录被清理过），lock 维持现状' -ForegroundColor Yellow }
     # package_config 同样要还原：它直接决定 kernel 快照编译哪个源。若只还原
     # lock，残留的 ohos package_config 指向 git fork 源，且 flutter 的依赖新鲜
     # 度检查不会触发重新 pub get，Android 构建会继续用 fork 源码编译报
@@ -100,6 +101,8 @@ function Exit-XianyuOhosPubState {
         Write-Host '[ohos-pub] package_config removed (will re-run pub get on next flutter command)'
     }
     Remove-Item (Join-Path $Root 'pubspec_overrides.yaml') -Force -ErrorAction SilentlyContinue
+    # build\ 可能被「清理构建缓存.bat」整体删除：写状态标记前先确保目录存在
+    New-Item -ItemType Directory -Force -Path (Join-Path $Root 'build\ohos') | Out-Null
     Set-Content (Join-Path $Root 'build\ohos\.pub-state-current') 'android' -Force
     Write-Host '[ohos-pub] restored android dependency state (lock restored, overrides removed)'
 }
