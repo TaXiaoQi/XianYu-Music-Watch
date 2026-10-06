@@ -105,6 +105,18 @@ class PluginCatalogService {
       .where((s) => s.enabled && s.format.isMfCompatible)
       .toList();
 
+  /// 已启用且覆盖榜单平台（wy/kg/kw/tx）的 LX 音源，
+  /// 榜单能力由 lx_toplist 兜底模块保证，无需探测插件方法
+  List<PluginSource> get lxToplistSources => sources
+      .where((s) =>
+          s.enabled &&
+          s.format == PluginFormat.lx &&
+          s.sources
+              .toSet()
+              .intersection(const {'wy', 'kg', 'kw', 'tx'})
+              .isNotEmpty)
+      .toList();
+
   Future<Set<String>> _availableMethods(PluginSource source) async {
     await engine.ensureLoaded(source);
     final meta = engine.metadataOf(source.id);
@@ -113,8 +125,12 @@ class PluginCatalogService {
     return const {};
   }
 
-  Future<bool> supportsTopLists(PluginSource source) async =>
-      (await _availableMethods(source)).contains('getTopLists');
+  Future<bool> supportsTopLists(PluginSource source) async {
+    if (source.format == PluginFormat.lx) {
+      return lxToplistSources.contains(source);
+    }
+    return (await _availableMethods(source)).contains('getTopLists');
+  }
 
   // ==================== 基础调用 ====================
 
@@ -131,6 +147,7 @@ class PluginCatalogService {
   // ==================== 榜单 ====================
 
   Future<List<MfSheetItem>> getTopLists(PluginSource source) async {
+    if (source.format == PluginFormat.lx) return _getLxTopLists(source);
     try {
       final result = await _call(source, 'getTopLists', []);
       if (result is! List) return const [];
@@ -158,11 +175,46 @@ class PluginCatalogService {
     }
   }
 
+  /// LX 音源榜单：走 lx_toplist 兜底模块（服务端下发 JS 优先、Rust builtin 兜底），
+  /// 各平台分组扁平进单组。榜单 description 写入 MfSheetItem.artist 使 subtitle
+  /// 可显示榜单描述；分组标题在榜单页无独立展示位，故不传 categoryTitle。
+  Future<List<MfSheetItem>> _getLxTopLists(PluginSource source) async {
+    final keys = source.sources
+        .where((k) => const {'wy', 'kg', 'kw', 'tx'}.contains(k))
+        .toList();
+    final groups = await lxToplistBoardsFallback(keys);
+    final items = <MfSheetItem>[];
+    for (final category in groups) {
+      if (category is! Map) continue;
+      final cat = category.cast<String, dynamic>();
+      final data = cat['data'];
+      if (data is! List) continue;
+      for (final e in data) {
+        if (e is! Map) continue;
+        final m = Map<String, dynamic>.from(e);
+        m['_isTopList'] = true;
+        m['_lxSource'] = (m['source'] ?? '').toString();
+        final desc = (m['description'] ?? '').toString();
+        if (desc.isNotEmpty) m['artist'] = desc;
+        items.add(_toSheet(m, source));
+      }
+    }
+    return items;
+  }
+
   Future<List<PluginSearchResult>> getTopListDetail(
     PluginSource source,
     Map<String, dynamic> item, {
     int page = 1,
   }) async {
+    // LX 音源：走 lx_toplist 兜底模块（_lxSource 由 getTopLists 写入 raw）
+    final lxKey = item['_lxSource'];
+    if (lxKey is String && lxKey.isNotEmpty) {
+      final boardId = (item['id'] ?? '').toString();
+      final songs =
+          await lxToplistBoardSongsFallback(lxKey, boardId, page: page);
+      return songs.map((m) => lxSearchItemToResult(lxKey, m)).toList();
+    }
     final list = await _tryCallList(source, 'getTopListDetail', [item, page]);
     return _maybeFillQqDurations(source, list);
   }
