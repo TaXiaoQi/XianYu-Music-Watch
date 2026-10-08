@@ -1271,6 +1271,14 @@ class _AboutPageState extends ConsumerState<_AboutPage> {
               fontSize: 9.5 * s, color: Colors.white.withValues(alpha: 0.32)),
         ),
       ),
+      Center(
+        child: Text(
+          tr('粤ICP备2026149270号-3A'),
+          textAlign: TextAlign.center,
+          style: TextStyle(
+              fontSize: 9.5 * s, color: Colors.white.withValues(alpha: 0.32)),
+        ),
+      ),
     ];
 
     return Scaffold(
