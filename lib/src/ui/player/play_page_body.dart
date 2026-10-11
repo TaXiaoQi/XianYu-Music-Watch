@@ -10,6 +10,8 @@ import '../../core/watch_fit.dart';
 import '../../i18n/i18n.dart';
 import '../../player/online_quality_probe.dart';
 import '../common/full_dialog.dart';
+import '../common/play_pause_icon.dart';
+import '../common/press_scale.dart';
 import '../common/rotary_input.dart';
 import '../common/stepped_list.dart';
 import 'effects_page.dart';
@@ -306,18 +308,21 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                             ),
                           ),
                         if (!src.hasTrack && widget.emptyActionLabel != null)
-                          FilledButton.tonal(
-                            onPressed: widget.onEmptyAction,
-                            style: FilledButton.styleFrom(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: 14 * s,
-                                vertical: 6 * s,
+                          PressableScale(
+                            pressScale: 0.92,
+                            child: FilledButton.tonal(
+                              onPressed: widget.onEmptyAction,
+                              style: FilledButton.styleFrom(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: 14 * s,
+                                  vertical: 6 * s,
+                                ),
+                                minimumSize: Size(0, 30 * s),
                               ),
-                              minimumSize: Size(0, 30 * s),
-                            ),
-                            child: Text(
-                              tr(widget.emptyActionLabel!),
-                              style: TextStyle(fontSize: 12 * s),
+                              child: Text(
+                                tr(widget.emptyActionLabel!),
+                                style: TextStyle(fontSize: 12 * s),
+                              ),
                             ),
                           ),
                         if (src.hasTrack) ...[
@@ -426,20 +431,10 @@ class _PlayPageBodyState extends State<PlayPageBody> {
                                       alignment: Alignment.center,
                                       children: [
                                         ClipOval(child: _cover(src.cover)),
-                                        Icon(
-                                          src.isPlaying
-                                              ? Icons.pause_rounded
-                                              : Icons.play_arrow_rounded,
+                                        PlayPauseMorphIcon(
+                                          playing: src.isPlaying,
                                           size: ringSize * 0.42,
                                           color: Colors.white,
-                                          shadows: [
-                                            Shadow(
-                                              color: Colors.black.withValues(
-                                                alpha: 0.5,
-                                              ),
-                                              blurRadius: 10 * s,
-                                            ),
-                                          ],
                                         ),
                                       ],
                                     ),
@@ -604,15 +599,18 @@ class _PlayPageBodyState extends State<PlayPageBody> {
     required IconData icon,
     required VoidCallback onTap,
   }) {
-    return IconButton(
-      onPressed: onTap,
-      icon: Icon(
-        icon,
-        size: 28 * s,
-        color: Colors.white.withValues(alpha: 0.92),
+    return PressableScale(
+      pressScale: 0.88,
+      child: IconButton(
+        onPressed: onTap,
+        icon: Icon(
+          icon,
+          size: 28 * s,
+          color: Colors.white.withValues(alpha: 0.92),
+        ),
+        padding: EdgeInsets.all(4 * s),
+        constraints: BoxConstraints(minWidth: 44 * s, minHeight: 44 * s),
       ),
-      padding: EdgeInsets.all(4 * s),
-      constraints: BoxConstraints(minWidth: 44 * s, minHeight: 44 * s),
     );
   }
 
@@ -624,12 +622,15 @@ class _PlayPageBodyState extends State<PlayPageBody> {
     Color color = Colors.white,
     String? tooltip,
   }) {
-    return IconButton(
-      onPressed: onTap,
-      icon: iconWidget ?? Icon(icon, size: 21 * s, color: color),
-      tooltip: tooltip,
-      padding: EdgeInsets.all(6 * s),
-      constraints: BoxConstraints(minWidth: 44 * s, minHeight: 44 * s),
+    return PressableScale(
+      pressScale: 0.88,
+      child: IconButton(
+        onPressed: onTap,
+        icon: iconWidget ?? Icon(icon, size: 21 * s, color: color),
+        tooltip: tooltip,
+        padding: EdgeInsets.all(6 * s),
+        constraints: BoxConstraints(minWidth: 44 * s, minHeight: 44 * s),
+      ),
     );
   }
 }
@@ -747,48 +748,50 @@ class _PlayerSettingsSheetState extends State<_PlayerSettingsSheet> {
       ],
       if (src.onlineQuality != null)
         (
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () => _openQualityPage(context),
-            child: Container(
-              height: 46 * s,
-              padding: EdgeInsets.symmetric(horizontal: 12 * s),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.07),
-                borderRadius: BorderRadius.circular(23 * s),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.high_quality_rounded,
-                    size: 18 * s,
-                    color: Colors.white.withValues(alpha: 0.9),
-                  ),
-                  SizedBox(width: 10 * s),
-                  Expanded(
-                    child: Text(
-                      tr('播放音质'),
-                      style: TextStyle(
-                        fontSize: 13 * s,
-                        fontWeight: FontWeight.w600,
+          PressableScale(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => _openQualityPage(context),
+              child: Container(
+                height: 46 * s,
+                padding: EdgeInsets.symmetric(horizontal: 12 * s),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.07),
+                  borderRadius: BorderRadius.circular(23 * s),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.high_quality_rounded,
+                      size: 18 * s,
+                      color: Colors.white.withValues(alpha: 0.9),
+                    ),
+                    SizedBox(width: 10 * s),
+                    Expanded(
+                      child: Text(
+                        tr('播放音质'),
+                        style: TextStyle(
+                          fontSize: 13 * s,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
-                  ),
-                  Text(
-                    _qualityLabel(src.currentQuality ?? src.onlineQuality),
-                    style: TextStyle(
-                      fontSize: 12 * s,
-                      fontWeight: FontWeight.w600,
-                      color: kPlayerAccent,
+                    Text(
+                      _qualityLabel(src.currentQuality ?? src.onlineQuality),
+                      style: TextStyle(
+                        fontSize: 12 * s,
+                        fontWeight: FontWeight.w600,
+                        color: kPlayerAccent,
+                      ),
                     ),
-                  ),
-                  SizedBox(width: 4 * s),
-                  Icon(
-                    Icons.chevron_right_rounded,
-                    size: 15 * s,
-                    color: Colors.white.withValues(alpha: 0.4),
-                  ),
-                ],
+                    SizedBox(width: 4 * s),
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      size: 15 * s,
+                      color: Colors.white.withValues(alpha: 0.4),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -796,39 +799,41 @@ class _PlayerSettingsSheetState extends State<_PlayerSettingsSheet> {
         ),
       if (src.supportsSoundEffects)
         (
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: widget.onOpenEffects,
-            child: Container(
-              height: 46 * s,
-              padding: EdgeInsets.symmetric(horizontal: 12 * s),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.07),
-                borderRadius: BorderRadius.circular(23 * s),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.graphic_eq_rounded,
-                    size: 18 * s,
-                    color: Colors.white.withValues(alpha: 0.9),
-                  ),
-                  SizedBox(width: 10 * s),
-                  Expanded(
-                    child: Text(
-                      tr('均衡器 · 音效调节'),
-                      style: TextStyle(
-                        fontSize: 13 * s,
-                        fontWeight: FontWeight.w600,
+          PressableScale(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: widget.onOpenEffects,
+              child: Container(
+                height: 46 * s,
+                padding: EdgeInsets.symmetric(horizontal: 12 * s),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.07),
+                  borderRadius: BorderRadius.circular(23 * s),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.graphic_eq_rounded,
+                      size: 18 * s,
+                      color: Colors.white.withValues(alpha: 0.9),
+                    ),
+                    SizedBox(width: 10 * s),
+                    Expanded(
+                      child: Text(
+                        tr('均衡器 · 音效调节'),
+                        style: TextStyle(
+                          fontSize: 13 * s,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
-                  ),
-                  Icon(
-                    Icons.chevron_right_rounded,
-                    size: 15 * s,
-                    color: Colors.white.withValues(alpha: 0.4),
-                  ),
-                ],
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      size: 15 * s,
+                      color: Colors.white.withValues(alpha: 0.4),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -871,23 +876,25 @@ class _PlayerSettingsSheetState extends State<_PlayerSettingsSheet> {
     required VoidCallback onTap,
     required Widget child,
   }) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: EdgeInsets.symmetric(horizontal: 11 * s, vertical: 6.5 * s),
-        decoration: BoxDecoration(
-          color: active
-              ? kPlayerAccent.withValues(alpha: 0.18)
-              : Colors.white.withValues(alpha: 0.07),
-          borderRadius: BorderRadius.circular(15 * s),
-          border: Border.all(
-            color: active ? kPlayerAccent : Colors.transparent,
-            width: 1,
+    return PressableScale(
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: EdgeInsets.symmetric(horizontal: 11 * s, vertical: 6.5 * s),
+          decoration: BoxDecoration(
+            color: active
+                ? kPlayerAccent.withValues(alpha: 0.18)
+                : Colors.white.withValues(alpha: 0.07),
+            borderRadius: BorderRadius.circular(15 * s),
+            border: Border.all(
+              color: active ? kPlayerAccent : Colors.transparent,
+              width: 1,
+            ),
           ),
+          child: child,
         ),
-        child: child,
       ),
     );
   }
@@ -1048,54 +1055,56 @@ class _QualityRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        height: 46 * s,
-        padding: EdgeInsets.symmetric(horizontal: 12 * s),
-        decoration: BoxDecoration(
-          color: active
-              ? kPlayerAccent.withValues(alpha: 0.18)
-              : Colors.white.withValues(alpha: 0.07),
-          borderRadius: BorderRadius.circular(23 * s),
-          border: Border.all(
-            color: active ? kPlayerAccent : Colors.transparent,
-            width: 1,
+    return PressableScale(
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          height: 46 * s,
+          padding: EdgeInsets.symmetric(horizontal: 12 * s),
+          decoration: BoxDecoration(
+            color: active
+                ? kPlayerAccent.withValues(alpha: 0.18)
+                : Colors.white.withValues(alpha: 0.07),
+            borderRadius: BorderRadius.circular(23 * s),
+            border: Border.all(
+              color: active ? kPlayerAccent : Colors.transparent,
+              width: 1,
+            ),
           ),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                '$label$sizeSuffix',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 13 * s,
-                  fontWeight: FontWeight.w600,
-                  color: active
-                      ? kPlayerAccent
-                      : Colors.white.withValues(alpha: 0.85),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '$label$sizeSuffix',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13 * s,
+                    fontWeight: FontWeight.w600,
+                    color: active
+                        ? kPlayerAccent
+                        : Colors.white.withValues(alpha: 0.85),
+                  ),
                 ),
               ),
-            ),
-            if (busy)
-              SizedBox(
-                width: 13 * s,
-                height: 13 * s,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
+              if (busy)
+                SizedBox(
+                  width: 13 * s,
+                  height: 13 * s,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: kPlayerAccent,
+                  ),
+                )
+              else if (active)
+                Icon(
+                  Icons.check_rounded,
+                  size: 16 * s,
                   color: kPlayerAccent,
                 ),
-              )
-            else if (active)
-              Icon(
-                Icons.check_rounded,
-                size: 16 * s,
-                color: kPlayerAccent,
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );

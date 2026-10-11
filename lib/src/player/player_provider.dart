@@ -14,6 +14,10 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../app.dart';
 import '../auth/auth_provider.dart';
+import '../cloud/cloud_credentials_store.dart';
+import '../cloud/cloud_registry.dart';
+import '../cloud/cloud_types.dart';
+import '../cloud/direct_link_cache.dart';
 import '../effects/sound_effect_provider.dart';
 import '../favorites/favorites_provider.dart';
 import '../i18n/i18n.dart';
@@ -38,6 +42,7 @@ part 'player_provider.audio_chain.dart';
 part 'player_provider.quality.dart';
 part 'player_provider.online.dart';
 part 'player_provider.source.dart';
+part 'player_provider.cloud.dart';
 part 'player_provider.types.dart';
 part 'player_provider.media_handler.dart';
 
@@ -82,6 +87,10 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
   String _switchCtxKey = '';
   final Set<String> _failedPluginIds = {};
   int _skipDepth = 0;
+
+  /// 重搜换源学习映射：源键（plugin:xxx / lx:xxx）→ 上次重搜命中的插件 id。
+  /// 跨平台兜底成功后，同源后续歌曲直达命中插件，免去逐首全量重搜
+  final Map<String, String> _reSearchPluginForSource = {};
 
   String? _currentMediaUrl;
   Map<String, String>? _currentHeaders;
@@ -219,7 +228,8 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
       return true;
     } catch (e) {
       if (epoch != _playEpoch) return false;
-      if (item.onlineSongJson != null && item.onlineSongJson!.isNotEmpty) {
+      if ((item.onlineSongJson != null && item.onlineSongJson!.isNotEmpty) ||
+          (item.cloudInfoJson != null && item.cloudInfoJson!.isNotEmpty)) {
         if (await _autoSwitchSource(item, index: index)) return true;
         final behavior =
             _ref.read(settingsProvider).valueOrNull?.onlineFailureBehavior;
@@ -242,6 +252,10 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     final json = item.onlineSongJson;
     if (json != null && json.isNotEmpty) {
       return _playOnline(item, json);
+    }
+    if (item.cloudInfoJson != null && item.cloudInfoJson!.isNotEmpty) {
+      await _playCloud(item);
+      return null;
     }
     return _setLocalSource(item.path);
   }
@@ -584,7 +598,8 @@ class PlayerNotifier extends StateNotifier<PlaybackState>
     if (_switchingSource) return;
     if (state.current == null) return;
     final item = state.current!;
-    if (item.onlineSongJson != null && item.onlineSongJson!.isNotEmpty) {
+    if ((item.onlineSongJson != null && item.onlineSongJson!.isNotEmpty) ||
+        (item.cloudInfoJson != null && item.cloudInfoJson!.isNotEmpty)) {
       final url = _currentMediaUrl;
       if (_usedCacheSource && url != null) {
         await StreamCache.instance.evict(url);

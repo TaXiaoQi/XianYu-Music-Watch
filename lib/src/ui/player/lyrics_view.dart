@@ -12,6 +12,7 @@ import '../../core/watch_fit.dart';
 import '../../i18n/i18n.dart';
 import '../../lyrics/lyric_model.dart';
 import '../../core/haptics.dart';
+import '../common/press_scale.dart';
 import 'play_page_body.dart' show kPlayerAccent;
 
 class LyricsView extends ConsumerStatefulWidget {
@@ -300,60 +301,62 @@ class _LyricsViewState extends ConsumerState<LyricsView>
               : Colors.white.withValues(alpha: 0.55);
           final mainFont = (current ? 13.5 : 10.5) * s * fontMul;
           final karaoke = current && line.words.isNotEmpty;
-          return GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: widget.onSeek == null
-                ? null
-                : () => widget.onSeek!(line.timeMs / 1000),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                if (karaoke)
-                  RepaintBoundary(
-                    child: ValueListenableBuilder<double>(
-                      valueListenable: _smoothPos,
-                      builder: (context, pos, _) => FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Wrap(
-                          alignment: WrapAlignment.center,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [
-                            for (final w in line.words)
-                              _karaokeWord(
-                                  w, pos - _offsetMs / 1000.0, mainFont),
-                          ],
+          return PressableScale(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: widget.onSeek == null
+                  ? null
+                  : () => widget.onSeek!(line.timeMs / 1000),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (karaoke)
+                    RepaintBoundary(
+                      child: ValueListenableBuilder<double>(
+                        valueListenable: _smoothPos,
+                        builder: (context, pos, _) => FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Wrap(
+                            alignment: WrapAlignment.center,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              for (final w in line.words)
+                                _karaokeWord(
+                                    w, pos - _offsetMs / 1000.0, mainFont),
+                            ],
+                          ),
                         ),
                       ),
+                    )
+                  else
+                    Text(
+                      line.text,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: mainFont,
+                        fontWeight: current ? FontWeight.w600 : FontWeight.w400,
+                        color: baseColor,
+                      ),
                     ),
-                  )
-                else
-                  Text(
-                    line.text,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: mainFont,
-                      fontWeight: current ? FontWeight.w600 : FontWeight.w400,
-                      color: baseColor,
+                  if (_showTranslation &&
+                      line.translation != null &&
+                      line.translation!.isNotEmpty)
+                    Text(
+                      line.translation!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: (current ? 10 : 8.5) * s * fontMul,
+                        color: current
+                            ? kPlayerAccent.withValues(alpha: 0.75)
+                            : Colors.white.withValues(alpha: 0.32),
+                      ),
                     ),
-                  ),
-                if (_showTranslation &&
-                    line.translation != null &&
-                    line.translation!.isNotEmpty)
-                  Text(
-                    line.translation!,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: (current ? 10 : 8.5) * s * fontMul,
-                      color: current
-                          ? kPlayerAccent.withValues(alpha: 0.75)
-                          : Colors.white.withValues(alpha: 0.32),
-                    ),
-                  ),
-              ],
+                ],
+              ),
             ),
           );
         },

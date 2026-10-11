@@ -3,7 +3,8 @@ part of 'player_provider.dart';
 extension PlayerNotifierAudioChain on PlayerNotifier {
   bool _isDspEligible(QueueItem item) =>
       (item.onlineSongJson == null || item.onlineSongJson!.isEmpty) &&
-      !item.path.startsWith('content://');
+      !item.path.startsWith('content://') &&
+      !item.path.startsWith('cloud://');
 
   Future<Duration?> _setLocalSource(String path) async {
     if (path.startsWith('content://')) {

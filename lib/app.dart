@@ -13,6 +13,7 @@ import 'src/auth/auth_provider.dart';
 import 'src/link/link_provider.dart';
 import 'src/plugin/lx_update_alerts.dart';
 import 'src/sync/sync_provider.dart';
+import 'src/ui/common/press_scale.dart';
 import 'src/ui/common/root_back_scope.dart';
 import 'src/ui/local/local_music_hub.dart';
 import 'src/ui/link/linkage_home.dart';
@@ -161,13 +162,16 @@ class _XianYuWatchAppState extends ConsumerState<XianYuWatchApp>
               child: nav,
             );
           }
-          return Stack(
+          // 全局按压缩放宿主：罩住全部路由与常亮 chrome
+          return PressScaleHost(
+            child: Stack(
             children: [
               Positioned.fill(child: nav),
               _EdgeBackStrip(navigatorKey: _navKey),
               const Positioned.fill(child: _PairRequestHost()),
               const LxUpdateAlertHost(),
             ],
+            ),
           );
         },
       ),
@@ -332,35 +336,41 @@ class _PairRequestHostState extends ConsumerState<_PairRequestHost> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      FilledButton(
-                        onPressed: () => ref
-                            .read(linkControllerProvider.notifier)
-                            .acceptIncoming(),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFFFF4D6E),
-                          padding: EdgeInsets.symmetric(
-                            horizontal: 18 * s,
-                            vertical: 5 * s,
+                      PressableScale(
+                        pressScale: 0.92,
+                        child: FilledButton(
+                          onPressed: () => ref
+                              .read(linkControllerProvider.notifier)
+                              .acceptIncoming(),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFFFF4D6E),
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 18 * s,
+                              vertical: 5 * s,
+                            ),
+                            minimumSize: Size(0, 36 * s),
+                            textStyle: TextStyle(fontSize: 13.5 * s),
                           ),
-                          minimumSize: Size(0, 36 * s),
-                          textStyle: TextStyle(fontSize: 13.5 * s),
+                          child: Text(tr('允许')),
                         ),
-                        child: Text(tr('允许')),
                       ),
                       SizedBox(width: 12 * s),
-                      OutlinedButton(
-                        onPressed: () => ref
-                            .read(linkControllerProvider.notifier)
-                            .rejectIncoming(),
-                        style: OutlinedButton.styleFrom(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: 18 * s,
-                            vertical: 5 * s,
+                      PressableScale(
+                        pressScale: 0.92,
+                        child: OutlinedButton(
+                          onPressed: () => ref
+                              .read(linkControllerProvider.notifier)
+                              .rejectIncoming(),
+                          style: OutlinedButton.styleFrom(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 18 * s,
+                              vertical: 5 * s,
+                            ),
+                            minimumSize: Size(0, 36 * s),
+                            textStyle: TextStyle(fontSize: 13.5 * s),
                           ),
-                          minimumSize: Size(0, 36 * s),
-                          textStyle: TextStyle(fontSize: 13.5 * s),
+                          child: Text(tr('拒绝')),
                         ),
-                        child: Text(tr('拒绝')),
                       ),
                     ],
                   ),

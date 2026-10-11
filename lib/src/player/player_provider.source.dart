@@ -74,6 +74,27 @@ extension PlayerNotifierSourceSwitch on PlayerNotifier {
       }
     }
 
+    // 源键与移动端 _onlineSourceKey 同语义：pluginId 优先，其次 lx source
+    String? sourceKey;
+    final pid = songJson['pluginId'];
+    if (pid is String && pid.isNotEmpty) {
+      sourceKey = 'plugin:$pid';
+    } else {
+      final src = songJson['source'];
+      if (src is String && src.isNotEmpty) sourceKey = 'lx:$src';
+    }
+    // 上次该源重搜命中的插件置顶优先：同源后续歌曲直达命中插件；
+    // 插件被移除/禁用（不在启用列表）时映射自动失效
+    final learnedId = sourceKey == null ? null : _reSearchPluginForSource[sourceKey];
+    if (learnedId != null) {
+      final li = enabled.indexWhere((s) => s.id == learnedId);
+      if (li > 0) {
+        enabled.insert(0, enabled.removeAt(li));
+      } else if (li < 0) {
+        _reSearchPluginForSource.remove(sourceKey!);
+      }
+    }
+
     final keyword = '${item.title} ${item.artist}'.trim();
     var tried = 0;
     for (final s in enabled) {
@@ -105,7 +126,18 @@ extension PlayerNotifierSourceSwitch on PlayerNotifier {
           engine,
           sources,
         ).toQueueItem(s, pick);
-        if (await _replaceAndPlay(newItem, index)) return true;
+        if (await _replaceAndPlay(newItem, index)) {
+          // 学习映射写入：remove 先刷新插入序，超限 LRU 淘汰最早条目（与移动端一致）
+          final sk = sourceKey;
+          if (sk != null) {
+            _reSearchPluginForSource.remove(sk);
+            _reSearchPluginForSource[sk] = s.id;
+            if (_reSearchPluginForSource.length > 32) {
+              _reSearchPluginForSource.remove(_reSearchPluginForSource.keys.first);
+            }
+          }
+          return true;
+        }
         _failedPluginIds.add(s.id);
       } catch (_) {
         _failedPluginIds.add(s.id);

@@ -7,6 +7,7 @@ import '../../core/watch_fit.dart';
 import '../../home/daily_recommend.dart';
 import '../../i18n/i18n.dart';
 import '../account/account_view.dart';
+import '../common/press_scale.dart';
 import '../common/stepped_list.dart';
 import '../local/local_music_hub.dart';
 import '../online/plugin_manage_page.dart';
@@ -22,12 +23,15 @@ class DailyRecommendPage extends ConsumerWidget {
     final headerRow = PageTitleHeader(
       tr('每日推荐'),
       showBack: true,
-      trailing: IconButton(
-        tooltip: tr('刷新'),
-        onPressed: async.isLoading
-            ? null
-            : () => ref.read(dailyRecommendProvider.notifier).refresh(),
-        icon: Icon(Icons.refresh_rounded, size: 20 * s),
+      trailing: PressableScale(
+        pressScale: 0.88,
+        child: IconButton(
+          tooltip: tr('刷新'),
+          onPressed: async.isLoading
+              ? null
+              : () => ref.read(dailyRecommendProvider.notifier).refresh(),
+          icon: Icon(Icons.refresh_rounded, size: 20 * s),
+        ),
       ),
     );
     Widget stateBody(Widget child) => Column(
@@ -196,17 +200,20 @@ class _EmptyView extends StatelessWidget {
           ),
           if (actionLabel != null) ...[
             SizedBox(height: 14 * s),
-            FilledButton(
-              onPressed: onAction,
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFFF4D6E),
-                minimumSize: Size(0, 36 * s),
-                padding: EdgeInsets.symmetric(
-                  horizontal: 20 * s,
-                  vertical: 6 * s,
+            PressableScale(
+              pressScale: 0.92,
+              child: FilledButton(
+                onPressed: onAction,
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFFFF4D6E),
+                  minimumSize: Size(0, 36 * s),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: 20 * s,
+                    vertical: 6 * s,
+                  ),
                 ),
+                child: Text(actionLabel!, style: TextStyle(fontSize: 13 * s)),
               ),
-              child: Text(actionLabel!, style: TextStyle(fontSize: 13 * s)),
             ),
           ],
         ],

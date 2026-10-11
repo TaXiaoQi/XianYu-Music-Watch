@@ -7,6 +7,7 @@ import '../../core/watch_fit.dart';
 import '../../i18n/i18n.dart';
 import '../../link/link_provider.dart';
 import '../common/full_dialog.dart';
+import '../common/press_scale.dart';
 import '../common/stepped_list.dart';
 import '../controller/watch_controller_page.dart';
 import '../pair/pair_view.dart';
@@ -280,14 +281,17 @@ Widget _connectingRow(
               style: TextStyle(fontSize: 14 * s),
             ),
           ),
-          TextButton(
-            onPressed: controller.disconnectManually,
-            style: TextButton.styleFrom(
-              padding: EdgeInsets.symmetric(horizontal: 8 * s),
-              minimumSize: Size(0, 32 * s),
-              textStyle: TextStyle(fontSize: 12 * s),
+          PressableScale(
+            pressScale: 0.88,
+            child: TextButton(
+              onPressed: controller.disconnectManually,
+              style: TextButton.styleFrom(
+                padding: EdgeInsets.symmetric(horizontal: 8 * s),
+                minimumSize: Size(0, 32 * s),
+                textStyle: TextStyle(fontSize: 12 * s),
+              ),
+              child: Text(tr('取消')),
             ),
-            child: Text(tr('取消')),
           ),
         ],
       ),
@@ -459,19 +463,22 @@ Widget _switchRow({
 }
 
 Widget _backChip(double s) {
-  return Material(
-    color: Colors.white.withValues(alpha: 0.08),
-    shape: const CircleBorder(),
-    clipBehavior: Clip.antiAlias,
-    child: Builder(
-      builder: (context) => InkWell(
-        onTap: () => Navigator.of(context).maybePop(),
-        child: Padding(
-          padding: EdgeInsets.all(9 * s),
-          child: Icon(
-            Icons.arrow_back_rounded,
-            size: 18 * s,
-            color: Colors.white.withValues(alpha: 0.85),
+  return PressableScale(
+    pressScale: 0.88,
+    child: Material(
+      color: Colors.white.withValues(alpha: 0.08),
+      shape: const CircleBorder(),
+      clipBehavior: Clip.antiAlias,
+      child: Builder(
+        builder: (context) => InkWell(
+          onTap: () => Navigator.of(context).maybePop(),
+          child: Padding(
+            padding: EdgeInsets.all(9 * s),
+            child: Icon(
+              Icons.arrow_back_rounded,
+              size: 18 * s,
+              color: Colors.white.withValues(alpha: 0.85),
+            ),
           ),
         ),
       ),

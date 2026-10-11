@@ -13,6 +13,9 @@ class QueueItem {
   final String? source;
   final String? onlineInfoJson;
   final bool fromDailyRecommend;
+
+  /// 网盘播放上下文（CloudPlayContext JSON），仅网盘曲目携带
+  final String? cloudInfoJson;
   const QueueItem({
     required this.path,
     required this.title,
@@ -26,7 +29,11 @@ class QueueItem {
     this.source,
     this.onlineInfoJson,
     this.fromDailyRecommend = false,
+    this.cloudInfoJson,
   });
+
+  /// 网盘曲目（cloud:// 播放标识 + cloudInfoJson 上下文）
+  bool get isCloud => path.startsWith('cloud://') && cloudInfoJson != null;
 
   QueueItem copyWith({
     String? coverPath,
@@ -45,6 +52,7 @@ class QueueItem {
     source: source,
     onlineInfoJson: onlineInfoJson,
     fromDailyRecommend: fromDailyRecommend,
+    cloudInfoJson: cloudInfoJson,
   );
 }
 

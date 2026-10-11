@@ -42,6 +42,7 @@ extension PlayerNotifierSession on PlayerNotifier {
           'onlineQuality': q.onlineQuality,
           'source': q.source,
           'onlineInfoJson': q.onlineInfoJson,
+          'cloudInfoJson': q.cloudInfoJson,
         };
       }
 
@@ -101,6 +102,7 @@ extension PlayerNotifierSession on PlayerNotifier {
             onlineQuality: meta?['onlineQuality'] as String?,
             source: meta?['source'] as String?,
             onlineInfoJson: meta?['onlineInfoJson'] as String?,
+            cloudInfoJson: meta?['cloudInfoJson'] as String?,
           ),
         );
       }

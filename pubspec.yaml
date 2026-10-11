@@ -39,6 +39,8 @@ dependencies:
   crypto: ^3.0.3
   # 插件同步：用户变量 AES-256-CBC 加密（对齐桌面/移动协议）
   encrypt: ^5.0.3
+  # 网盘引擎：天翼 RSA-PKCS1 登录加密（与移动端同款，encrypt 传递依赖）
+  pointycastle: ^3.9.1
   # 敏感凭据安全存储（Android Keystore / iOS Keychain）：
   # 登录 token 加密密钥。鸿蒙由下方 vendored 插件提供真安全存储（HUKS），
   # 插件缺失时 SecureStore 回退 SharedPreferences

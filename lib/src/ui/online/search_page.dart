@@ -8,6 +8,7 @@ import '../../plugin/plugin_models.dart';
 import '../../plugin/plugin_provider.dart';
 import '../../plugin/plugin_search.dart';
 import '../common/full_dialog.dart';
+import '../common/press_scale.dart';
 import '../common/stepped_list.dart';
 import '../local/local_music_hub.dart';
 
@@ -129,10 +130,13 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
       appBar: AppBar(
         title: Text(tr('搜索'), style: TextStyle(fontSize: 15 * s)),
         actions: [
-          IconButton(
-            onPressed: _installing ? null : _addPlugin,
-            icon: Icon(Icons.add_link_rounded, size: 20 * s),
-            tooltip: tr('添加插件'),
+          PressableScale(
+            pressScale: 0.88,
+            child: IconButton(
+              onPressed: _installing ? null : _addPlugin,
+              icon: Icon(Icons.add_link_rounded, size: 20 * s),
+              tooltip: tr('添加插件'),
+            ),
           ),
         ],
       ),
@@ -156,9 +160,12 @@ class _OnlineSearchPageState extends ConsumerState<OnlineSearchPage> {
                   ),
                 ),
                 SizedBox(width: 8 * s),
-                FilledButton(
-                  onPressed: _searching ? null : _search,
-                  child: Text(_searching ? '…' : tr('搜')),
+                PressableScale(
+                  pressScale: 0.92,
+                  child: FilledButton(
+                    onPressed: _searching ? null : _search,
+                    child: Text(_searching ? '…' : tr('搜')),
+                  ),
                 ),
               ],
             ),

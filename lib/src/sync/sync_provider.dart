@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../auth/auth_provider.dart';
+import '../cloud/cloud_credentials_store.dart';
 import '../core/application_logger.dart';
 import '../core/db_path.dart';
 import '../favorites/favorites_provider.dart';
@@ -59,6 +60,8 @@ class SyncNotifier extends StateNotifier<SyncState> {
         _onLogout();
       }
     });
+    // 网盘凭据变更（绑定/解绑/轮换）→ 防抖后自动上传
+    CloudCredentialsStore.onPersisted = _scheduleCloudCredsUpload;
   }
 
   final Ref _ref;
@@ -69,10 +72,12 @@ class SyncNotifier extends StateNotifier<SyncState> {
 
   bool _loginSyncInProgress = false;
   Timer? _autoTimer;
+  Timer? _cloudCredsUploadTimer;
 
   @override
   void dispose() {
     _autoTimer?.cancel();
+    _cloudCredsUploadTimer?.cancel();
     super.dispose();
   }
 
@@ -118,10 +123,23 @@ class SyncNotifier extends StateNotifier<SyncState> {
   Future<void> _onLogout() async {
     _autoTimer?.cancel();
     _autoTimer = null;
+    _cloudCredsUploadTimer?.cancel();
+    _cloudCredsUploadTimer = null;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_loginSyncedKey);
     await prefs.remove(_syncedFavKey);
     state = SyncState(autoSync: state.autoSync);
+  }
+
+  /// 凭据落盘触发：防抖 3s 合并短时间内的多次变更（如连续绑定多盘）。
+  void _scheduleCloudCredsUpload() {
+    if (_loginSyncInProgress) return; // 登录同步流程内会统一上传，避免重复
+    _cloudCredsUploadTimer?.cancel();
+    _cloudCredsUploadTimer = Timer(const Duration(seconds: 3), () {
+      if (!_ref.read(authProvider).isLoggedIn) return;
+      if (state.syncing) return;
+      unawaited(_syncCloudCredsUpload());
+    });
   }
 
   Future<Map<String, dynamic>> _action(
@@ -170,20 +188,49 @@ class SyncNotifier extends StateNotifier<SyncState> {
     (tr('收藏下载'), _syncFavoritesDownload),
     (tr('插件下载'), _syncPluginsDownload),
     (tr('歌单下载'), _syncPlaylistsDownload),
+    (tr('网盘账号下载'), _syncCloudCredsDownload),
   ]);
 
   Future<void> syncUpload() => _runSteps(tr('上传完成'), [
     (tr('收藏上传'), _syncFavoritesUpload),
     (tr('插件上传'), _syncPluginsUpload),
+    (tr('网盘账号上传'), _syncCloudCredsUpload),
   ]);
 
   Future<void> syncAll() => _runSteps(tr('全量同步完成'), [
+    (tr('网盘账号下载'), _syncCloudCredsDownload), // 凭据先拉：登录即得手机端绑定
     (tr('收藏下载'), _syncFavoritesDownload),
     (tr('插件下载'), _syncPluginsDownload),
     (tr('歌单下载'), _syncPlaylistsDownload),
     (tr('收藏上传'), _syncFavoritesUpload),
     (tr('插件上传'), _syncPluginsUpload),
+    (tr('网盘账号上传'), _syncCloudCredsUpload),
   ]);
+
+  // ─── 网盘凭据（与移动端 CloudCredsSyncService 同协议）────
+
+  /// 上传本地密封的网盘凭据串（账号派生密钥加密，服务端只见密文）。
+  /// 未绑定任何盘时静默跳过。
+  Future<void> _syncCloudCredsUpload() async {
+    final uid = _ciyuanxiId ?? '';
+    if (uid.isEmpty) return;
+    final sealed = await CloudCredentialsStore.instance.exportForSync(uid);
+    if (sealed == null || sealed.isEmpty) return;
+    await _action('cloud_creds_upload', {'user_id': uid, 'sealed': sealed});
+  }
+
+  /// 拉取云端网盘凭据串并合并；云端无数据时静默跳过。
+  Future<void> _syncCloudCredsDownload() async {
+    final uid = _ciyuanxiId ?? '';
+    if (uid.isEmpty) return;
+    final data = await _action('cloud_creds_download', {'user_id': uid});
+    final sealed = data['sealed'];
+    if (sealed is! String || sealed.isEmpty) return;
+    // 指纹去重合并进本地（不覆盖本地已有绑定）；合并触发的 onPersisted
+    // 自动上传在登录同步流程内被 _loginSyncInProgress 抑制
+    await CloudCredentialsStore.instance.importFromSync(sealed, uid);
+  }
+
 
   // ─── 收藏 ───────────────────────────────────────────────
 

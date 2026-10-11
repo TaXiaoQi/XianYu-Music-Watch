@@ -7,6 +7,7 @@ import '../../core/watch_fit.dart';
 import '../../effects/sound_effect_provider.dart';
 import '../../i18n/i18n.dart';
 import '../common/full_dialog.dart';
+import '../common/press_scale.dart';
 import '../common/stepped_list.dart';
 
 void openSoundEffectsPage(BuildContext context) {
@@ -783,31 +784,33 @@ class _AdvRow extends StatelessWidget {
         child: Row(
           children: [
             Expanded(
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: onTap,
-                child: Row(
-                  children: [
-                    Flexible(
-                      child: Text(
-                        tr(spec.label),
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 12.5 * s,
-                          fontWeight: FontWeight.w600,
-                          color: enabled
-                              ? Colors.white.withValues(alpha: 0.92)
-                              : Colors.white.withValues(alpha: 0.35),
+              child: PressableScale(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: onTap,
+                  child: Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          tr(spec.label),
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12.5 * s,
+                            fontWeight: FontWeight.w600,
+                            color: enabled
+                                ? Colors.white.withValues(alpha: 0.92)
+                                : Colors.white.withValues(alpha: 0.35),
+                          ),
                         ),
                       ),
-                    ),
-                    if (spec.hasDetail) ...[
-                      SizedBox(width: 5 * s),
-                      Icon(Icons.chevron_right_rounded,
-                          size: 15 * s,
-                          color: Colors.white.withValues(alpha: 0.35)),
+                      if (spec.hasDetail) ...[
+                        SizedBox(width: 5 * s),
+                        Icon(Icons.chevron_right_rounded,
+                            size: 15 * s,
+                            color: Colors.white.withValues(alpha: 0.35)),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -1054,54 +1057,56 @@ class _FxRow extends StatelessWidget {
     final s = context.watchScale();
     return Padding(
       padding: EdgeInsets.only(bottom: 8 * s),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: enabled ? onTap : null,
-        child: Container(
-          height: 46 * s,
-          padding: EdgeInsets.symmetric(horizontal: 12 * s),
-          decoration: BoxDecoration(
-            color: enabled
-                ? Colors.white.withValues(alpha: 0.07)
-                : Colors.white.withValues(alpha: 0.03),
-            borderRadius: BorderRadius.circular(23 * s),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                icon,
-                size: 18 * s,
-                color: enabled
-                    ? Colors.white.withValues(alpha: 0.9)
-                    : Colors.white.withValues(alpha: 0.3),
-              ),
-              SizedBox(width: 10 * s),
-              Expanded(
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 13 * s,
-                    fontWeight: FontWeight.w600,
-                    color: enabled
-                        ? Colors.white
-                        : Colors.white.withValues(alpha: 0.35),
+      child: PressableScale(
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: enabled ? onTap : null,
+          child: Container(
+            height: 46 * s,
+            padding: EdgeInsets.symmetric(horizontal: 12 * s),
+            decoration: BoxDecoration(
+              color: enabled
+                  ? Colors.white.withValues(alpha: 0.07)
+                  : Colors.white.withValues(alpha: 0.03),
+              borderRadius: BorderRadius.circular(23 * s),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  icon,
+                  size: 18 * s,
+                  color: enabled
+                      ? Colors.white.withValues(alpha: 0.9)
+                      : Colors.white.withValues(alpha: 0.3),
+                ),
+                SizedBox(width: 10 * s),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 13 * s,
+                      fontWeight: FontWeight.w600,
+                      color: enabled
+                          ? Colors.white
+                          : Colors.white.withValues(alpha: 0.35),
+                    ),
                   ),
                 ),
-              ),
-              Text(
-                value,
-                style: TextStyle(
-                  fontSize: 11 * s,
-                  color: enabled ? _accent : Colors.white.withValues(alpha: 0.3),
+                Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 11 * s,
+                    color: enabled ? _accent : Colors.white.withValues(alpha: 0.3),
+                  ),
                 ),
-              ),
-              SizedBox(width: 5 * s),
-              Icon(
-                Icons.chevron_right_rounded,
-                size: 15 * s,
-                color: Colors.white.withValues(alpha: enabled ? 0.4 : 0.15),
-              ),
-            ],
+                SizedBox(width: 5 * s),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  size: 15 * s,
+                  color: Colors.white.withValues(alpha: enabled ? 0.4 : 0.15),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1123,30 +1128,32 @@ class _FxChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = context.watchScale();
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: EdgeInsets.symmetric(horizontal: 13 * s, vertical: 8 * s),
-        decoration: BoxDecoration(
-          color: active
-              ? _accent.withValues(alpha: 0.18)
-              : Colors.white.withValues(alpha: 0.07),
-          borderRadius: BorderRadius.circular(17 * s),
-          border: Border.all(
-            color: active ? _accent : Colors.transparent,
-            width: 1,
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12 * s,
-            fontWeight: FontWeight.w600,
+    return PressableScale(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: EdgeInsets.symmetric(horizontal: 13 * s, vertical: 8 * s),
+          decoration: BoxDecoration(
             color: active
-                ? _accent
-                : Colors.white.withValues(alpha: 0.85),
+                ? _accent.withValues(alpha: 0.18)
+                : Colors.white.withValues(alpha: 0.07),
+            borderRadius: BorderRadius.circular(17 * s),
+            border: Border.all(
+              color: active ? _accent : Colors.transparent,
+              width: 1,
+            ),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12 * s,
+              fontWeight: FontWeight.w600,
+              color: active
+                  ? _accent
+                  : Colors.white.withValues(alpha: 0.85),
+            ),
           ),
         ),
       ),
@@ -1171,42 +1178,44 @@ class _FxChoiceRow extends StatelessWidget {
     final s = context.watchScale();
     return Padding(
       padding: EdgeInsets.only(bottom: 8 * s),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          height: 46 * s,
-          padding: EdgeInsets.symmetric(horizontal: 12 * s),
-          decoration: BoxDecoration(
-            color: active
-                ? _accent.withValues(alpha: 0.18)
-                : Colors.white.withValues(alpha: 0.07),
-            borderRadius: BorderRadius.circular(23 * s),
-            border: Border.all(
-              color: active ? _accent : Colors.transparent,
-              width: 1,
+      child: PressableScale(
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            height: 46 * s,
+            padding: EdgeInsets.symmetric(horizontal: 12 * s),
+            decoration: BoxDecoration(
+              color: active
+                  ? _accent.withValues(alpha: 0.18)
+                  : Colors.white.withValues(alpha: 0.07),
+              borderRadius: BorderRadius.circular(23 * s),
+              border: Border.all(
+                color: active ? _accent : Colors.transparent,
+                width: 1,
+              ),
             ),
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 13 * s,
-                    fontWeight: FontWeight.w600,
-                    color: active
-                        ? _accent
-                        : Colors.white.withValues(alpha: 0.85),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 13 * s,
+                      fontWeight: FontWeight.w600,
+                      color: active
+                          ? _accent
+                          : Colors.white.withValues(alpha: 0.85),
+                    ),
                   ),
                 ),
-              ),
-              if (active)
-                Icon(Icons.check_rounded, size: 17 * s, color: _accent),
-            ],
+                if (active)
+                  Icon(Icons.check_rounded, size: 17 * s, color: _accent),
+              ],
+            ),
           ),
         ),
       ),

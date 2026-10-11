@@ -8,6 +8,7 @@ import '../../plugin/plugin_provider.dart';
 import '../../plugin/plugin_subscriptions.dart';
 import '../../plugin/plugin_updates.dart';
 import '../common/full_dialog.dart';
+import '../common/press_scale.dart';
 import '../common/stepped_list.dart';
 import '../common/source_tag.dart';
 
@@ -196,27 +197,33 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
                 ),
               ),
               const Spacer(),
-              IconButton(
-                tooltip: tr('检测全部更新'),
-                onPressed: _checking ? null : _checkAllUpdates,
-                icon: _checking
-                    ? SizedBox(
-                        width: 16 * s,
-                        height: 16 * s,
-                        child: CircularProgressIndicator(strokeWidth: 2 * s),
-                      )
-                    : Icon(Icons.sync_rounded, size: 20 * s),
+              PressableScale(
+                pressScale: 0.88,
+                child: IconButton(
+                  tooltip: tr('检测全部更新'),
+                  onPressed: _checking ? null : _checkAllUpdates,
+                  icon: _checking
+                      ? SizedBox(
+                          width: 16 * s,
+                          height: 16 * s,
+                          child: CircularProgressIndicator(strokeWidth: 2 * s),
+                        )
+                      : Icon(Icons.sync_rounded, size: 20 * s),
+                ),
               ),
-              IconButton(
-                tooltip: tr('添加插件'),
-                onPressed: _installing ? null : _addPlugin,
-                icon: _installing
-                    ? SizedBox(
-                        width: 20 * s,
-                        height: 20 * s,
-                        child: CircularProgressIndicator(strokeWidth: 2 * s),
-                      )
-                    : Icon(Icons.add_circle_outline_rounded, size: 22 * s),
+              PressableScale(
+                pressScale: 0.88,
+                child: IconButton(
+                  tooltip: tr('添加插件'),
+                  onPressed: _installing ? null : _addPlugin,
+                  icon: _installing
+                      ? SizedBox(
+                          width: 20 * s,
+                          height: 20 * s,
+                          child: CircularProgressIndicator(strokeWidth: 2 * s),
+                        )
+                      : Icon(Icons.add_circle_outline_rounded, size: 22 * s),
+                ),
               ),
             ],
           ),
@@ -230,17 +237,20 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
             ),
             child: SizedBox(
               width: double.infinity,
-              child: FilledButton.tonal(
-                onPressed: _updateAll,
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFFFF4D6E),
-                  foregroundColor: Colors.white,
-                  minimumSize: Size(0, 34 * s),
-                  padding: EdgeInsets.symmetric(vertical: 6 * s),
-                ),
-                child: Text(
-                  tr('一键更新 {count} 个插件', {'count': updateCount}),
-                  style: TextStyle(fontSize: 12 * s),
+              child: PressableScale(
+                pressScale: 0.92,
+                child: FilledButton.tonal(
+                  onPressed: _updateAll,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFFFF4D6E),
+                    foregroundColor: Colors.white,
+                    minimumSize: Size(0, 34 * s),
+                    padding: EdgeInsets.symmetric(vertical: 6 * s),
+                  ),
+                  child: Text(
+                    tr('一键更新 {count} 个插件', {'count': updateCount}),
+                    style: TextStyle(fontSize: 12 * s),
+                  ),
                 ),
               ),
             ),
@@ -377,17 +387,20 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
                       height: 16 * s,
                       child: CircularProgressIndicator(strokeWidth: 2 * s),
                     )
-                  : TextButton(
-                      onPressed: () => _updateOne(src),
-                      style: TextButton.styleFrom(
-                        padding: EdgeInsets.symmetric(horizontal: 6 * s),
-                        minimumSize: Size(0, 30 * s),
-                      ),
-                      child: Text(
-                        tr('更新'),
-                        style: TextStyle(
-                          fontSize: 12 * s,
-                          color: const Color(0xFFFF6B81),
+                  : PressableScale(
+                      pressScale: 0.88,
+                      child: TextButton(
+                        onPressed: () => _updateOne(src),
+                        style: TextButton.styleFrom(
+                          padding: EdgeInsets.symmetric(horizontal: 6 * s),
+                          minimumSize: Size(0, 30 * s),
+                        ),
+                        child: Text(
+                          tr('更新'),
+                          style: TextStyle(
+                            fontSize: 12 * s,
+                            color: const Color(0xFFFF6B81),
+                          ),
                         ),
                       ),
                     ),
@@ -399,15 +412,18 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
                   .read(pluginManagerProvider.notifier)
                   .toggleEnabled(src.id),
             ),
-            IconButton(
-              tooltip: tr('删除'),
-              icon: Icon(
-                Icons.delete_outline_rounded,
-                size: 20 * s,
-                color: Colors.white.withValues(alpha: 0.5),
+            PressableScale(
+              pressScale: 0.88,
+              child: IconButton(
+                tooltip: tr('删除'),
+                icon: Icon(
+                  Icons.delete_outline_rounded,
+                  size: 20 * s,
+                  color: Colors.white.withValues(alpha: 0.5),
+                ),
+                onPressed: () =>
+                    ref.read(pluginManagerProvider.notifier).remove(src.id),
               ),
-              onPressed: () =>
-                  ref.read(pluginManagerProvider.notifier).remove(src.id),
             ),
           ],
         ),

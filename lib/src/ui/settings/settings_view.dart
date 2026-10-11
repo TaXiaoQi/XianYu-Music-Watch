@@ -9,11 +9,13 @@ import '../../core/haptics.dart';
 import '../../core/settings.dart';
 import '../../i18n/i18n.dart';
 import '../common/full_dialog.dart';
+import '../common/press_scale.dart';
 import '../../core/watch_fit.dart';
 import '../../auth/auth_provider.dart';
 import '../../library/library_provider.dart';
 import '../../player/stream_cache.dart';
 import '../common/stepped_list.dart';
+import '../cloud/cloud_bind_page.dart';
 import '../player/play_page_body.dart';
 import '../online/plugin_manage_page.dart';
 import '../../plugin/plugin_provider.dart';
@@ -70,6 +72,16 @@ class SettingsView extends ConsumerWidget {
         subtitle: _pluginSubtitle(ref),
         onTap: () => Navigator.of(context).push(
           MaterialPageRoute<void>(builder: (_) => const PluginManagePage()),
+        ),
+      ),
+      _categoryRow(
+        s: s,
+        color: const Color(0xFF52B788),
+        icon: Icons.cloud_rounded,
+        title: tr('网盘'),
+        subtitle: tr('绑定 / 浏览 / 链接导入'),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const CloudBindPage()),
         ),
       ),
       _categoryRow(
@@ -1497,17 +1509,20 @@ class _SteppedPage extends StatelessWidget {
 }
 
 Widget _backChip(double s) {
-  return Material(
-    color: Colors.white.withValues(alpha: 0.08),
-    shape: const CircleBorder(),
-    clipBehavior: Clip.antiAlias,
-    child: Builder(
-      builder: (context) => InkWell(
-        onTap: () => Navigator.of(context).maybePop(),
-        child: Padding(
-          padding: EdgeInsets.all(9 * s),
-          child: Icon(Icons.arrow_back_rounded,
-              size: 18 * s, color: Colors.white.withValues(alpha: 0.85)),
+  return PressableScale(
+    pressScale: 0.88,
+    child: Material(
+      color: Colors.white.withValues(alpha: 0.08),
+      shape: const CircleBorder(),
+      clipBehavior: Clip.antiAlias,
+      child: Builder(
+        builder: (context) => InkWell(
+          onTap: () => Navigator.of(context).maybePop(),
+          child: Padding(
+            padding: EdgeInsets.all(9 * s),
+            child: Icon(Icons.arrow_back_rounded,
+                size: 18 * s, color: Colors.white.withValues(alpha: 0.85)),
+          ),
         ),
       ),
     ),
@@ -1645,43 +1660,45 @@ class _SettingsChoiceRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = context.watchScale();
     const accent = Color(0xFFFF4D6E);
-    return Material(
-      type: MaterialType.transparency,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(999),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: selected ? accent.withValues(alpha: 0.18) : kSteppedTileBg,
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-              color: selected ? accent : Colors.transparent,
-              width: 1,
+    return PressableScale(
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(999),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: selected ? accent.withValues(alpha: 0.18) : kSteppedTileBg,
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: selected ? accent : Colors.transparent,
+                width: 1,
+              ),
             ),
-          ),
-          child: SizedBox(
-            height: 48 * s,
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16 * s),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 16 * s,
-                        fontWeight: FontWeight.w600,
-                        color: selected
-                            ? accent
-                            : Colors.white.withValues(alpha: 0.9),
+            child: SizedBox(
+              height: 48 * s,
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16 * s),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 16 * s,
+                          fontWeight: FontWeight.w600,
+                          color: selected
+                              ? accent
+                              : Colors.white.withValues(alpha: 0.9),
+                        ),
                       ),
                     ),
-                  ),
-                  if (selected)
-                    Icon(Icons.check_rounded, size: 17 * s, color: accent),
-                ],
+                    if (selected)
+                      Icon(Icons.check_rounded, size: 17 * s, color: accent),
+                  ],
+                ),
               ),
             ),
           ),

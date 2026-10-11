@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/watch_fit.dart';
 import '../../i18n/i18n.dart';
+import 'press_scale.dart';
 
 Future<T?> showFullDialog<T>({
   required BuildContext context,
@@ -127,21 +128,24 @@ class FullDialogButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = context.watchScale();
-    return FilledButton(
-      onPressed: onPressed,
-      style: FilledButton.styleFrom(
-        minimumSize: Size.fromHeight(42 * s),
-        backgroundColor: primary
-            ? const Color(0xFFFF4D6E)
-            : Colors.white.withValues(alpha: 0.10),
-        foregroundColor:
-            primary ? Colors.white : Colors.white.withValues(alpha: 0.75),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(21 * s),
+    return PressableScale(
+      pressScale: 0.92,
+      child: FilledButton(
+        onPressed: onPressed,
+        style: FilledButton.styleFrom(
+          minimumSize: Size.fromHeight(42 * s),
+          backgroundColor: primary
+              ? const Color(0xFFFF4D6E)
+              : Colors.white.withValues(alpha: 0.10),
+          foregroundColor:
+              primary ? Colors.white : Colors.white.withValues(alpha: 0.75),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(21 * s),
+          ),
+          textStyle: TextStyle(fontSize: 13.5 * s, fontWeight: FontWeight.w600),
         ),
-        textStyle: TextStyle(fontSize: 13.5 * s, fontWeight: FontWeight.w600),
+        child: Text(label),
       ),
-      child: Text(label),
     );
   }
 }
@@ -230,42 +234,44 @@ class _OptionButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = context.watchScale();
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(24 * s),
-      child: Container(
-        height: 48 * s,
-        padding: EdgeInsets.symmetric(horizontal: 18 * s),
-        decoration: BoxDecoration(
-          color: selected
-              ? const Color(0xFFFF4D6E).withValues(alpha: 0.14)
-              : Colors.white.withValues(alpha: 0.07),
-          borderRadius: BorderRadius.circular(24 * s),
-          border: Border.all(
+    return PressableScale(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(24 * s),
+        child: Container(
+          height: 48 * s,
+          padding: EdgeInsets.symmetric(horizontal: 18 * s),
+          decoration: BoxDecoration(
             color: selected
-                ? const Color(0xFFFF4D6E)
-                : Colors.white.withValues(alpha: 0.08),
-            width: selected ? 1.6 : 1,
+                ? const Color(0xFFFF4D6E).withValues(alpha: 0.14)
+                : Colors.white.withValues(alpha: 0.07),
+            borderRadius: BorderRadius.circular(24 * s),
+            border: Border.all(
+              color: selected
+                  ? const Color(0xFFFF4D6E)
+                  : Colors.white.withValues(alpha: 0.08),
+              width: selected ? 1.6 : 1,
+            ),
           ),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: 13.5 * s,
-                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                  color: selected
-                      ? const Color(0xFFFF4D6E)
-                      : Colors.white.withValues(alpha: 0.85),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 13.5 * s,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                    color: selected
+                        ? const Color(0xFFFF4D6E)
+                        : Colors.white.withValues(alpha: 0.85),
+                  ),
                 ),
               ),
-            ),
-            if (selected)
-              Icon(Icons.check_rounded,
-                  size: 18 * s, color: const Color(0xFFFF4D6E)),
-          ],
+              if (selected)
+                Icon(Icons.check_rounded,
+                    size: 18 * s, color: const Color(0xFFFF4D6E)),
+            ],
+          ),
         ),
       ),
     );

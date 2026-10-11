@@ -11,6 +11,7 @@ import '../../plugin/plugin_models.dart';
 import '../../plugin/plugin_provider.dart';
 import '../../plugin/plugin_search.dart';
 import '../../player/player_provider.dart';
+import '../common/press_scale.dart';
 import '../common/stepped_list.dart';
 import '../local/local_music_hub.dart';
 
@@ -81,10 +82,13 @@ class _TopListPageState extends ConsumerState<TopListPage> {
     final headerRow = PageTitleHeader(
       tr('音源榜单'),
       showBack: true,
-      trailing: IconButton(
-        tooltip: tr('刷新'),
-        onPressed: _loading ? null : _load,
-        icon: Icon(Icons.refresh_rounded, size: 20 * s),
+      trailing: PressableScale(
+        pressScale: 0.88,
+        child: IconButton(
+          tooltip: tr('刷新'),
+          onPressed: _loading ? null : _load,
+          icon: Icon(Icons.refresh_rounded, size: 20 * s),
+        ),
       ),
     );
     final body = _loading

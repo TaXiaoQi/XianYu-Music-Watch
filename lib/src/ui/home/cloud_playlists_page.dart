@@ -9,6 +9,7 @@ import '../../i18n/i18n.dart';
 import '../../player/player_provider.dart';
 import '../../sync/playlist_source_update.dart';
 import '../../sync/playlist_store.dart';
+import '../common/press_scale.dart';
 import '../common/stepped_list.dart';
 import '../local/local_music_hub.dart';
 
@@ -227,16 +228,19 @@ class _CloudPlaylistDetailPageState
                           ),
                         ),
                       )
-                    : IconButton(
-                        padding: EdgeInsets.zero,
-                        constraints: BoxConstraints(
-                          minWidth: 44 * s,
-                          minHeight: 44 * s,
+                    : PressableScale(
+                        pressScale: 0.88,
+                        child: IconButton(
+                          padding: EdgeInsets.zero,
+                          constraints: BoxConstraints(
+                            minWidth: 44 * s,
+                            minHeight: 44 * s,
+                          ),
+                          icon: Icon(Icons.sync_rounded,
+                              size: 20 * s,
+                              color: Colors.white.withValues(alpha: 0.85)),
+                          onPressed: _updateFromSource,
                         ),
-                        icon: Icon(Icons.sync_rounded,
-                            size: 20 * s,
-                            color: Colors.white.withValues(alpha: 0.85)),
-                        onPressed: _updateFromSource,
                       ))
                 : null,
           ),
@@ -357,16 +361,19 @@ class _AddSongsPageState extends ConsumerState<_AddSongsPage> {
           header: PageTitleHeader(
             tr('添加歌曲'),
             showBack: true,
-            trailing: TextButton(
-              onPressed: count > 0 ? () => _confirm(context, s) : null,
-              child: Text(
-                count > 0 ? tr('添加({n})', {'n': count}) : tr('添加'),
-                style: TextStyle(
-                  fontSize: 13 * s,
-                  fontWeight: FontWeight.w600,
-                  color: count > 0
-                      ? const Color(0xFFFF4D6E)
-                      : Colors.white.withValues(alpha: 0.35),
+            trailing: PressableScale(
+              pressScale: 0.88,
+              child: TextButton(
+                onPressed: count > 0 ? () => _confirm(context, s) : null,
+                child: Text(
+                  count > 0 ? tr('添加({n})', {'n': count}) : tr('添加'),
+                  style: TextStyle(
+                    fontSize: 13 * s,
+                    fontWeight: FontWeight.w600,
+                    color: count > 0
+                        ? const Color(0xFFFF4D6E)
+                        : Colors.white.withValues(alpha: 0.35),
+                  ),
                 ),
               ),
             ),

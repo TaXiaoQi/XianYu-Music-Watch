@@ -6,6 +6,7 @@ import 'package:flutter/rendering.dart';
 import 'package:wearable_rotary/wearable_rotary.dart';
 import '../../core/haptics.dart';
 import '../../core/watch_fit.dart';
+import 'press_scale.dart';
 
 /// 功能条统一胶囊底色：近黑的深灰，贴近 WearOS 系统设置暗色菜单（对齐系统风格）
 const Color kSteppedTileBg = Color(0xFF1E1E22);
@@ -699,9 +700,11 @@ class SteppedPill extends StatelessWidget {
       child: child,
     );
     if (onTap == null) return box;
-    return Material(
-      type: MaterialType.transparency,
-      child: InkWell(onTap: onTap, borderRadius: shape, child: box),
+    return PressableScale(
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(onTap: onTap, borderRadius: shape, child: box),
+      ),
     );
   }
 }
