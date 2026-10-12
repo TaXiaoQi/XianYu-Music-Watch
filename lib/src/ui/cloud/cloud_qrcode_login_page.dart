@@ -210,6 +210,28 @@ class _CloudQrcodeLoginPageState extends ConsumerState<CloudQrcodeLoginPage> {
         ),
       );
     }
+    // 服务方直接下发二维码图片（百度）：直接展示，无需本地渲染。
+    final img = session.qrImageUrl;
+    if (img != null && img.isNotEmpty) {
+      return Container(
+        padding: EdgeInsets.all(8 * s),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(10 * s),
+        ),
+        child: Image.network(
+          img,
+          width: 116 * s,
+          height: 116 * s,
+          fit: BoxFit.contain,
+          errorBuilder: (_, _, _) => Icon(
+            Icons.qr_code_2,
+            size: 40 * s,
+            color: Colors.black26,
+          ),
+        ),
+      );
+    }
     return Container(
       padding: EdgeInsets.all(8 * s),
       decoration: BoxDecoration(

@@ -19,8 +19,9 @@ import 'cloud_qrcode_login_page.dart';
 /// 网盘绑定页：支持网盘列表 + 已绑定账号管理（与移动端 cloud_bind_page
 /// 同构，手表小屏排布）。
 ///
-/// WebView 范式盘（百度/夸克/UC/阿里/微云/139）本地无 WebView，不提供
-/// 绑定入口，提示去手机端绑定；凭据经弦予账号云同步拉取。
+/// WebView 范式盘（阿里/微云/139）本地无 WebView，不提供绑定入口，
+/// 提示去手机端绑定，凭据经弦予账号云同步拉取；百度/夸克/UC 已改原生
+/// 扫码，可直接在腕上端绑定。
 /// 绑定入口按 [CloudProvider.loginKind] 路由到对应登录页，不做盘名硬编码。
 class CloudBindPage extends ConsumerStatefulWidget {
   const CloudBindPage({super.key});
