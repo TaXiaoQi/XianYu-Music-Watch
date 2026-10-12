@@ -2036,3 +2036,17 @@ pub fn dlna_dmr_report_playback(
     };
     crate::dlna::bridge::report_playback(state, position_secs, duration_secs, volume_percent, muted);
 }
+
+// =========================================================================
+// 网盘业务代理（十盘统一入口，移植自 Server handlers/cloud）
+// =========================================================================
+
+/// 网盘业务代理（十盘统一入口）。`req_json` 为 {provider, op, cred, params} JSON；
+/// 返回 {result, rotated_cred?} 的 JSON；业务失败 Err(中文文案)。
+pub async fn cloud_proxy(req_json: String) -> Result<String, String> {
+    let req = crate::cloud::types::CloudReq::parse(&req_json).map_err(|(_, m)| m)?;
+    crate::cloud::dispatch(req)
+        .await
+        .map_err(|(_, m)| m)
+        .and_then(|v| serde_json::to_string(&v).map_err(|e| e.to_string()))
+}

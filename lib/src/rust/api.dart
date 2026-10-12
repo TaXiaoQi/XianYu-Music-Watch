@@ -1479,6 +1479,11 @@ Future<void> dlnaDmrReportPlayback({
   muted: muted,
 );
 
+/// 网盘业务代理（十盘统一入口）。`req_json` 为 {provider, op, cred, params} JSON；
+/// 返回 {result, rotated_cred?} 的 JSON；业务失败 Err(中文文案)。
+Future<String> cloudProxy({required String reqJson}) =>
+    RustLib.instance.api.crateApiCloudProxy(reqJson: reqJson);
+
 class WebdavSourceOverrides {
   final String? baseUrl;
   final String? username;
