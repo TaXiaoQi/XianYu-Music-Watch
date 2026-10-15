@@ -24,7 +24,7 @@ const QUARK: Brand = Brand {
 };
 
 const UC: Brand = Brand {
-    api_host: "drive-pc.uc.cn",
+    api_host: "pc-api.uc.cn",
     web_host: "drive.uc.cn",
     pr: "ucpro",
     ua_brand: "uc-cloud-drive",
