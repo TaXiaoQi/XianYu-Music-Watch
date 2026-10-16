@@ -138,6 +138,24 @@ abstract class QuarkUcBase extends CloudProvider {
           }
         }
       }
+      // 现役网页昵称接口：web 域 account/info（昵称/头像/用户 id 在
+      // data 本层；member 已被 2026-10 拆改只剩容量字段）。
+      final resp2 = await cloudGet(
+        'https://$webHost/account/info?fr=pc&platform=pc',
+        headers: authHeaders(cookies),
+      );
+      if (resp2.isOk) {
+        final data2 = resp2.json['data'];
+        if (data2 is Map<String, dynamic>) {
+          final uid2 = data2['user_id']?.toString();
+          if (uid2 != null && uid2.isNotEmpty) accountId = uid2;
+          final nick2 = (data2['nick_name'] ??
+                  data2['nickname'] ??
+                  data2['user_name'])
+              ?.toString();
+          if (nick2 != null && nick2.isNotEmpty) nickname = nick2;
+        }
+      }
     } catch (_) {}
     return CloudAccount(
       provider: id,
