@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -12,11 +10,11 @@ import '../../core/watch_fit.dart';
 import '../../i18n/i18n.dart';
 import '../common/stepped_list.dart';
 
-/// 账密 / 短信登录页（httpPassword / smsPassword 范式，与移动端
-/// cloud_password_login_page 同构）。
+/// 账密登录页（httpPassword 范式，与移动端 cloud_password_login_page
+/// 同构）。
 ///
-/// 表单按 provider.loginFields 动态渲染；发送验证码按钮仅出现在
-/// isSmsCode 字段上，倒计时内禁用。
+/// 表单按 provider.loginFields 动态渲染；命中风控（要求设备短信
+/// 二次校验）时弹窗收码续登。
 class CloudPasswordLoginPage extends ConsumerStatefulWidget {
   const CloudPasswordLoginPage({super.key, required this.providerId});
 
@@ -32,9 +30,6 @@ class _CloudPasswordLoginPageState
   late final CloudProvider _provider;
   final Map<String, TextEditingController> _ctrls = {};
   bool _submitting = false;
-  bool _sendingSms = false;
-  int _smsCooldown = 0;
-  Timer? _cooldownTimer;
   String? _error;
 
   @override
@@ -48,7 +43,6 @@ class _CloudPasswordLoginPageState
 
   @override
   void dispose() {
-    _cooldownTimer?.cancel();
     for (final c in _ctrls.values) {
       c.dispose();
     }
@@ -63,33 +57,6 @@ class _CloudPasswordLoginPageState
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(msg), duration: const Duration(seconds: 1)),
     );
-  }
-
-  Future<void> _sendSms() async {
-    if (_sendingSms || _smsCooldown > 0) return;
-    setState(() => _sendingSms = true);
-    try {
-      await _provider.sendLoginSms(_fields);
-      if (!mounted) return;
-      _toast(tr('验证码已发送'));
-      setState(() => _smsCooldown = 60);
-      _cooldownTimer?.cancel();
-      _cooldownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (!mounted) return;
-        setState(() {
-          if (--_smsCooldown <= 0) {
-            _smsCooldown = 0;
-            _cooldownTimer?.cancel();
-          }
-        });
-      });
-    } catch (e) {
-      AppLog.warn('cloud', '${_provider.id} 发送验证码失败: $e');
-      if (!mounted) return;
-      _toast(e is CloudException ? e.message : tr('验证码发送失败'));
-    } finally {
-      if (mounted) setState(() => _sendingSms = false);
-    }
   }
 
   Future<void> _submit() async {
@@ -109,8 +76,111 @@ class _CloudPasswordLoginPageState
       if (!mounted) return;
       _toast(tr('绑定成功'));
       Navigator.of(context).pop();
+    } on CloudSmsRequiredException catch (e) {
+      // 风控要求设备短信二次校验：provider 已自动发码，弹窗收码续登。
+      if (!mounted) return;
+      setState(() => _submitting = false);
+      await _promptSmsCode(e.username);
     } catch (e) {
       AppLog.warn('cloud', '${_provider.id} 账密登录失败: $e');
+      if (!mounted) return;
+      setState(() {
+        _submitting = false;
+        _error = e is CloudException ? e.message : tr('登录失败，请重试');
+      });
+    }
+  }
+
+  /// 验证码输入弹窗，确认后提交设备二次校验完成绑定。
+  Future<void> _promptSmsCode(String username) async {
+    final s = context.watchScale();
+    final codeCtrl = TextEditingController();
+    String? code;
+    try {
+      code = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color(0xFF232326),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16 * s),
+          ),
+          title: Text(
+            tr('输入短信验证码'),
+            style: TextStyle(fontSize: 14 * s, fontWeight: FontWeight.w700),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                tr('检测到新设备登录，验证码已发送至 {username}',
+                    {'username': username}),
+                style: TextStyle(
+                  fontSize: 11.5 * s,
+                  height: 1.4,
+                  color: Colors.white.withValues(alpha: 0.6),
+                ),
+              ),
+              SizedBox(height: 10 * s),
+              TextField(
+                controller: codeCtrl,
+                autofocus: true,
+                keyboardType: TextInputType.number,
+                maxLength: 6,
+                style: TextStyle(fontSize: 14 * s, letterSpacing: 2 * s),
+                decoration: InputDecoration(
+                  hintText: tr('短信验证码'),
+                  counterText: '',
+                  isDense: true,
+                  focusedBorder: const UnderlineInputBorder(
+                    borderSide: BorderSide(color: Color(0xFFFF4D6E)),
+                  ),
+                ),
+                onSubmitted: (v) => Navigator.of(ctx).pop(v),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: Text(
+                tr('取消'),
+                style: TextStyle(
+                  fontSize: 12 * s,
+                  color: Colors.white.withValues(alpha: 0.5),
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(codeCtrl.text.trim()),
+              child: Text(
+                tr('确定'),
+                style: TextStyle(
+                  fontSize: 12 * s,
+                  fontWeight: FontWeight.w700,
+                  color: const Color(0xFFFF4D6E),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      codeCtrl.dispose();
+    }
+    if (code == null || code.isEmpty || !mounted) return;
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+    try {
+      final account = await _provider.submitSmsCode(username, code);
+      await CloudCredentialsStore.instance.saveAccount(account);
+      if (!mounted) return;
+      _toast(tr('绑定成功'));
+      Navigator.of(context).pop();
+    } catch (e) {
+      AppLog.warn('cloud', '${_provider.id} 验证码校验失败: $e');
       if (!mounted) return;
       setState(() {
         _submitting = false;
@@ -190,7 +260,7 @@ class _CloudPasswordLoginPageState
     );
   }
 
-  /// 输入框行：胶囊底 + 前置圆图标 + 无边框输入框（短信字段带发送按钮）。
+  /// 输入框行：胶囊底 + 无边框输入框。
   Widget _fieldPill(double s, CloudLoginField f) {
     return SizedBox(
       width: double.infinity,
@@ -223,26 +293,6 @@ class _CloudPasswordLoginPageState
                   ),
                 ),
               ),
-              if (f.isSmsCode)
-                TextButton(
-                  onPressed:
-                      (_sendingSms || _smsCooldown > 0) ? null : _sendSms,
-                  style: TextButton.styleFrom(
-                    padding: EdgeInsets.symmetric(horizontal: 6 * s),
-                    minimumSize: Size(0, 30 * s),
-                  ),
-                  child: Text(
-                    _smsCooldown > 0
-                        ? tr('{s} 秒', {'s': '$_smsCooldown'})
-                        : tr('发送验证码'),
-                    style: TextStyle(
-                      fontSize: 11 * s,
-                      color: _smsCooldown > 0
-                          ? Colors.white.withValues(alpha: 0.4)
-                          : const Color(0xFFFF8FA3),
-                    ),
-                  ),
-                ),
             ],
           ),
         ),

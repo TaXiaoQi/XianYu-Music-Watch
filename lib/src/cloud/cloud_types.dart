@@ -25,18 +25,11 @@ enum CloudLoginKind {
 
 /// WebView 登录捕获规则（webviewCookie / webviewToken 两范式共用）。
 class CloudCaptureRule {
-  const CloudCaptureRule({
-    this.cookieNames = const [],
-    this.cookieDomains = const [],
-    this.doneUrlPattern,
-    this.pollScript,
-    this.pollIntervalMs = 500,
-  });
-
   /// 需要捕获的 Cookie 名（webviewCookie 范式）。
   final List<String> cookieNames;
 
-  /// Cookie 所在域（Cloudflare/WKWebView 按域隔离，逐域读取）。
+  /// Cookie 所在域（Cloudflare/WKWebView 按域隔离，逐域读取；
+  /// nativeCookies 时首个域作为原生读取地址）。
   final List<String> cookieDomains;
 
   /// 页面 URL 命中该正则即认为登录流程走完，可读 Cookie。
@@ -49,6 +42,33 @@ class CloudCaptureRule {
 
   /// JS 轮询间隔毫秒数。
   final int pollIntervalMs;
+
+  /// 走原生 CookieManager 通道读 Cookie（可读 httpOnly，如百度 BDUSS；
+  /// 上游 webview_flutter getCookies，鸿蒙 fork 无此 API 时由捕获会话
+  /// 自动回退 document.cookie）。
+  final bool nativeCookies;
+
+  /// 禁用 URL 自动判定登录完成，仅凭用户点「我已登录完成」收 Cookie。
+  /// 适用于登录前后 URL 不可区分的盘（如 139：登录后跳回同一个
+  /// yun.139.com SPA 首页，doneUrlPattern 从第一秒就命中）。
+  final bool manualDoneOnly;
+
+  /// 登录完成后、捕获 Cookie 前补跳的主站页。部分盘的页面侧 Cookie
+  /// （风控指纹等）要等主站页加载才种上（如百度 ndut_fmt/PANPSC），登录
+  /// 页直接点「我已登录完成」会缺键。非 null 时点手动完成先跳此 URL，
+  /// 页面加载后再读 Cookie。
+  final String? postLoginUrl;
+
+  const CloudCaptureRule({
+    this.cookieNames = const [],
+    this.cookieDomains = const [],
+    this.doneUrlPattern,
+    this.pollScript,
+    this.pollIntervalMs = 500,
+    this.nativeCookies = false,
+    this.manualDoneOnly = false,
+    this.postLoginUrl,
+  });
 }
 
 /// WebView 登录捕获结果。
@@ -275,4 +295,11 @@ class CloudException implements Exception {
 
   @override
   String toString() => message;
+}
+
+/// 登录要求短信二次校验（如天翼 -133 设备校验）。provider 已自动发码并
+/// 暂存会话，UI 弹窗收码后调 [CloudProvider.submitSmsCode] 完成绑定。
+class CloudSmsRequiredException extends CloudException {
+  const CloudSmsRequiredException(this.username) : super('需要短信验证');
+  final String username;
 }
