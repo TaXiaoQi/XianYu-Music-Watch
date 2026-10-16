@@ -26,7 +26,9 @@ const QUARK: Brand = Brand {
 const UC: Brand = Brand {
     api_host: "pc-api.uc.cn",
     web_host: "drive.uc.cn",
-    pr: "ucpro",
+    // 2026-10-16 起 ucpro 通道收紧拒 Web Cookie（401 guest，PC 实测），
+    // UC 切 UCBrowser 通道（对 Web Cookie 宽容，OpenList 同款）。
+    pr: "UCBrowser",
     ua_brand: "uc-cloud-drive",
 };
 
@@ -535,7 +537,8 @@ mod tests {
     #[test]
     fn brand_constants() {
         assert_eq!(brand_of("quark").api_host, "drive-pc.quark.cn");
-        assert_eq!(brand_of("uc").pr, "ucpro");
+        // UC 2026-10-16 起切 UCBrowser（ucpro 通道拒 Web Cookie）。
+        assert_eq!(brand_of("uc").pr, "UCBrowser");
         assert_eq!(common_query(&QUARK), "pr=quark&fr=pc&sys=win32&ve=3.23.2");
     }
 

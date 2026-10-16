@@ -20,7 +20,8 @@ abstract class QuarkUcBase extends CloudProvider {
   /// Web 域（Referer 用）。
   String get webHost;
 
-  /// 客户端品牌参数（pr=quark / ucpro）。
+  /// 客户端品牌参数（夸克 pr=quark / ucpro；UC pr=UCBrowser——2026-10-16
+  /// 起 ucpro 通道对 UC 也收紧拒 Web Cookie）。
   String get pr;
 
   /// UA 品牌串（quark-cloud-drive / uc-cloud-drive）。
