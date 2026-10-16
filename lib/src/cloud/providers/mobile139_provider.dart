@@ -25,7 +25,9 @@ class Mobile139Provider extends CloudProvider {
   CloudLoginKind get loginKind => CloudLoginKind.webviewCookie;
 
   @override
-  String get webviewLoginUrl => 'https://yun.139.com/';
+  // 直达网页版登录页（/w/ SPA 的 / 路由即登录），不带 hash 会停在
+  // 营销首页无法登录。
+  String get webviewLoginUrl => 'https://yun.139.com/w/#/';
 
   @override
   CloudCaptureRule? get captureRule => CloudCaptureRule(
