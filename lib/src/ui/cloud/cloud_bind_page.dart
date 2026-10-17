@@ -42,11 +42,14 @@ class _CloudBindPageState extends ConsumerState<CloudBindPage> {
   void initState() {
     super.initState();
     _rotarySub = rotaryEvents.listen(_onRotary);
+    // 凭据落盘即自动刷新：登录同步后台导入绑定后，页面无需重启即跟随
+    CloudCredentialsStore.instance.addListener(_reload);
     _reload();
   }
 
   @override
   void dispose() {
+    CloudCredentialsStore.instance.removeListener(_reload);
     _rotarySub?.cancel();
     _scroll.dispose();
     super.dispose();
