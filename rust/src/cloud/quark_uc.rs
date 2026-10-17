@@ -16,18 +16,22 @@ struct Brand {
     ua_brand: &'static str,
 }
 
+// pr=ucpro：drive-pc.*.cn 同为 UC 专业版客户端网关，对 Web Cookie
+// （__pus 系）校验宽松；pr=quark 是夸克官方客户端通道，2026-10 起要求
+// 真客户端环境，Web Cookie 会被风控降为游客（401 require login [guest]，
+// 真机实测）。UC 侧 2026-10-16 起 ucpro 通道同样收紧（隔夜全量 401，
+// PC 实测新鲜 Web Cookie 亦拒），UC 切 UCBrowser 通道（OpenList 同款，
+// 对 Web Cookie 宽容）。
 const QUARK: Brand = Brand {
     api_host: "drive-pc.quark.cn",
     web_host: "pan.quark.cn",
-    pr: "quark",
+    pr: "ucpro",
     ua_brand: "quark-cloud-drive",
 };
 
 const UC: Brand = Brand {
     api_host: "pc-api.uc.cn",
     web_host: "drive.uc.cn",
-    // 2026-10-16 起 ucpro 通道收紧拒 Web Cookie（401 guest，PC 实测），
-    // UC 切 UCBrowser 通道（对 Web Cookie 宽容，OpenList 同款）。
     pr: "UCBrowser",
     ua_brand: "uc-cloud-drive",
 };
@@ -44,12 +48,34 @@ fn common_query(b: &Brand) -> String {
     format!("pr={}&fr=pc&sys=win32&ve=3.23.2", b.pr)
 }
 
+/// 文件搜索 URL（纯函数，单测断言）。参数对齐网页端抓包形态
+/// （Pearsoon/quark、javOldDriver 等独立实现一致）：关键词参数名是
+/// q（非 keyword），_fetch_total/_sort/_is_hl 照抄，无 p/f 过滤参数。
+fn search_url(b: &Brand, keyword: &str, page: i64) -> String {
+    format!(
+        "https://{}/1/clouddrive/file/search?pr={}&fr=pc&_page={page}&_size=50&_fetch_total=1&_sort=file_type:desc,updated_at:desc&_is_hl=1&q={}",
+        b.api_host,
+        b.pr,
+        http::url_encode(keyword)
+    )
+}
+
 /// 桌面版浏览器 UA（分享/直链请求用）。
 fn desktop_ua() -> &'static str {
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
 
-/// 带凭据的通用请求头。
+/// PC 客户端 Electron UA（取链与下载必须同串：夸克 CDN 校验 UA 与
+/// 取链请求一致，不一致 403，真机实测）。
+fn client_ua(b: &Brand) -> String {
+    format!(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) {}/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.12-a038f7b798 Safari/537.36 Channel/pckk_other_ch",
+        b.ua_brand
+    )
+}
+
+/// 带凭据的通用请求头。UA 为夸克/UC PC 客户端 Electron 串：pr=ucpro
+/// 网关按此 UA 识别客户端身份（OpenList 同款配置，网页 Cookie 可用）。
 fn auth_headers(b: &Brand, cred: &Value) -> Vec<(String, String)> {
     let pairs: Vec<(String, String)> = cred
         .as_object()
@@ -60,13 +86,7 @@ fn auth_headers(b: &Brand, cred: &Value) -> Vec<(String, String)> {
         })
         .unwrap_or_default();
     vec![
-        (
-            "User-Agent".into(),
-            format!(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) {}/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.12-a038f7b798 Safari/537.36 Channel/pckk_other_ch",
-                b.ua_brand
-            ),
-        ),
+        ("User-Agent".into(), client_ua(b)),
         ("Referer".into(), format!("https://{}/", b.web_host)),
         ("Cookie".into(), http::cookie_header(&pairs)),
     ]
@@ -77,6 +97,13 @@ fn headers_with_ua(b: &Brand, ua: &str) -> Vec<(String, String)> {
         ("User-Agent".into(), ua.to_string()),
         ("Referer".into(), format!("https://{}/", b.web_host)),
     ]
+}
+
+/// 凭据失效判定：服务端不再认这套 web cookie（401 / code=31001 require
+/// login [guest]，夸克 UC 同网关同文案）。原始 JSON 对用户无意义，
+/// 统一映射为简短重绑提示。
+fn cred_expired(status: u16, body: &str) -> bool {
+    status == 401 || body.contains("\"code\":31001") || body.contains("require login")
 }
 
 /// download 接口 data 兼容数组/对象两种形态，提取 download_url。
@@ -159,7 +186,13 @@ async fn list_dir(req: &CloudReq) -> Result<CloudOut, (i32, String)> {
         .await
         .map_err(biz_err)?;
     if !resp.is_ok() {
-        return Err(biz_err("目录列表请求失败"));
+        if cred_expired(resp.status, &resp.body) {
+            return Err(biz_err("登录已过期，请重新绑定"));
+        }
+        // 带上 status + 响应体片段：夸克凭据/风控问题只能从响应体定位
+        // （如 NotLogin / 风控文案），光报「请求失败」没法排障。
+        let body: String = resp.body.chars().take(300).collect();
+        return Err((502, format!("目录列表请求失败 status={}: {body}", resp.status)));
     }
     let j = resp.json().map_err(biz_err)?;
     let data = j.get("data").cloned().unwrap_or(Value::Null);
@@ -188,8 +221,74 @@ async fn list_dir(req: &CloudReq) -> Result<CloudOut, (i32, String)> {
             ));
         }
     }
-    let total = data.get("_total").and_then(Value::as_i64).unwrap_or(0);
+    // 总数在顶层 metadata._total（data._total 兜底）。
+    let total = j
+        .pointer("/metadata/_total")
+        .or_else(|| j.pointer("/data/_total"))
+        .and_then(Value::as_i64)
+        .unwrap_or(0);
     let has_next = page * 100 < total;
+    let next_cursor = if has_next { Some((page + 1).to_string()) } else { None };
+    Ok(CloudOut::plain(list_result_json(files, next_cursor)))
+}
+
+/// file/search 的 data.metadata 条目 → CloudFile（映射纯函数，单测断言）。
+/// 播放（file/download）只需 fid；parentId（pdir_fid）与 fid_token 照
+/// list_dir 一并带回。
+fn file_from_search_item(e: &Value) -> Value {
+    let id = e.get("fid").and_then(Value::as_str).unwrap_or("");
+    let name = e
+        .get("file_name")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let is_dir = e
+        .get("dir")
+        .map(|d| d == &json!(true) || d == &json!(1))
+        .unwrap_or(false);
+    let size = e.get("size").and_then(Value::as_i64).unwrap_or(0);
+    let pdir = e.get("pdir_fid").and_then(Value::as_str).unwrap_or("");
+    let token = e.get("fid_token").and_then(Value::as_str).map(str::to_string);
+    super::types::file_json(id, &name, is_dir, size, Some(pdir), None, token.as_deref())
+}
+
+/// 文件搜索：keyword 必填，cursor 为页码（与 list_dir 同风格），
+/// 返回结构与 list_dir 同构（list_result_json）。
+async fn search_files(req: &CloudReq) -> Result<CloudOut, (i32, String)> {
+    require_cred(req)?;
+    let keyword = req.param_str("keyword");
+    if keyword.is_empty() {
+        return Err(biz_err("缺少搜索关键词"));
+    }
+    let b = brand_of(&req.provider);
+    let page: i64 = req.param_str("cursor").parse().unwrap_or(1);
+    if page < 1 {
+        return Err(biz_err("非法翻页游标"));
+    }
+    let resp = http::get(&search_url(b, &keyword, page), &auth_headers(b, &req.cred))
+        .await
+        .map_err(biz_err)?;
+    if !resp.is_ok() {
+        if cred_expired(resp.status, &resp.body) {
+            return Err(biz_err("登录已过期，请重新绑定"));
+        }
+        return Err(biz_err("搜索请求失败"));
+    }
+    let j = resp.json().map_err(biz_err)?;
+    // 列表在 data.list；总数在顶层 metadata._total（data._total 兜底）。
+    let list = j.pointer("/data/list").cloned().unwrap_or(Value::Null);
+    let mut files = Vec::new();
+    if let Some(items) = list.as_array() {
+        for e in items {
+            files.push(file_from_search_item(e));
+        }
+    }
+    let total = j
+        .pointer("/metadata/_total")
+        .or_else(|| j.pointer("/data/_total"))
+        .and_then(Value::as_i64)
+        .unwrap_or(0);
+    let has_next = page * 50 < total;
     let next_cursor = if has_next { Some((page + 1).to_string()) } else { None };
     Ok(CloudOut::plain(list_result_json(files, next_cursor)))
 }
@@ -428,6 +527,9 @@ async fn direct_link_route1(b: &Brand, req: &CloudReq, file: &Value) -> Result<V
         .await
         .map_err(biz_err)?;
     if !resp.is_ok() {
+        if cred_expired(resp.status, &resp.body) {
+            return Err(biz_err("登录已过期，请重新绑定"));
+        }
         return Err(biz_err("直链获取失败"));
     }
     let j = resp.json().map_err(biz_err)?;
@@ -441,7 +543,7 @@ async fn direct_link_route1(b: &Brand, req: &CloudReq, file: &Value) -> Result<V
         .unwrap_or(0);
     Ok(direct_link_json(
         &dl_url,
-        json!({ "User-Agent": desktop_ua(), "Referer": format!("https://{}/", b.web_host) }),
+        json!({ "User-Agent": client_ua(b), "Referer": format!("https://{}/", b.web_host) }),
         Some(name),
         size,
         Some(now_ms + 2 * 3600 * 1000),
@@ -494,7 +596,7 @@ async fn direct_link_route2_quark(
         .unwrap_or(0);
     Ok(direct_link_json(
         &dl_url,
-        json!({ "User-Agent": desktop_ua(), "Referer": format!("https://{}/", b.web_host) }),
+        json!({ "User-Agent": client_ua(b), "Referer": format!("https://{}/", b.web_host) }),
         Some(name),
         size,
         Some(now_ms + 2 * 3600 * 1000),
@@ -522,6 +624,7 @@ pub async fn dispatch(req: &CloudReq) -> Result<CloudOut, (i32, String)> {
     match req.op.as_str() {
         "validate" => validate(req).await,
         "list_dir" => list_dir(req).await,
+        "search_files" => search_files(req).await,
         "parse_share" => parse_share(req).await,
         "transfer_share" => transfer_share(req).await,
         "direct_link" => direct_link(req).await,
@@ -537,9 +640,11 @@ mod tests {
     #[test]
     fn brand_constants() {
         assert_eq!(brand_of("quark").api_host, "drive-pc.quark.cn");
-        // UC 2026-10-16 起切 UCBrowser（ucpro 通道拒 Web Cookie）。
+        // 夸克 pr=ucpro；UC 2026-10-16 起切 UCBrowser（ucpro 通道拒 Web
+        // Cookie，PC 实测 401 guest / UCBrowser 200）。
+        assert_eq!(brand_of("quark").pr, "ucpro");
         assert_eq!(brand_of("uc").pr, "UCBrowser");
-        assert_eq!(common_query(&QUARK), "pr=quark&fr=pc&sys=win32&ve=3.23.2");
+        assert_eq!(common_query(&QUARK), "pr=ucpro&fr=pc&sys=win32&ve=3.23.2");
     }
 
     #[test]
@@ -562,5 +667,44 @@ mod tests {
             Some("http://y".to_string())
         );
         assert_eq!(extract_download_url(&json!({ "download_url": "" })), None);
+    }
+
+    #[test]
+    fn search_url_shape() {
+        // 两家仅域名与 pr 不同，query 其余逐字一致（网页端抓包形态：q= 关键词）。
+        assert_eq!(
+            search_url(&QUARK, "lofi beats", 2),
+            "https://drive-pc.quark.cn/1/clouddrive/file/search?pr=ucpro&fr=pc&_page=2&_size=50&_fetch_total=1&_sort=file_type:desc,updated_at:desc&_is_hl=1&q=lofi+beats"
+        );
+        assert_eq!(
+            search_url(&UC, "flac", 1),
+            "https://pc-api.uc.cn/1/clouddrive/file/search?pr=UCBrowser&fr=pc&_page=1&_size=50&_fetch_total=1&_sort=file_type:desc,updated_at:desc&_is_hl=1&q=flac"
+        );
+    }
+
+    #[test]
+    fn file_from_search_item_maps_fields() {
+        let e = json!({
+            "fid": "fid1",
+            "file_name": "a.flac",
+            "dir": 1,
+            "size": 123,
+            "pdir_fid": "p0",
+            "fid_token": "tok",
+        });
+        let f = file_from_search_item(&e);
+        assert_eq!(f["id"], "fid1");
+        assert_eq!(f["name"], "a.flac");
+        assert_eq!(f["isDir"], true);
+        assert_eq!(f["size"], 123);
+        assert_eq!(f["parentId"], "p0");
+        assert_eq!(f["token"], "tok");
+        // 搜索无目录上下文：path 留空。
+        assert!(f.get("path").is_none());
+        // 缺字段：isDir 回 false、token 留空。
+        let f2 = file_from_search_item(&json!({ "fid": "fid2", "file_name": "b.mp3" }));
+        assert_eq!(f2["isDir"], false);
+        assert_eq!(f2["parentId"], "");
+        assert!(f2.get("token").is_none());
     }
 }

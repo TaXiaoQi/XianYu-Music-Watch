@@ -32,6 +32,13 @@ abstract class CloudProvider {
   /// WebView 捕获规则（webview 组；非 WebView 登录盘为 null）。
   CloudCaptureRule? get captureRule => null;
 
+  /// 手动填弹窗按 Token 语义处理（true=填 refresh_token/tokenInfo，
+  /// false=填 Cookie）。默认：有 pollScript 即 Token 范式。
+  bool get manualTokenInput => captureRule?.pollScript != null;
+
+  /// 手动填弹窗说明文案（null=按形态用默认文案）。
+  String? get manualInputHint => null;
+
   /// 账密/短信表单字段（httpPassword/smsPassword）。
   List<CloudLoginField> get loginFields => const [];
 
