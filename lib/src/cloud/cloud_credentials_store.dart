@@ -251,7 +251,8 @@ class CloudCredentialsStore extends ChangeNotifier {
       final sel = <String, List<String>>{};
       folderSelRaw.forEach((k, v) {
         if (k is! String || k.isEmpty || v is! List) return;
-        final paths = v.whereType<String>().where((p) => p.isNotEmpty).toList();
+        // 空串路径合法：id 型盘（迅雷/PikPak）根目录 id 为空串
+        final paths = v.whereType<String>().toList();
         if (paths.isNotEmpty) sel[k] = paths;
       });
       if (sel.isNotEmpty) {

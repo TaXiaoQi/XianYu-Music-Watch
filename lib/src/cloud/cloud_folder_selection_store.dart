@@ -73,12 +73,13 @@ class CloudFolderSelectionStore {
   }
 
   /// 合并云端目录选择（并集去重，不动本地已有条目）。
+  /// 空串路径合法：id 型盘（迅雷/PikPak）根目录 id 为空串。
   Future<void> mergePaths(Map<String, List<String>> incoming) async {
     if (incoming.isEmpty) return;
     final map = await _ensureLoaded();
     var changed = false;
     incoming.forEach((k, v) {
-      final paths = v.where((p) => p.isNotEmpty).toList();
+      final paths = v.whereType<String>().toList();
       if (paths.isEmpty) return;
       final merged = [...?map[k]];
       final before = merged.length;
