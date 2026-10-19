@@ -106,6 +106,10 @@ class SyncNotifier extends StateNotifier<SyncState> {
 
   Future<void> _autoTick() async {
     if (state.syncing || !_ref.read(authProvider).isLoggedIn) return;
+    // 凭据先拉后传：其他端（手机/桌面）绑定/轮换的变更按周期到达本端；
+    // LWW 门控在 _syncCloudCredsDownload 内部（本地较新跳过、无变化不落盘），
+    // 密封串仅 KB 级，小时级周期不增加可感知流量
+    await _syncCloudCredsDownload();
     await syncUpload();
   }
 
