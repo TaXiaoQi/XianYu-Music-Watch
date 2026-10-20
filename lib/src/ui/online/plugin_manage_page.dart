@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../cloud/cloud_credentials_store.dart';
+import '../../cloud/cloud_registry.dart';
 import '../../core/watch_fit.dart';
 import '../../i18n/i18n.dart';
+import '../../plugin/cloud_source_prefs.dart';
 import '../../plugin/plugin_models.dart';
 import '../../plugin/plugin_provider.dart';
 import '../../plugin/plugin_subscriptions.dart';
@@ -25,6 +28,107 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
   // 安装中页面返回 = 取消导入（终止后台安装并静默收尾）
   bool _installCancelled = false;
   final Set<String> _updating = {};
+
+  // 网盘伪音源行：每个已绑定网盘一条（开关/删除=解绑），腕上无排序 UI
+  Map<String, int> _cloudAccountCounts = {};
+  Set<String> _cloudDisabled = {};
+  late final void Function() _cloudListenerReg = _onCloudStoreChanged;
+
+  @override
+  void initState() {
+    super.initState();
+    CloudCredentialsStore.instance.addListener(_cloudListenerReg);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _loadCloudState();
+    });
+  }
+
+  @override
+  void dispose() {
+    CloudCredentialsStore.instance.removeListener(_cloudListenerReg);
+    super.dispose();
+  }
+
+  void _onCloudStoreChanged() {
+    if (mounted) _loadCloudState();
+  }
+
+  Future<void> _loadCloudState() async {
+    final counts = <String, int>{};
+    for (final p in cloudProviders) {
+      try {
+        counts[p.id] =
+            (await CloudCredentialsStore.instance.accountsFor(p.id)).length;
+      } catch (_) {
+        counts[p.id] = 0; // 单盘查询失败不影响其余
+      }
+    }
+    final disabled = await CloudSourcePrefs.getDisabled();
+    if (!mounted) return;
+    setState(() {
+      _cloudAccountCounts = counts;
+      _cloudDisabled = disabled;
+    });
+  }
+
+  Future<void> _toggleCloudSource(String providerId) async {
+    final cur = _cloudDisabled.contains(providerId);
+    await CloudSourcePrefs.setDisabled(providerId, !cur);
+    if (!mounted) return;
+    setState(() {
+      if (!cur) {
+        _cloudDisabled.add(providerId);
+      } else {
+        _cloudDisabled.remove(providerId);
+      }
+    });
+  }
+
+  /// 删除网盘音源（整页弹窗确认）：确认后解绑该盘全部账号
+  Future<void> _removeCloudSource(String providerId) async {
+    final name = cloudProviders
+        .where((p) => p.id == providerId)
+        .map((p) => p.displayName)
+        .firstOrNull;
+    final count = _cloudAccountCounts[providerId] ?? 0;
+    final ok = await showFullConfirm(
+      context,
+      title: tr('删除网盘音源「{name}」', {'name': name ?? providerId}),
+      message: tr(
+        '将同时解绑其下 {n} 个已绑定的网盘账号，绑定信息将无法恢复。',
+        {'n': count},
+      ),
+      okLabel: tr('删除'),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      final accounts =
+          await CloudCredentialsStore.instance.accountsFor(providerId);
+      for (final account in accounts) {
+        await CloudCredentialsStore.instance
+            .removeAccount(providerId, account.accountId);
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(tr(
+            '已删除「{name}」音源并解绑 {n} 个账号',
+            {'name': name ?? providerId, 'n': accounts.length},
+          )),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(tr('删除失败：{e}', {'e': e})),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
 
   Future<PluginUpdateService> _updateService() async {
     final engine = await ref.read(pluginEngineProvider.future);
@@ -257,8 +361,13 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
           ),
       ],
     );
+    // 已绑定网盘的伪音源行（未绑定不显示），追加在插件行之后
+    final cloudRows = <String>[
+      for (final p in cloudProviders)
+        if ((_cloudAccountCounts[p.id] ?? 0) > 0) p.id,
+    ];
     Widget? body;
-    if (sources.isEmpty) {
+    if (sources.isEmpty && cloudRows.isEmpty) {
       body = Column(
         children: [
           header,
@@ -281,8 +390,10 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
       body = SteppedListView(
         header: header,
         headerExtent: updateCount > 0 ? 96 : 56,
-        itemCount: sources.length,
-        itemBuilder: (context, i) => _pluginTile(sources[i], s: s),
+        itemCount: sources.length + cloudRows.length,
+        itemBuilder: (context, i) => i < sources.length
+            ? _pluginTile(sources[i], s: s)
+            : _cloudTile(cloudRows[i - sources.length], s: s),
       );
     }
     // 安装中允许返回，但返回语义 = 取消导入：终止后台安装，
@@ -292,6 +403,109 @@ class _PluginManagePageState extends ConsumerState<PluginManagePage> {
         if (didPop && _installing) _installCancelled = true;
       },
       child: Scaffold(body: SafeArea(child: body)),
+    );
+  }
+
+  /// 网盘伪音源行：红色云朵图标 + 网盘标签，开关 = 来源启停，删除 = 解绑（整页弹窗确认）
+  Widget _cloudTile(String providerId, {required double s}) {
+    final name = cloudProviders
+        .where((p) => p.id == providerId)
+        .map((p) => p.displayName)
+        .firstOrNull;
+    final displayName = name ?? providerId;
+    final count = _cloudAccountCounts[providerId] ?? 0;
+    final enabled = !_cloudDisabled.contains(providerId);
+    final desc = enabled
+        ? tr('已绑定 {n} 个账号', {'n': count})
+        : tr('已关闭');
+    return SteppedPill(
+      child: ListTile(
+        dense: true,
+        contentPadding: EdgeInsets.symmetric(horizontal: 3 * s),
+        leading: Container(
+          width: 44 * s,
+          height: 44 * s,
+          alignment: Alignment.center,
+          decoration: const BoxDecoration(
+            color: Color(0xFFEC4141),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(Icons.cloud_outlined,
+              size: 22 * s, color: Colors.white),
+        ),
+        title: Row(
+          children: [
+            Flexible(
+              child: Text(
+                displayName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 15 * s,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+            SizedBox(width: 4 * s),
+            Container(
+              padding: EdgeInsets.symmetric(
+                  horizontal: 5 * s, vertical: 1 * s),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEC4141).withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: const Color(0xFFEC4141).withValues(alpha: 0.4),
+                  width: 0.5,
+                ),
+              ),
+              child: Text(
+                tr('网盘'),
+                maxLines: 1,
+                overflow: TextOverflow.clip,
+                style: TextStyle(
+                  fontSize: 10 * s,
+                  height: 1.2,
+                  color: const Color(0xFFFF6B81),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+        subtitle: Text(
+          'v1.0.0 · 小奇 · $desc',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 11.5 * s,
+            color: Colors.white.withValues(alpha: 0.45),
+          ),
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Switch(
+              value: enabled,
+              activeThumbColor: const Color(0xFFFF4D6E),
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              onChanged: (_) => _toggleCloudSource(providerId),
+            ),
+            PressableScale(
+              pressScale: 0.88,
+              child: IconButton(
+                tooltip: tr('删除'),
+                icon: Icon(
+                  Icons.delete_outline_rounded,
+                  size: 20 * s,
+                  color: Colors.white.withValues(alpha: 0.5),
+                ),
+                onPressed: () => _removeCloudSource(providerId),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

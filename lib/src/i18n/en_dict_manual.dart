@@ -1570,4 +1570,12 @@ const Map<String, String> enDictManual = {
   '立即更新': 'Update now',
   '稍后': 'Later',
   '无法获取更新脚本': 'Could not fetch the update script',
+  '网盘': 'Cloud drive',
+  '已绑定 {n} 个账号': '{n} account(s) bound',
+  '已关闭': 'Disabled',
+  '删除网盘音源「{name}」': 'Delete cloud source "{name}"',
+  '将同时解绑其下 {n} 个已绑定的网盘账号，绑定信息将无法恢复。':
+      'Its {n} bound cloud account(s) will also be unbound. This cannot be undone.',
+  '已删除「{name}」音源并解绑 {n} 个账号':
+      'Deleted source "{name}" and unbound {n} account(s)',
 };
