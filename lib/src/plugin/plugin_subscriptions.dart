@@ -102,6 +102,16 @@ class PluginSubscriptionsNotifier
     await _persist();
   }
 
+  /// 按订阅链接批量移除（云端删除广播裁剪），无匹配时静默返回。
+  Future<void> removeByUrls(Iterable<String> urls) async {
+    final rm = urls.toSet();
+    if (rm.isEmpty) return;
+    final next = state.where((s) => !rm.contains(s.url)).toList();
+    if (next.length == state.length) return;
+    state = next;
+    await _persist();
+  }
+
   Future<int> mergeFromCloud(List<Map<String, dynamic>> cloud) async {
     final knownUrls = state.map((s) => s.url).toSet();
     var added = 0;

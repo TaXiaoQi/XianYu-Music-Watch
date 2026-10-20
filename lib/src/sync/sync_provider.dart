@@ -249,6 +249,9 @@ class SyncNotifier extends StateNotifier<SyncState> {
         .whereType<Map>()
         .map((e) => e.cast<String, dynamic>())
         .toList();
+    final deletedPaths = ((data['deleted_paths'] as List?) ?? const [])
+        .whereType<String>()
+        .toSet();
     final cloudPaths = favs
         .map((e) => (e['path'] as String?) ?? '')
         .where((p) => p.isNotEmpty)
@@ -260,6 +263,17 @@ class SyncNotifier extends StateNotifier<SyncState> {
       await _ref.read(favoritesProvider.notifier).removeByPaths(gone);
       tracked.removeAll(gone);
       await prefs.setStringList(_syncedFavKey, tracked.toList());
+    }
+    // 云端删除广播裁剪：其他端删除的收藏真删本地（兜底差集清理：
+    // 从未上传、不在 tracked 的本地副本也按账本裁掉），并从 tracked
+    // 清除，避免下次上传把已删条目重新推导为 delete_paths（账本复活）
+    if (deletedPaths.isNotEmpty) {
+      await _ref.read(favoritesProvider.notifier).removeByPaths(deletedPaths);
+      final trackedBefore = tracked.length;
+      tracked.removeAll(deletedPaths);
+      if (tracked.length != trackedBefore) {
+        await prefs.setStringList(_syncedFavKey, tracked.toList());
+      }
     }
     if (favs.isEmpty) return;
     final notifier = _ref.read(favoritesProvider.notifier);
@@ -345,6 +359,19 @@ class SyncNotifier extends StateNotifier<SyncState> {
     final data = await _action('plugin_sync_download', {
       'user_id': _ciyuanxiId,
     });
+    // 云端删除广播裁剪：其他端删除的订阅链接先移除，避免随后合并又加回
+    final deletedSubUrls = ((data['deleted_subscription_urls'] as List?) ??
+            const [])
+        .whereType<String>()
+        .toSet();
+    if (deletedSubUrls.isNotEmpty) {
+      await _ref
+          .read(pluginSubscriptionsProvider.notifier)
+          .removeByUrls(deletedSubUrls);
+    }
+    final deletedPluginIds = ((data['deleted_plugin_ids'] as List?) ?? const [])
+        .whereType<String>()
+        .toSet();
     final cloudSubs = ((data['subscriptions'] as List?) ?? const [])
         .whereType<Map>()
         .map((e) => e.cast<String, dynamic>())
@@ -365,9 +392,17 @@ class SyncNotifier extends StateNotifier<SyncState> {
     final prefs = await SharedPreferences.getInstance();
     final cloudInstalled = (prefs.getStringList(_cloudPluginIdsKey) ?? [])
         .toSet();
-    final gonePlugins = cloudInstalled
-        .where((id) => !cloudIds.contains(id))
-        .toList();
+    // 差集（云端没有的 tracked id）+ 删除广播账本：其他端卸载的插件
+    // 真删本地（账本 id 限定本地已装，避免对未装插件的无谓移除）
+    final installedIds = _ref
+        .read(pluginManagerProvider)
+        .sources
+        .map((s) => s.id)
+        .toSet();
+    final gonePlugins = <String>{
+      ...cloudInstalled.where((id) => !cloudIds.contains(id)),
+      ...deletedPluginIds.where(installedIds.contains),
+    };
     if (gonePlugins.isNotEmpty) {
       final manager = _ref.read(pluginManagerProvider.notifier);
       for (final id in gonePlugins) {
