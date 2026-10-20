@@ -26,6 +26,12 @@ const String _kCloudSealPrefix = 'xy1:';
 /// 旧版客户端导入时只认 List 值会自动忽略该键，新旧双向兼容。
 const String _kFolderSelSyncKey = '__fsel__';
 
+/// 同步串保留键：随密封串携带的已选目录名称缓存
+/// （`providerId|accountId → {存储键: 目录名}`），id 型盘展示可读名用。
+/// 纯展示数据，导入并集合并即可（腕上无选择器，仅作三端互传中转）。
+/// 旧版客户端导入时只认 List 值会自动忽略该键，双向兼容。
+const String _kFolderNamesSyncKey = '__fnames__';
+
 /// 遗留兜底账号 ID 形态：早期版本 accountId 取 md5(cookie/refreshToken)
 /// 前 12 位 hex（每次登录都变，重复登录即产生重复账号）。现役账号 ID 均
 /// 为服务端 uid 或昵称哈希（u_ 前缀）。
@@ -225,7 +231,8 @@ class CloudCredentialsStore extends ChangeNotifier {
   ///
   /// 账号派生密钥（三端可互解，服务端无明文）重新密封本地凭据 JSON，
   /// 密文不出本类、本地落盘仍用设备密钥。未绑定任何盘返回 null。
-  /// 密封明文附带保留键 `__fsel__` 携带目录选择，跨设备一并同步。
+  /// 密封明文附带保留键 `__fsel__` 携带目录选择、`__fnames__` 携带已选
+  /// 目录名称缓存（纯展示，三端互传），跨设备一并同步。
   Future<String?> exportForSync(String ciyuanxiId) async {
     final map = await _ensureLoaded();
     if (map.isEmpty) return null;
@@ -237,11 +244,16 @@ class CloudCredentialsStore extends ChangeNotifier {
     if (folderSel.isNotEmpty) {
       payload[_kFolderSelSyncKey] = folderSel;
     }
+    final folderNames = await CloudFolderNameCache.instance.allNames();
+    if (folderNames.isNotEmpty) {
+      payload[_kFolderNamesSyncKey] = folderNames;
+    }
     return _sealWithKey(jsonEncode(payload), _syncKey(ciyuanxiId));
   }
 
   /// 二期同步：导入跨设备密封串（与导出格式一致，指纹去重合并）。
-  /// 保留键 `__fsel__` 的目录选择合并进本地目录选择存储。
+  /// 保留键 `__fsel__` 的目录选择、`__fnames__` 的名称缓存并集合并进
+  /// 本地存储（旧版串无名称键时自动跳过）。
   Future<void> importFromSync(String sealed, String ciyuanxiId) async {
     final plain = _unsealWithKey(sealed, _syncKey(ciyuanxiId));
     if (plain == null) throw const CloudException('同步凭据解密失败');
@@ -257,6 +269,17 @@ class CloudCredentialsStore extends ChangeNotifier {
       });
       if (sel.isNotEmpty) {
         await CloudFolderSelectionStore.instance.mergePaths(sel);
+      }
+    }
+    final folderNamesRaw = raw.remove(_kFolderNamesSyncKey);
+    if (folderNamesRaw is Map) {
+      final names = <String, Map<String, String>>{};
+      folderNamesRaw.forEach((k, v) {
+        if (k is! String || k.isEmpty || v is! Map) return;
+        names[k] = v.map((kk, vv) => MapEntry('$kk', '$vv'));
+      });
+      if (names.isNotEmpty) {
+        await CloudFolderNameCache.instance.mergeNames(names);
       }
     }
     final merged = await _ensureLoaded();

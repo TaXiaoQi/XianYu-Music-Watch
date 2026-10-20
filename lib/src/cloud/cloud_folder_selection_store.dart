@@ -18,6 +18,78 @@ const String _kFolderSelKey = 'xianyu.cloud.folder_sel.v1';
 String cloudFolderSelKey(String providerId, String accountId) =>
     '$providerId|$accountId';
 
+/// 已选目录的名称缓存（纯展示用，移植自移动端）：id 型盘的存储键是
+/// 目录 id 串，无法从键还原可读名。腕上无选择器 UI，本地不产生新名称，
+/// 仅作为同步中转承载：随凭据密封串（`__fnames__` 保留键）导入合并、
+/// 导出携带，供三端互传；后续若加选择器 UI 可直接复用。
+class CloudFolderNameCache {
+  CloudFolderNameCache._();
+
+  static final CloudFolderNameCache instance = CloudFolderNameCache._();
+
+  static const String _kNamesKey = 'xianyu.cloud.folder_names.v1';
+
+  Map<String, Map<String, String>>? _cache;
+
+  Future<Map<String, Map<String, String>>> _ensureLoaded() async {
+    if (_cache != null) return _cache!;
+    final map = <String, Map<String, String>>{};
+    try {
+      final stored = await SecureStore.read(_kNamesKey);
+      if (stored != null && stored.isNotEmpty) {
+        final raw = jsonDecode(stored) as Map<String, dynamic>;
+        raw.forEach((k, v) {
+          if (v is Map) {
+            map[k] = v.map((kk, vv) => MapEntry('$kk', '$vv'));
+          }
+        });
+      }
+    } catch (e) {
+      AppLog.warn('cloud', '网盘已选目录名称缓存读取失败: $e');
+    }
+    _cache = map;
+    return map;
+  }
+
+  Future<void> _persist() async {
+    final map = _cache;
+    if (map == null) return;
+    try {
+      await SecureStore.write(_kNamesKey, jsonEncode(map));
+    } catch (e) {
+      AppLog.warn('cloud', '网盘已选目录名称缓存写入失败: $e');
+    }
+  }
+
+  /// 全量导出（跨设备同步随凭据密封串携带）。
+  Future<Map<String, Map<String, String>>> allNames() async {
+    final map = await _ensureLoaded();
+    if (map.isEmpty) return const {};
+    return map.map((k, v) => MapEntry(k, Map<String, String>.of(v)));
+  }
+
+  /// 并集合并云端名称（不动本地已有条目）。返回是否发生变化。
+  Future<bool> mergeNames(Map<String, Map<String, String>> incoming) async {
+    if (incoming.isEmpty) return false;
+    final map = await _ensureLoaded();
+    var changed = false;
+    incoming.forEach((k, v) {
+      if (k.isEmpty || v.isEmpty) return;
+      final bucket = map[k] ??= <String, String>{};
+      v.forEach((key, name) {
+        if (key.isEmpty || name.isEmpty) return;
+        if (bucket[key] != name) {
+          bucket[key] = name;
+          changed = true;
+        }
+      });
+    });
+    if (!changed) return false;
+    await _persist();
+    return true;
+  }
+}
+
 class CloudFolderSelectionStore {
   CloudFolderSelectionStore._();
 
