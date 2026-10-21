@@ -1,7 +1,7 @@
 
 use crate::music::lx_search::{
     decode_name, format_play_time, format_singer_name, http_get_json, http_post_json,
-    kg_filter_data, mg_create_signature, random_5_digits, random_tx_guid, tx_handle_result,
+    kg_v3_item_to_lx, mg_create_signature, random_5_digits, random_tx_guid, tx_handle_result,
     zzc_sign, LxSearchItem,
 };
 use serde::Serialize;
@@ -65,6 +65,21 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+/// 简易伪随机数（毫秒时间戳 LCG + 原子状态），用于酷我分页参数与翻页间隔抖动
+fn rand_u32(max: u64) -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static RAND_STATE: AtomicU64 = AtomicU64::new(0);
+    let mut state = RAND_STATE.load(Ordering::Relaxed);
+    if state == 0 {
+        state = now_ms() | 1;
+    }
+    state = state
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
+    RAND_STATE.store(state, Ordering::Relaxed);
+    (state >> 33) % max.max(1)
 }
 
 fn normalize_cover(v: &Value) -> Option<String> {
@@ -540,6 +555,259 @@ async fn tx_sheet_tracks_web_fallback(
     Ok(tx_handle_result(&Value::Array(songlist)))
 }
 
+// ==================== KG v9 歌单页全量 + v3 兜底公共头 ====================
+// v3 special/getSongList 对无 Referer 请求返回纯文本 "Access Deny ! No Actions !"（非 JSON），
+// 且条目为小写字段，旧映射 kg_filter_data（song_search_v2 大写字段）对不上 → 映射全空。
+
+const KG_V3_HEADERS: &[(&str, &str)] = &[
+    ("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"),
+    ("Referer", "https://www.kugou.com/"),
+];
+
+static KG_GLOBAL_DATA_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+
+/// KG v9 歌单页单次全量（大歌单可完整加载）。
+/// 注意：该域名 HTTPS 证书 CN 与域名不匹配（reqwest 严格校验会失败），必须走明文 http。
+async fn kg_sheet_tracks_v9(playlist_id: &str) -> Result<Vec<LxSearchItem>, String> {
+    let url = format!(
+        "http://www2.kugou.kugou.com/yueku/v9/special/single/{}-5-9999.html",
+        urlencode(playlist_id)
+    );
+    let html = http_get_text(&url, KG_V3_HEADERS).await?;
+    let re = KG_GLOBAL_DATA_RE
+        .get_or_init(|| regex::Regex::new(r"(?s)global\.data\s*=\s*(\[.+]);").unwrap());
+    let caps = re
+        .captures(&html)
+        .ok_or_else(|| "v9 页面未找到 global.data".to_string())?;
+    let list_json = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+    let arr: Vec<Value> = serde_json::from_str(list_json)
+        .map_err(|e| format!("v9 global.data 解析失败: {}", e))?;
+    let list: Vec<LxSearchItem> = arr
+        .iter()
+        .filter_map(|item| kg_v3_item_to_lx(item, true))
+        .collect();
+    if list.is_empty() {
+        return Err("v9 页面歌曲列表为空".to_string());
+    }
+    Ok(list)
+}
+
+// ==================== TX 歌单 qzone 全量 ====================
+
+static TX_JSONP_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+
+/// TX 歌单：qzone 接口单次返回完整 songlist（大歌单可完整加载），失败由调用方回退分页路径
+async fn tx_sheet_tracks_full_fetch(playlist_id: &str) -> Result<Vec<LxSearchItem>, String> {
+    let url = format!(
+        "https://i.y.qq.com/qzone-music/fcg-bin/fcg_ucc_getcdinfo_byids_cp.fcg?type=1&utf8=1&disstid={}&loginUin=0&format=json",
+        urlencode(playlist_id)
+    );
+    let referer = format!("https://y.qq.com/n/ryqq/playlist/{}", urlencode(playlist_id));
+    let text = http_get_text(&url, &[("Referer", referer.as_str()), ("Cookie", "uin=0")]).await?;
+    // 去掉 JSONP 包裹（callback( / MusicJsonCallback( 前缀与结尾 )）后解析
+    let re = TX_JSONP_RE
+        .get_or_init(|| regex::Regex::new(r"callback\(|MusicJsonCallback\(|jsonCallback\(|\)$").unwrap());
+    let stripped = re.replace_all(&text, "");
+    let result: Value = serde_json::from_str(stripped.trim())
+        .map_err(|e| format!("qzone 歌单 JSON 解析失败: {}", e))?;
+    let song_all = result
+        .get("cdlist")
+        .or_else(|| result.pointer("/data/cdlist"))
+        .and_then(|v| v.as_array())
+        .and_then(|a| a.first())
+        .and_then(|cd| cd.get("songlist"))
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    if song_all.is_empty() {
+        return Err("qzone 歌单 songlist 为空".to_string());
+    }
+    Ok(tx_handle_result(&Value::Array(song_all)))
+}
+
+// ==================== KW 歌单整单分页（新接口 pl3_getlist，失败回退老 getlistinfo） ====================
+// 老接口 getlistinfo 一次 rn=1000 会被上游截断，大歌单无法完整加载；
+// 改用 pl3_getlist 按 80/页翻页取全（对齐桌面端酷我插件导入逻辑）。
+
+const KW_SHEET_PAGE_SIZE: u32 = 80;
+const KW_SHEET_MAX_PAGES: u32 = 200;
+
+async fn kw_sheet_page_new_api(playlist_id: &str, pn: u32, rn: u32) -> Result<Value, String> {
+    // 随机 uid/sid/devid/sig 等参数，降低上游风控触发概率（对齐桌面端实现）
+    let url = format!(
+        "http://nplserver.kuwo.cn/pl.svc?op=pl3_getlist&pid={}&pn={}&rn={}&encode=utf-8&plat=pc&corp=kuwo&uid={}&sid={}&devid={}&prod=MUSIC_9.6.0.0_W1&ttime={}&sig={}&source=kwmusic_web_1.exe",
+        urlencode(playlist_id),
+        pn,
+        rn,
+        rand_u32(100_000_000),
+        rand_u32(100_000_000),
+        rand_u32(100_000_000),
+        now_ms() / 1000,
+        rand_u32(2_000_000_000),
+    );
+    let data = http_get_json(&url, &[("Referer", "https://www.kuwo.cn/")]).await?;
+    let has_musiclist = data
+        .pointer("/info/musiclist")
+        .map(|v| v.is_array())
+        .unwrap_or(false);
+    if data.get("errcode").and_then(|v| v.as_i64()) != Some(0) || !has_musiclist {
+        return Err(format!(
+            "pl3_getlist errcode={}",
+            data.get("errcode")
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "unknown".to_string())
+        ));
+    }
+    Ok(data)
+}
+
+async fn kw_sheet_page_old_api(playlist_id: &str, pn: u32, rn: u32) -> Result<Value, String> {
+    let url = format!(
+        "http://nplserver.kuwo.cn/pl.svc?op=getlistinfo&pid={}&pn={}&rn={}&encode=utf8&keyset=pl2012&vipver=MUSIC_9.1.1.2_BCS2&newver=1",
+        urlencode(playlist_id),
+        pn,
+        rn
+    );
+    let data = http_get_json(&url, &[("Referer", "https://www.kuwo.cn/")]).await?;
+    let has_musiclist = data.get("musiclist").map(|v| v.is_array()).unwrap_or(false);
+    if data.get("result").and_then(|v| v.as_str()) != Some("ok") || !has_musiclist {
+        return Err(format!(
+            "getlistinfo result={}",
+            data.get("result")
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "unknown".to_string())
+        ));
+    }
+    Ok(data)
+}
+
+/// 老接口 musiclist 条目 → LxSearchItem（新接口字段同老接口，统一走此映射）
+fn kw_sheet_item_to_lx(m: &Value) -> LxSearchItem {
+    let rid = match m.get("id") {
+        Some(Value::Number(n)) => n.to_string(),
+        Some(Value::String(s)) => s.clone(),
+        _ => String::new(),
+    };
+    let rid = rid.strip_prefix("MUSIC_").unwrap_or(&rid).to_string();
+    let albumpic = m
+        .get("albumpic")
+        .and_then(|v| v.as_str())
+        .map(|s| s.replace("/120/", "/500/"));
+    let duration = match m.get("duration") {
+        Some(Value::Number(n)) => n.as_f64().unwrap_or(0.0),
+        Some(Value::String(s)) => s.trim_start().parse::<f64>().unwrap_or(0.0),
+        _ => 0.0,
+    };
+    simple_item(
+        "kw",
+        rid,
+        m.get("name").and_then(|v| v.as_str()).unwrap_or(""),
+        m.get("artist").and_then(|v| v.as_str()).unwrap_or(""),
+        m.get("album")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .or_else(|| m.get("albummName").and_then(|v| v.as_str()))
+            .unwrap_or(""),
+        m.get("albumid")
+            .cloned()
+            .unwrap_or(Value::String(String::new())),
+        format_play_time(duration),
+        albumpic
+            .filter(|s| !s.is_empty())
+            .or_else(|| m.get("pic").and_then(|v| v.as_str()).map(|s| s.to_string())),
+        None,
+    )
+}
+
+/// 整单分页取全：新接口 pl3_getlist 任意一页失败时整体回退老 getlistinfo 重拉
+/// （页签名去重防止重复页死循环，翻页间隔 200~300ms 降低风控触发概率）
+async fn kw_sheet_all_tracks(playlist_id: &str) -> Result<Vec<LxSearchItem>, String> {
+    for use_new_api in [true, false] {
+        let mut music_list: Vec<LxSearchItem> = Vec::new();
+        let mut page_signatures: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+        let mut page: u32 = 1;
+        // u32::MAX 表示未知总页数（对齐 TS Infinity）
+        let mut total_page: u32 = u32::MAX;
+        let mut failed = false;
+        while page <= total_page {
+            if page > KW_SHEET_MAX_PAGES {
+                return Err("酷我歌单分页超出合理范围，请重试".to_string());
+            }
+            let fetch_result = if use_new_api {
+                kw_sheet_page_new_api(playlist_id, page - 1, KW_SHEET_PAGE_SIZE).await
+            } else {
+                kw_sheet_page_old_api(playlist_id, page - 1, KW_SHEET_PAGE_SIZE).await
+            };
+            let data = match fetch_result {
+                Ok(d) => d,
+                Err(e) => {
+                    if !use_new_api {
+                        return Err(e);
+                    }
+                    failed = true;
+                    break;
+                }
+            };
+            let body = if use_new_api {
+                data.get("info").cloned().unwrap_or(Value::Null)
+            } else {
+                data
+            };
+            let songs = body
+                .get("musiclist")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
+            let total = body
+                .get("total")
+                .and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok())));
+            if let Some(t) = total.filter(|t| t.is_finite() && *t >= 0.0) {
+                total_page = (t / KW_SHEET_PAGE_SIZE as f64).ceil() as u32;
+            }
+            let signature = songs
+                .iter()
+                .map(|s| match s.get("id") {
+                    Some(v) if !v.is_null() => v.to_string(),
+                    _ => s
+                        .get("musicrid")
+                        .map(|v| v.to_string())
+                        .unwrap_or_default(),
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            if !songs.is_empty() && page_signatures.contains(&signature) {
+                if !use_new_api {
+                    return Err("酷我歌单分页重复，请重试".to_string());
+                }
+                failed = true;
+                break;
+            }
+            page_signatures.insert(signature);
+            if songs.is_empty() && total_page != u32::MAX && page <= total_page {
+                if !use_new_api {
+                    return Err("酷我歌单分页提前结束，请重试".to_string());
+                }
+                failed = true;
+                break;
+            }
+            if total_page == u32::MAX && songs.len() < KW_SHEET_PAGE_SIZE as usize {
+                total_page = page;
+            }
+            for s in &songs {
+                music_list.push(kw_sheet_item_to_lx(s));
+            }
+            // 翻页间隔 200~300ms，降低上游风控触发概率
+            tokio::time::sleep(std::time::Duration::from_millis(200 + rand_u32(100) as u64)).await;
+            page += 1;
+        }
+        if !failed {
+            return Ok(music_list);
+        }
+    }
+    Ok(Vec::new())
+}
+
 pub async fn lx_playlist_tracks(
     source: &str,
     playlist_id: &str,
@@ -554,81 +822,95 @@ pub async fn lx_playlist_tracks(
     }
     let result = match source {
         "kw" => {
-            let url = format!(
-                "http://nplserver.kuwo.cn/pl.svc?op=getlistinfo&pid={}&pn=0&rn=1000&encode=utf8&keyset=pl2012&vipver=MUSIC_9.1.1.2_BCS2&newver=1",
-                urlencode(playlist_id)
-            );
-            let body = match http_get_json(&url, &[("Referer", "https://www.kuwo.cn/")]).await {
-                Ok(b) => b,
-                Err(e) => return Err(e),
-            };
-            if body.get("result").and_then(|v| v.as_str()) != Some("ok") {
-                return Ok(LxPlaylistTracksResult {
-                    list: Vec::new(),
+            // 整单分页取全（新接口 pl3_getlist，任一页失败整体回退老 getlistinfo 重拉），
+            // page==1 直接返回全量，page>1 走全量切片
+            let all = kw_sheet_all_tracks(playlist_id).await?;
+            let total = all.len();
+            if page == 1 {
+                LxPlaylistTracksResult {
+                    list: all,
                     is_end: true,
-                });
-            }
-            let musiclist = body
-                .get("musiclist")
-                .and_then(|v| v.as_array())
-                .cloned()
-                .unwrap_or_default();
-            let list = musiclist
-                .iter()
-                .map(|m| {
-                    let rid = match m.get("id") {
-                        Some(Value::Number(n)) => n.to_string(),
-                        Some(Value::String(s)) => s.clone(),
-                        _ => String::new(),
-                    };
-                    let rid = rid.strip_prefix("MUSIC_").unwrap_or(&rid).to_string();
-                    let duration = m
-                        .get("duration")
-                        .and_then(|v| v.as_str().and_then(|s| s.parse::<f64>().ok()))
-                        .unwrap_or(0.0);
-                    let img = m
-                        .get("albumpic")
-                        .or_else(|| m.get("pic"))
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
-                    simple_item(
-                        source,
-                        rid,
-                        m.get("name").and_then(|v| v.as_str()).unwrap_or(""),
-                        m.get("artist").and_then(|v| v.as_str()).unwrap_or(""),
-                        m.get("album").and_then(|v| v.as_str()).unwrap_or(""),
-                        m.get("albumid").cloned().unwrap_or(Value::String(String::new())),
-                        format_play_time(duration),
-                        img,
-                        None,
-                    )
-                })
-                .collect();
-            LxPlaylistTracksResult {
-                list,
-                is_end: true,
+                }
+            } else {
+                let start = ((page - 1) * limit) as usize;
+                let list: Vec<LxSearchItem> = all
+                    .into_iter()
+                    .skip(start)
+                    .take(limit as usize)
+                    .collect();
+                LxPlaylistTracksResult {
+                    is_end: start + list.len() >= total,
+                    list,
+                }
             }
         }
         "kg" => {
-            let url = format!(
-                "http://mobilecdn.kugou.com/api/v3/song/special/getSongList?specialid={}&page={}&pagesize={}",
-                urlencode(playlist_id),
-                page,
-                limit
-            );
-            let data = http_get_json(&url, &[]).await?;
-            let info_list = data
-                .pointer("/data/info")
-                .and_then(|v| v.as_array())
-                .cloned()
-                .unwrap_or_default();
-            let list: Vec<LxSearchItem> = info_list.iter().map(kg_filter_data).collect();
-            LxPlaylistTracksResult {
-                is_end: (list.len() as u32) < limit,
-                list,
+            // 主路径：v9 歌单页单次全量（大歌单可完整加载），失败回退 v3 分页
+            if let Ok(all) = kg_sheet_tracks_v9(playlist_id).await {
+                if page == 1 {
+                    LxPlaylistTracksResult {
+                        list: all,
+                        is_end: true,
+                    }
+                } else {
+                    let start = ((page - 1) * limit) as usize;
+                    let total = all.len();
+                    let list: Vec<LxSearchItem> = all
+                        .into_iter()
+                        .skip(start)
+                        .take(limit as usize)
+                        .collect();
+                    LxPlaylistTracksResult {
+                        is_end: start + list.len() >= total,
+                        list,
+                    }
+                }
+            } else {
+                // v3 兜底：无 Referer 请求会返回纯文本 Access Deny，需补 UA + Referer；
+                // 条目为小写字段，统一走 v3 映射
+                let url = format!(
+                    "http://mobilecdn.kugou.com/api/v3/song/special/getSongList?specialid={}&page={}&pagesize={}",
+                    urlencode(playlist_id),
+                    page,
+                    limit
+                );
+                let data = http_get_json(&url, KG_V3_HEADERS).await?;
+                let info_list = data
+                    .pointer("/data/info")
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                let list: Vec<LxSearchItem> = info_list
+                    .iter()
+                    .filter_map(|item| kg_v3_item_to_lx(item, false))
+                    .collect();
+                LxPlaylistTracksResult {
+                    is_end: (list.len() as u32) < limit,
+                    list,
+                }
             }
         }
         "tx" => {
+            // 主路径：qzone 接口单次返回完整 songlist（大歌单可完整加载），失败回退 Mobile 分页
+            if let Ok(all) = tx_sheet_tracks_full_fetch(playlist_id).await {
+                if page == 1 {
+                    return Ok(LxPlaylistTracksResult {
+                        list: all,
+                        is_end: true,
+                    });
+                }
+                let start = ((page - 1) * limit) as usize;
+                let total = all.len();
+                let list: Vec<LxSearchItem> = all
+                    .into_iter()
+                    .skip(start)
+                    .take(limit as usize)
+                    .collect();
+                return Ok(LxPlaylistTracksResult {
+                    is_end: start + list.len() >= total,
+                    list,
+                });
+            }
             let request_data = serde_json::json!({
                 "comm": { "ct": "24", "cv": "0" },
                 "req": {
@@ -913,13 +1195,18 @@ pub async fn lx_album_songs(
                 page,
                 limit
             );
-            let data = http_get_json(&url, &[]).await?;
+            // 无 Referer 请求会返回纯文本 Access Deny，需补 UA + Referer；
+            // 条目为小写字段，统一走 v3 映射
+            let data = http_get_json(&url, KG_V3_HEADERS).await?;
             let info_list = data
                 .pointer("/data/info")
                 .and_then(|v| v.as_array())
                 .cloned()
                 .unwrap_or_default();
-            let list: Vec<LxSearchItem> = info_list.iter().map(kg_filter_data).collect();
+            let list: Vec<LxSearchItem> = info_list
+                .iter()
+                .filter_map(|item| kg_v3_item_to_lx(item, false))
+                .collect();
             Ok(list)
         }
         "wy" => {
