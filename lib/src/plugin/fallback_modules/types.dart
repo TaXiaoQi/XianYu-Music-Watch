@@ -27,6 +27,7 @@ const fallbackModuleMethods = <String, List<String>>{
     'getListDetailWy',
     'getListDetailTx',
     'getListDetailKw',
+    'getListDetailMg',
     'getListDetailQishui',
   ],
 };
