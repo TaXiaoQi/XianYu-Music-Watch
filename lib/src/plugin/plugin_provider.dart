@@ -9,6 +9,7 @@ import '../core/application_logger.dart';
 import '../core/db_path.dart';
 import '../core/rust_init.dart';
 import '../rust/api.dart' as frb;
+import '../sync/plugin_update_tombstones.dart';
 import 'plugin_engine.dart';
 import 'plugin_models.dart';
 import 'plugin_store.dart';
@@ -182,6 +183,8 @@ class PluginManager extends StateNotifier<PluginListState> {
     if (existing.isNotEmpty) {
       return existing.first;
     }
+    // 手动重新安装同内容脚本（同 id）视为用户明确意愿，解除更新墓碑
+    await PluginUpdateTombstones.remove(id);
 
     Map<String, dynamic>? metadata;
     if (isLx) {

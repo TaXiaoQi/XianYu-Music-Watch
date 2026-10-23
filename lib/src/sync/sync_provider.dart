@@ -16,6 +16,7 @@ import '../plugin/plugin_subscriptions.dart';
 import '../plugin/plugin_sync_crypto.dart';
 import '../plugin/plugin_user_vars.dart';
 import '../rust/api.dart' as rust;
+import 'plugin_update_tombstones.dart';
 import 'playlist_store.dart';
 
 class SyncState {
@@ -422,9 +423,16 @@ class SyncNotifier extends StateNotifier<SyncState> {
         .map((s) => s.id)
         .toSet();
     final installedNow = <String>{};
+    final staleCloudIds = <String>{};
     for (final item in items) {
       final cloudId = (item['id'] as String?)?.trim() ?? '';
       if (cloudId.isEmpty || existingIds.contains(cloudId)) continue;
+      if (await PluginUpdateTombstones.contains(cloudId)) {
+        // 更新换 id 的旧版本残留：不恢复，顺手从云端清掉，避免
+        // 旧脚本被拉回后再次自报更新导致弹窗反复
+        staleCloudIds.add(cloudId);
+        continue;
+      }
       var script = (item['script'] as String?) ?? '';
       if (item['scriptEncoded'] == true && script.isNotEmpty) {
         try {
@@ -472,6 +480,19 @@ class SyncNotifier extends StateNotifier<SyncState> {
     if (installedNow.isNotEmpty) {
       final all = {...cloudInstalled, ...installedNow}.toList();
       await prefs.setStringList(_cloudPluginIdsKey, all);
+    }
+    if (staleCloudIds.isNotEmpty) {
+      final ciyuanxiId = _ciyuanxiId;
+      if (ciyuanxiId != null && ciyuanxiId.isNotEmpty) {
+        try {
+          await _action('plugin_sync_delete', {
+            'user_id': ciyuanxiId,
+            'plugin_ids': staleCloudIds.toList(),
+          });
+        } catch (e) {
+          AppLog.debug('sync', '清理云端旧版本插件失败: $e');
+        }
+      }
     }
   }
 

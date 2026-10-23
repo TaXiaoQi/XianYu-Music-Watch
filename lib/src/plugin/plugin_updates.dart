@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 
 import '../core/application_logger.dart';
+import '../sync/plugin_update_tombstones.dart';
 import 'plugin_engine.dart';
 import 'plugin_models.dart';
 import 'plugin_preferences.dart';
@@ -345,6 +346,10 @@ class PluginUpdateService {
       );
       if (newSource.id != source.id) {
         await manager.remove(source.id);
+        // 更新即换 id：云端仍存的旧脚本会被下轮「先拉后推」的下载按 id
+        // 原样恢复回来，旧脚本一跑又自报更新，弹窗反复出现（#666888）。
+        // 落墓碑让下载跳过恢复，并顺手清理云端残留。
+        await PluginUpdateTombstones.add([source.id]);
       }
       return (
         success: true,
