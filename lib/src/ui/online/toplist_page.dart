@@ -66,6 +66,8 @@ class _TopListPageState extends ConsumerState<TopListPage> {
         _loading = false;
         if (merged.isEmpty) _error = tr('当前插件均不支持榜单');
       });
+      // 插件榜单常为静态图标占位（API 无封面），先展示再后台回填真实封面
+      _enrichCovers(catalog);
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -73,6 +75,28 @@ class _TopListPageState extends ConsumerState<TopListPage> {
           _error = '$e';
         });
       }
+    }
+  }
+
+  Future<void> _enrichCovers(PluginCatalogService catalog) async {
+    final bySource = <PluginSource, List<MfSheetItem>>{};
+    for (final (s, b) in _entries) {
+      (bySource[s] ??= []).add(b);
+    }
+    for (final entry in bySource.entries) {
+      try {
+        final enriched =
+            await catalog.enrichTopListCovers(entry.key, entry.value);
+        if (identical(enriched, entry.value) || !mounted) return;
+        final byId = {for (final b in enriched) b.id: b};
+        setState(() {
+          _entries = _entries
+              .map((e) => identical(e.$1, entry.key) && byId.containsKey(e.$2.id)
+                  ? (e.$1, byId[e.$2.id]!)
+                  : e)
+              .toList();
+        });
+      } catch (_) {}
     }
   }
 
