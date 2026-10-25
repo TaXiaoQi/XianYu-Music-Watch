@@ -47,6 +47,31 @@ pub fn get_cover_cache_dir(cache_root: &Path) -> PathBuf {
 	dir
 }
 
+/// 远程目录封面落盘（声影 g13 同款规则的落盘环节）：解码校验（截断图/
+/// 伪装成图片的 HTML 响应不落盘）+ 按内容指纹命名原子写入。同图跨曲/
+/// 跨会话命中同一文件名直接复用。
+pub fn save_dir_cover_from_bytes(bytes: &[u8], cache_dir: &Path) -> Option<String> {
+	let reader = image::ImageReader::new(std::io::Cursor::new(bytes))
+		.with_guessed_format()
+		.ok()?;
+	let format = reader.format()?;
+	reader.decode().ok()?;
+	let hash = format!("{:x}", Sha256::digest(bytes));
+	let ext = match format {
+		ImageFormat::Jpeg => "jpg",
+		ImageFormat::Png => "png",
+		ImageFormat::WebP => "webp",
+		ImageFormat::Gif => "gif",
+		ImageFormat::Bmp => "bmp",
+		_ => return None,
+	};
+	let cache_path = cache_dir.join(format!("remote_dir_{hash}.{ext}"));
+	if cache_path.exists() && is_cache_image_decodable(&cache_path) {
+		return Some(cache_path.to_string_lossy().into_owned());
+	}
+	persist_bytes_atomically(bytes, &cache_path)
+}
+
 pub fn run_cache_cleanup(cache_dir: &Path) {
 	let cache_dir = cache_dir.to_path_buf();
 	let max_size = COVER_CACHE_MAX_SIZE_BYTES;

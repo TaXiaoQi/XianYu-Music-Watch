@@ -212,12 +212,37 @@ fn supported_audio_extension(path: &str) -> bool {
 	matches!(
 			path.rsplit('.').next().map(|value| value.to_ascii_lowercase()),
 			Some(ext)
-					if matches!(
-							ext.as_str(),
-							"mp3" | "flac" | "wav" | "m4a" | "aac" | "ogg" | "opus" | "aiff" | "aif"
-									| "dsf" | "dff" | "ape" | "wv"
-					)
-	)
+						if matches!(
+								ext.as_str(),
+								"mp3" | "flac" | "wav" | "m4a" | "aac" | "ogg" | "opus" | "aiff" | "aif"
+										| "dsf" | "dff" | "ape" | "wv"
+						)
+		)
+}
+
+/// 下载小文件到内存（目录封面图专用）：非 2xx / 超 max_bytes 均返回 None，
+/// 调用方按候选序逐个探测，失败静默跳过。封面图一般几十 KB～1MB。
+pub(crate) async fn download_small_file(
+	source: &RemoteSourceCredentials,
+	remote_path: &str,
+	max_bytes: usize,
+) -> Option<Vec<u8>> {
+	let client = shared_client();
+	let request = client.get(build_url(source, remote_path));
+	let response = auth_request(request, source).send().await.ok()?;
+	if !response.status().is_success() {
+		return None;
+	}
+	if let Some(length) = response.content_length() {
+		if length as usize > max_bytes {
+			return None;
+		}
+	}
+	let bytes = response.bytes().await.ok()?;
+	if bytes.len() > max_bytes {
+		return None;
+	}
+	Some(bytes.to_vec())
 }
 
 fn auth_request(
