@@ -1,5 +1,6 @@
 
 pub mod error;
+pub mod filename_meta;
 pub mod host_crypto;
 pub mod fallback_verify;
 pub mod music;

@@ -27,10 +27,7 @@ fn extension_from_path(path: &str) -> String {
 }
 
 fn title_from_name(name: &str) -> String {
-	name
-		.rsplit_once('.')
-		.map(|(stem, _)| stem.to_string())
-		.unwrap_or_else(|| name.to_string())
+	crate::filename_meta::title_from_name(name)
 }
 
 fn album_from_remote_path(path: &str) -> String {
@@ -55,26 +52,16 @@ fn is_unknown_text(value: &str, unknown: &str) -> bool {
 	trimmed.is_empty() || trimmed == unknown
 }
 
-fn split_filename_title_artist(name: &str) -> Option<(String, String)> {
-	let stem = title_from_name(name);
-	let separators = [" - ", "-", " – ", "–", " — ", "—"];
-	for separator in separators {
-		let Some((left, right)) = stem.rsplit_once(separator) else {
-			continue;
-		};
-		let title = left.trim();
-		let artist = right.trim();
-		if !title.is_empty() && !artist.is_empty() {
-			return Some((title.to_string(), artist.to_string()));
-		}
-	}
-	None
-}
+// 文件名切分与序号/feat 清理统一走 `crate::filename_meta` 公共模块
+// （本地曲库/远程两条线共用，与移动端/桌面端同构）。
 
 fn refresh_artist_fields(song: &mut Song, artist: String) {
+	// 多艺人拆分与本地曲库同构（A/B、A、B、A& B、A feat. B → 多歌手），
+	// 主 artist 字段保持整串兼容既有单值消费方。
+	let names = crate::music::scanner::split_artist_names(&artist);
 	song.artist = artist.clone();
-	song.artist_names = vec![artist.clone()];
-	song.effective_artist_names = vec![artist.clone()];
+	song.artist_names = names.clone();
+	song.effective_artist_names = names;
 	song.album_artist = artist;
 	song.album_key = format!(
 		"{}::{}",
@@ -91,7 +78,8 @@ fn apply_filename_metadata_fallback(song: &mut Song, file: &RemoteFileEntry) {
 		return;
 	}
 
-	let Some((title, artist)) = split_filename_title_artist(&file.name) else {
+	let Some((title, artist)) = crate::filename_meta::split_filename_title_artist(&file.name)
+	else {
 		return;
 	};
 
