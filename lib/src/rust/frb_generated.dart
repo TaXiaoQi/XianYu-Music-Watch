@@ -6,6 +6,7 @@
 import 'api.dart';
 import 'dart:async';
 import 'dart:convert';
+import 'fallback_verify.dart';
 import 'frb_generated.dart';
 import 'frb_generated.io.dart'
     if (dart.library.js_interop) 'frb_generated.web.dart';
@@ -900,9 +901,10 @@ abstract class RustLibApi extends BaseApi {
     required String signature,
   });
 
-  Future<bool> crateApiVerifyFallbackConfigSignature({
+  Future<FallbackVerifyResult> crateApiVerifyFallbackConfigSignature({
     required String configJson,
     required String signature,
+    String? keyId,
   });
 
   Future<bool> crateApiWaitStreamComplete({
@@ -7517,9 +7519,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
-  Future<bool> crateApiVerifyFallbackConfigSignature({
+  Future<FallbackVerifyResult> crateApiVerifyFallbackConfigSignature({
     required String configJson,
     required String signature,
+    String? keyId,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -7527,6 +7530,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(configJson, serializer);
           sse_encode_String(signature, serializer);
+          sse_encode_opt_String(keyId, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -7535,11 +7539,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           );
         },
         codec: SseCodec(
-          decodeSuccessData: sse_decode_bool,
+          decodeSuccessData: sse_decode_fallback_verify_result,
           decodeErrorData: sse_decode_String,
         ),
         constMeta: kCrateApiVerifyFallbackConfigSignatureConstMeta,
-        argValues: [configJson, signature],
+        argValues: [configJson, signature, keyId],
         apiImpl: this,
       ),
     );
@@ -7548,7 +7552,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   TaskConstMeta get kCrateApiVerifyFallbackConfigSignatureConstMeta =>
       const TaskConstMeta(
         debugName: "verify_fallback_config_signature",
-        argNames: ["configJson", "signature"],
+        argNames: ["configJson", "signature", "keyId"],
       );
 
   @override
@@ -7846,6 +7850,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  FallbackVerifyResult dco_decode_fallback_verify_result(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return FallbackVerifyResult(
+      valid: dco_decode_bool(arr[0]),
+      keyUnknown: dco_decode_bool(arr[1]),
+    );
+  }
+
+  @protected
   int dco_decode_i_32(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as int;
@@ -8044,6 +8060,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   double sse_decode_f_64(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getFloat64();
+  }
+
+  @protected
+  FallbackVerifyResult sse_decode_fallback_verify_result(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_valid = sse_decode_bool(deserializer);
+    var var_keyUnknown = sse_decode_bool(deserializer);
+    return FallbackVerifyResult(valid: var_valid, keyUnknown: var_keyUnknown);
   }
 
   @protected
@@ -8307,6 +8333,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_f_64(double self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putFloat64(self);
+  }
+
+  @protected
+  void sse_encode_fallback_verify_result(
+    FallbackVerifyResult self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_bool(self.valid, serializer);
+    sse_encode_bool(self.keyUnknown, serializer);
   }
 
   @protected

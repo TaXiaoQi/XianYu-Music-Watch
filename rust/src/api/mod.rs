@@ -1184,13 +1184,16 @@ pub fn host_sha256_hex(text: String) -> String {
     crate::host_crypto::sha256_hex(&text)
 }
 
-/// 校验服务端下发的兜底配置签名（ed25519，消息 xianyu-fallback-config-v1）。
-/// 返回 true 表示签名有效，可采纳该配置。
+/// 校验服务端下发的兜底配置签名（ed25519，双公钥槽位）。
+/// `key_id` 为响应携带的 keyId（可选）：已知 keyId 仅对该槽位严格验签，
+/// 缺失/未知则遍历槽位；签名有效且 keyId 未知时返回 key_unknown=true
+/// （Dart 层采纳配置并上报 FallbackConfigKeyUnknown 事件）。
 pub fn verify_fallback_config_signature(
     config_json: String,
     signature: String,
-) -> Result<bool, String> {
-    crate::fallback_verify::verify_fallback_config_signature(&config_json, &signature)
+    key_id: Option<String>,
+) -> Result<crate::fallback_verify::FallbackVerifyResult, String> {
+    crate::fallback_verify::verify_fallback_config_signature(&config_json, &signature, key_id.as_deref())
 }
 
 /// 校验服务端 check_beta_access 响应签名（ed25519）。返回 true 表示响应可信。

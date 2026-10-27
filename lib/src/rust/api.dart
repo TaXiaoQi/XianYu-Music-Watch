@@ -3,6 +3,7 @@
 
 // ignore_for_file: invalid_use_of_internal_member, unused_import, unnecessary_import
 
+import 'fallback_verify.dart';
 import 'frb_generated.dart';
 import 'music/types.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
@@ -864,14 +865,18 @@ Future<String> hostWeapiEncrypt({required String payload}) =>
 Future<String> hostSha256Hex({required String text}) =>
     RustLib.instance.api.crateApiHostSha256Hex(text: text);
 
-/// 校验服务端下发的兜底配置签名（ed25519，消息 xianyu-fallback-config-v1）。
-/// 返回 true 表示签名有效，可采纳该配置。
-Future<bool> verifyFallbackConfigSignature({
+/// 校验服务端下发的兜底配置签名（ed25519，双公钥槽位）。
+/// `key_id` 为响应携带的 keyId（可选）：已知 keyId 仅对该槽位严格验签，
+/// 缺失/未知则遍历槽位；签名有效且 keyId 未知时返回 key_unknown=true
+/// （Dart 层采纳配置并上报 FallbackConfigKeyUnknown 事件）。
+Future<FallbackVerifyResult> verifyFallbackConfigSignature({
   required String configJson,
   required String signature,
+  String? keyId,
 }) => RustLib.instance.api.crateApiVerifyFallbackConfigSignature(
   configJson: configJson,
   signature: signature,
+  keyId: keyId,
 );
 
 /// 校验服务端 check_beta_access 响应签名（ed25519）。返回 true 表示响应可信。

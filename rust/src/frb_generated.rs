@@ -7154,12 +7154,14 @@ fn wire__crate__api__verify_fallback_config_signature_impl(
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_config_json = <String>::sse_decode(&mut deserializer);
             let api_signature = <String>::sse_decode(&mut deserializer);
+            let api_key_id = <Option<String>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, String>((move || {
                     let output_ok = crate::api::verify_fallback_config_signature(
                         api_config_json,
                         api_signature,
+                        api_key_id,
                     )?;
                     Ok(output_ok)
                 })())
@@ -7469,6 +7471,18 @@ impl SseDecode for f64 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         deserializer.cursor.read_f64::<NativeEndian>().unwrap()
+    }
+}
+
+impl SseDecode for crate::fallback_verify::FallbackVerifyResult {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_valid = <bool>::sse_decode(deserializer);
+        let mut var_keyUnknown = <bool>::sse_decode(deserializer);
+        return crate::fallback_verify::FallbackVerifyResult {
+            valid: var_valid,
+            key_unknown: var_keyUnknown,
+        };
     }
 }
 
@@ -8062,6 +8076,27 @@ fn pde_ffi_dispatcher_sync_impl(
 // Section: rust2dart
 
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::fallback_verify::FallbackVerifyResult {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.valid.into_into_dart().into_dart(),
+            self.key_unknown.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::fallback_verify::FallbackVerifyResult
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::fallback_verify::FallbackVerifyResult>
+    for crate::fallback_verify::FallbackVerifyResult
+{
+    fn into_into_dart(self) -> crate::fallback_verify::FallbackVerifyResult {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::music::types::LyricsStorageSource {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         match self {
@@ -8138,6 +8173,14 @@ impl SseEncode for f64 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         serializer.cursor.write_f64::<NativeEndian>(self).unwrap();
+    }
+}
+
+impl SseEncode for crate::fallback_verify::FallbackVerifyResult {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.valid, serializer);
+        <bool>::sse_encode(self.key_unknown, serializer);
     }
 }
 
