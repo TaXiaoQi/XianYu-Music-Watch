@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../core/ohos_media.dart';
 import '../../core/watch_fit.dart';
 import '../../i18n/i18n.dart';
 import '../../library/library_provider.dart';
@@ -38,6 +39,15 @@ class _LocalLibraryViewState extends ConsumerState<LocalLibraryView> {
   }
 
   Future<void> _scan() async {
+    if (Platform.isAndroid) {
+      await _scanAndroid();
+      return;
+    }
+    // OHOS：SDK 无音频枚举 API，选择器导入沙箱 + Rust 扫描（免权限，无授权死路）
+    await _scanOhos();
+  }
+
+  Future<void> _scanAndroid() async {
     final granted = await _ensurePermission();
     if (!granted && mounted) {
       // 腕上不使用小弹窗：改为完整窗口，并提供去授权入口
@@ -77,6 +87,50 @@ class _LocalLibraryViewState extends ConsumerState<LocalLibraryView> {
           context,
           title: tr('未找到音乐文件'),
           message: tr('已扫描的目录中没有音乐，可将文件放入 Music 或 Download 后重试'),
+          okOnly: true,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        await showFullConfirm(
+          context,
+          title: tr('扫描失败'),
+          message: '$e',
+          okOnly: true,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _scanning = false);
+    }
+  }
+
+  Future<void> _scanOhos() async {
+    setState(() => _scanning = true);
+    try {
+      var dir = await OhosMedia.musicDir();
+      if (!mounted) return;
+      if (dir.count == 0) {
+        final go = await showFullConfirm(
+          context,
+          title: tr('本地音乐'),
+          message: tr('从系统文件选择器导入音乐'),
+          okLabel: tr('选择文件'),
+        );
+        if (go != true) return;
+        final picked = await OhosMedia.pickAudio();
+        if (picked.imported == 0) return;
+        dir = (folder: picked.folder, count: picked.total);
+      }
+      final folders = await ref.read(scanFoldersProvider.future);
+      if (!folders.any((f) => f.path == dir.folder)) {
+        await ref.read(scanFoldersProvider.notifier).addFolder(dir.folder);
+      }
+      final total = await ref.read(libraryProvider.notifier).scanAllFolders();
+      if (total == 0 && mounted) {
+        await showFullConfirm(
+          context,
+          title: tr('未找到音乐文件'),
+          message: tr('导入的文件中没有可识别的音乐，可重新选择导入'),
           okOnly: true,
         );
       }

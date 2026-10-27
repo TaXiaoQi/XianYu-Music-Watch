@@ -82,7 +82,8 @@ class PluginSearchService {
   }
 
   String _bestQuality(PluginSearchResult r) {
-    for (final q in ['flac', '320k', '128k']) {
+    // 汽水(qs) 等源可能上报 hires/spatial 档，优先级扩展为无损系优先
+    for (final q in ['flac', 'hires', 'spatial', '320k', '128k']) {
       if (r.types.any((t) => t['type'] == q)) return q;
     }
     return '320k';

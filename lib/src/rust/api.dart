@@ -771,6 +771,17 @@ Future<String> downloadOnlineSong({
   headersJson: headersJson,
 );
 
+/// 汽水原生播放取流（lx://qs）：track_v2 → 按品质选档 → PlayAuth→CEK。
+/// 返回 JSON：{"url","quality","bitrate","size","headers":{"User-Agent"},"cek"?}
+/// （cek 解出失败时为 null，上层按普通直链处理/走换源）
+Future<String> resolveQsPlay({
+  required String trackId,
+  required String quality,
+}) => RustLib.instance.api.crateApiResolveQsPlay(
+  trackId: trackId,
+  quality: quality,
+);
+
 Future<String> decryptQmcFileStandalone({
   required String filePath,
   String? ekey,
@@ -853,15 +864,13 @@ Future<String> hostWeapiEncrypt({required String payload}) =>
 Future<String> hostSha256Hex({required String text}) =>
     RustLib.instance.api.crateApiHostSha256Hex(text: text);
 
-Future<bool> verifyFallbackModuleSignature({
-  required String moduleKey,
-  required PlatformInt64 version,
-  required String code,
+/// 校验服务端下发的兜底配置签名（ed25519，消息 xianyu-fallback-config-v1）。
+/// 返回 true 表示签名有效，可采纳该配置。
+Future<bool> verifyFallbackConfigSignature({
+  required String configJson,
   required String signature,
-}) => RustLib.instance.api.crateApiVerifyFallbackModuleSignature(
-  moduleKey: moduleKey,
-  version: version,
-  code: code,
+}) => RustLib.instance.api.crateApiVerifyFallbackConfigSignature(
+  configJson: configJson,
   signature: signature,
 );
 
@@ -879,66 +888,6 @@ Future<bool> verifyBetaAccessSignature({
   exp: exp,
   signature: signature,
 );
-
-/// 加载兜底模块（验签 + 编译 + 硬校验一体），返回 `FallbackLoadResult` JSON。
-Future<String> fallbackModuleLoad({
-  required String dataDir,
-  required String moduleKey,
-  required PlatformInt64 version,
-  required String code,
-  required String signature,
-  required String appVersion,
-}) => RustLib.instance.api.crateApiFallbackModuleLoad(
-  dataDir: dataDir,
-  moduleKey: moduleKey,
-  version: version,
-  code: code,
-  signature: signature,
-  appVersion: appVersion,
-);
-
-/// 调用兜底模块方法，返回 `FallbackCallResult` JSON（`ok`/`error`/`data`/`logs`）。
-Future<String> fallbackModuleCall({
-  required String dataDir,
-  required String moduleKey,
-  required String method,
-  required String argsJson,
-  BigInt? timeoutMs,
-}) => RustLib.instance.api.crateApiFallbackModuleCall(
-  dataDir: dataDir,
-  moduleKey: moduleKey,
-  method: method,
-  argsJson: argsJson,
-  timeoutMs: timeoutMs,
-);
-
-/// 保序逐项批量调用，返回 `FallbackCallManyResult` JSON；单项失败不影响后续。
-Future<String> fallbackModuleCallMany({
-  required String dataDir,
-  required String moduleKey,
-  required String method,
-  required List<String> argsJsonList,
-  BigInt? timeoutMs,
-}) => RustLib.instance.api.crateApiFallbackModuleCallMany(
-  dataDir: dataDir,
-  moduleKey: moduleKey,
-  method: method,
-  argsJsonList: argsJsonList,
-  timeoutMs: timeoutMs,
-);
-
-/// 整包替换配置快照，返回所存配置的 sha256-hex（对原始入参字符串取摘要）。
-Future<String> fallbackModuleUpdateConfig({
-  required String dataDir,
-  required String configJson,
-}) => RustLib.instance.api.crateApiFallbackModuleUpdateConfig(
-  dataDir: dataDir,
-  configJson: configJson,
-);
-
-/// 启动对账：返回当前已存配置的 hash（未推送过为空串），比对不一致即重推。
-Future<String> fallbackModuleConfigHash({required String dataDir}) =>
-    RustLib.instance.api.crateApiFallbackModuleConfigHash(dataDir: dataDir);
 
 Future<void> pluginEngineInit({required String dataDir}) =>
     RustLib.instance.api.crateApiPluginEngineInit(dataDir: dataDir);

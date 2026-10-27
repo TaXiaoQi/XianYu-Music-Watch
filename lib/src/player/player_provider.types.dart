@@ -126,6 +126,21 @@ const Object _noChange = Object();
 /// 云端歌曲入队（playlist_store 不再依赖 player 层，收敛为 extension）。
 extension CloudSongQueueItem on CloudSong {
   QueueItem toQueueItem() {
+    // 网盘条目：CloudPlaylist 不携带 cloudInfoJson，凭自描述 path 反解
+    // 出播放上下文即可复用网盘直链管线（与移动端 importedSongToQueueItem 同构）
+    if (path.startsWith('cloud://')) {
+      final ctx = CloudPlayContext.fromPath(path);
+      return QueueItem(
+        path: path,
+        title: title,
+        artist: artist,
+        album: album,
+        durationMs: durationSec * 1000,
+        coverUrl: coverUrl,
+        source: source.isEmpty ? null : source,
+        cloudInfoJson: ctx == null ? null : jsonEncode(ctx.toJson()),
+      );
+    }
     String? onlineSongJson;
     if (isOnline && pluginId.isNotEmpty) {
       onlineSongJson = jsonEncode({

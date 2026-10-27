@@ -29,7 +29,7 @@ packages:
     dependency: "direct main"
     description:
       path: audio_service
-      ref: HEAD
+      ref: "89d712c150cd979692fb360fe698bd107c7eae47"
       resolved-ref: "89d712c150cd979692fb360fe698bd107c7eae47"
       url: "https://gitcode.com/openharmony-sig/fluttertpc_audio_service.git"
     source: git
@@ -63,7 +63,7 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: "br_v0.2.2_ohos"
+      ref: bd97a32d519c94772a4693d92cca88b145c6f4f3
       resolved-ref: bd97a32d519c94772a4693d92cca88b145c6f4f3
       url: "https://gitcode.com/CPF-Flutter/flutter_audio_session.git"
     source: git
@@ -350,7 +350,7 @@ packages:
     dependency: "direct main"
     description:
       path: just_audio
-      ref: HEAD
+      ref: e366bb5858812da73b204ac5f071b9d2cdd11ebe
       resolved-ref: e366bb5858812da73b204ac5f071b9d2cdd11ebe
       url: "https://gitcode.com/openharmony-sig/fluttertpc_just_audio.git"
     source: git
@@ -463,7 +463,7 @@ packages:
     dependency: "direct main"
     description:
       path: "packages/path_provider/path_provider"
-      ref: HEAD
+      ref: "2f21e26e09efb92b8429c840ae7ca0cb024f036c"
       resolved-ref: "2f21e26e09efb92b8429c840ae7ca0cb024f036c"
       url: "https://gitcode.com/openharmony-tpc/flutter_packages.git"
     source: git
@@ -521,7 +521,7 @@ packages:
     dependency: "direct main"
     description:
       path: permission_handler
-      ref: "br_permission_handler_v11.3.1_ohos"
+      ref: "9094b9494b311dae71fe0399d9acd546a773edef"
       resolved-ref: "9094b9494b311dae71fe0399d9acd546a773edef"
       url: "https://gitcode.com/openharmony-sig/flutter_permission_handler.git"
     source: git
@@ -651,7 +651,7 @@ packages:
     dependency: "direct main"
     description:
       path: "packages/shared_preferences/shared_preferences"
-      ref: HEAD
+      ref: "2f21e26e09efb92b8429c840ae7ca0cb024f036c"
       resolved-ref: "2f21e26e09efb92b8429c840ae7ca0cb024f036c"
       url: "https://gitcode.com/openharmony-tpc/flutter_packages.git"
     source: git

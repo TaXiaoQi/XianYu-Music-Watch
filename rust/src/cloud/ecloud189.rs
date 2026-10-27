@@ -57,6 +57,7 @@ fn dir_flag_189(v: Option<&Value>) -> bool {
 }
 
 /// `(data['fileId'] ?? '-1').toString()`。
+#[cfg(test)]
 fn file_id_of(data: &Value) -> String {
     data.get("fileId")
         .filter(|v| !v.is_null())

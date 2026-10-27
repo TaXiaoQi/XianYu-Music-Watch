@@ -59,8 +59,40 @@ extension PlayerNotifierOnline on PlayerNotifier {
     return plainPath;
   }
 
+  /// 汽水原生取流（lx://qs）：Rust 侧 track_v2 → 按品质选档 → PlayAuth→CEK，
+  /// 绕过 lx 源脚本（脚本仅回 url，无 cek 通道）。加密流由播放器 CENC 通道解密。
+  Future<ResolvedMediaUrl?> _resolveQsUrl(
+    String quality,
+    Map<String, dynamic> songInfo,
+  ) async {
+    final trackId =
+        (songInfo['songmid'] ?? songInfo['id'] ?? '').toString();
+    if (trackId.isEmpty) return null;
+    try {
+      final raw = await resolveQsPlay(
+        trackId: trackId,
+        quality: quality,
+      ).timeout(const Duration(seconds: 10));
+      final data = jsonDecode(raw) as Map<String, dynamic>;
+      final url = data['url'] as String?;
+      if (url == null || url.isEmpty) return null;
+      final h = data['headers'];
+      final cek = data['cek'] as String?;
+      AppLog.info('qs', '[qsResolve] track=$trackId q=${data['quality']} cek=${cek != null}');
+      return ResolvedMediaUrl(
+        url: url,
+        headers: h is Map ? h.cast<String, String>() : null,
+        quality: (data['quality'] as String?) ?? quality,
+        cek: (cek == null || cek.isEmpty) ? null : cek,
+      );
+    } catch (e) {
+      AppLog.warn('qs', '[qsResolve] track=$trackId 失败: $e');
+      return null;
+    }
+  }
+
   /// 按音质解析插件直链：mf 格式走 getMusicFreeUrl 自带降级链（fallback
-  /// pause 只试请求档），lx 格式走 getMusicUrl 单档直取。
+  /// pause 只试请求档），lx 格式走 getMusicUrl 单档直取；qs 源走原生取流。
   Future<ResolvedMediaUrl?> _resolvePluginUrl(
     Map<String, dynamic> songJson,
     String quality,
@@ -81,6 +113,9 @@ extension PlayerNotifierOnline on PlayerNotifier {
         fallback: 'pause',
       );
     }
+    if (sourceKey == 'qs') {
+      return _resolveQsUrl(quality, songJson);
+    }
     final result = await engine.getMusicUrl(source, sourceKey, musicInfo, quality);
     final url = result?['url'] as String?;
     if (result == null || !PlayerNotifier._isPlayableUrl(url)) return null;
@@ -95,8 +130,12 @@ extension PlayerNotifierOnline on PlayerNotifier {
   Future<ResolvedMediaUrl?> _lxResolveQuality(
       String songInfoJson, String quality) async {
     try {
-      final engine = await _ref.read(pluginEngineProvider.future);
       final songInfo = jsonDecode(songInfoJson) as Map<String, dynamic>;
+      // qs 源走原生取流（带 CENC cek），不依赖 lx 源脚本
+      if (songInfo['source'] == 'qs') {
+        return await _resolveQsUrl(quality, songInfo);
+      }
+      final engine = await _ref.read(pluginEngineProvider.future);
       final resolved = await engine
           .resolveLxUrl(songInfo, quality)
           .timeout(const Duration(seconds: 8));

@@ -740,71 +740,98 @@ class SteppedTile extends StatelessWidget {
     final textReserve =
         (leading != null ? 48.0 * s : 0.0) +
         (trailing != null ? 28.0 * s : 0.0);
+    debugPrint(
+      'XYTile s=$s reserve=$textReserve mq=${MediaQuery.sizeOf(context)} '
+      'dpr=${MediaQuery.of(context).devicePixelRatio} '
+      'title="$title" sub="$subtitle"',
+    );
+    final probe = TextPainter(
+      text: TextSpan(
+        text: title,
+        style: TextStyle(fontSize: 17 * s, fontWeight: FontWeight.w600),
+      ),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+    )..layout(maxWidth: 400);
+    debugPrint(
+      'XYProbe w=${probe.width} maxIntrinsic=${probe.maxIntrinsicWidth}',
+    );
+    probe.dispose();
     return SteppedPill(
       onTap: onTap,
       color: backgroundColor,
       child: Padding(
         padding: EdgeInsets.symmetric(horizontal: 3 * s, vertical: 2 * s),
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: Center(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: textReserve),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 17 * s,
-                          height: 1.25,
-                          fontWeight: FontWeight.w600,
-                          color: titleColor,
-                        ),
-                      ),
-                      if (subtitle != null) ...[
-                        SizedBox(height: 2 * s),
-                        Text(
-                          subtitle!,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 12 * s,
-                            height: 1.2,
-                            color:
-                                subtitleColor ??
-                                Colors.white.withValues(alpha: 0.5),
+        child: LayoutBuilder(
+          builder: (context, c) {
+            debugPrint('XYStack maxW=${c.maxWidth} maxH=${c.maxHeight}');
+            // 每侧预留最多 0.42 宽，杜绝 padding 吞掉整个文字区
+            final reserve = math.min(
+              textReserve,
+              math.max(0.0, c.maxWidth * 0.42),
+            );
+            return Stack(
+              children: [
+                Positioned.fill(
+                  child: Center(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(horizontal: reserve),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Text(
+                            title,
+                            maxLines: 1,
+                            softWrap: false,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 17 * s,
+                              height: 1.25,
+                              fontWeight: FontWeight.w600,
+                              color: titleColor ?? Colors.white,
+                            ),
                           ),
-                        ),
-                      ],
-                    ],
+                          if (subtitle != null) ...[
+                            SizedBox(height: 2 * s),
+                            Text(
+                              subtitle!,
+                              maxLines: 1,
+                              softWrap: false,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 12 * s,
+                                height: 1.2,
+                                color:
+                                    subtitleColor ??
+                                    Colors.white.withValues(alpha: 0.5),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
-            if (leading != null)
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Padding(
-                      padding: EdgeInsets.only(left: 4 * s),
-                      child: leading!,
+                if (leading != null)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Padding(
+                          padding: EdgeInsets.only(left: 4 * s),
+                          child: leading!,
+                        ),
+                        SizedBox(width: 12 * s),
+                      ],
                     ),
-                    SizedBox(width: 12 * s),
-                  ],
-                ),
-              ),
-            if (trailing != null)
-              Align(alignment: Alignment.centerRight, child: trailing!),
-          ],
+                  ),
+                if (trailing != null)
+                  Align(alignment: Alignment.centerRight, child: trailing!),
+              ],
+            );
+          },
         ),
       ),
     );

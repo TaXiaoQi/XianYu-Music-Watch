@@ -1,11 +1,22 @@
+//! 兜底配置签名校验（移植自桌面端 fallback_verify.rs，去 Tauri 依赖）。
+//!
+//! 服务端下发兜底行为配置（各元数据链路的开关/参数，不含任何可执行代码）。
+//! 仅靠 HTTPS + 客户端自算摘要无法防篡改，改为 ed25519：服务端私钥对配置
+//! JSON 原始字符串签名，客户端公钥验签通过才采纳。
+//!
+//! 同文件还提供内测资格响应（check_beta_access）的签名校验。
 
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 
+/// 客户端内嵌的验签公钥（hex，32 字节），与私钥成对（私钥存于服务端）。
 const FALLBACK_VERIFY_PUBLIC_KEY_HEX: &str =
     "fd2f887e74adb2009079bc822536d8f09d1404656f748289608592b6a4c974c5";
 
-pub(crate) fn fallback_module_message(module_key: &str, version: i64, code: &str) -> Vec<u8> {
-    format!("xianyu-fallback-v1\x00{module_key}\x00{version}\x00{code}").into_bytes()
+/// 配置签名消息构造（服务端 client/server 两端必须逐字一致）：
+/// 对配置 JSON 原始字符串（未解析、未重排序）直接签名，避免 JSON
+/// 规范化差异；前缀防止签名在其他消息类型间复用。
+pub(crate) fn fallback_config_message(config_json: &str) -> Vec<u8> {
+    format!("xianyu-fallback-config-v1\x00{config_json}").into_bytes()
 }
 
 /// 内测资格响应签名消息（与服务端 check_beta_access 逐字一致）：
@@ -20,13 +31,33 @@ pub(crate) fn beta_access_message(device_id: &str, allowed: bool, pending: bool,
 }
 
 fn hex_to_bytes(hex: &str) -> Result<Vec<u8>, String> {
-    if hex.len() % 2 != 0 || !hex.is_ascii() {
+    if hex.len() % 2 != 0 {
         return Err("签名不是合法 hex".to_string());
     }
     (0..hex.len())
         .step_by(2)
         .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).map_err(|_| "签名不是合法 hex".to_string()))
         .collect()
+}
+
+/// 校验服务端 check_beta_access 响应签名（ed25519，绑定 device_id + 过期时间）。
+/// 返回 true 表示响应可信。
+pub fn verify_beta_access_signature(
+    device_id: &str,
+    allowed: bool,
+    pending: bool,
+    exp: i64,
+    signature: &str,
+) -> Result<bool, String> {
+    verify_with_public_key(&beta_access_message(device_id, allowed, pending, exp), signature)
+}
+
+/// 校验服务端下发的兜底配置签名。返回 true 表示签名有效，可采纳该配置。
+pub fn verify_fallback_config_signature(
+    config_json: &str,
+    signature: &str,
+) -> Result<bool, String> {
+    verify_with_public_key(&fallback_config_message(config_json), signature)
 }
 
 fn verify_with_public_key(msg: &[u8], signature: &str) -> Result<bool, String> {
@@ -48,38 +79,12 @@ fn verify_with_public_key(msg: &[u8], signature: &str) -> Result<bool, String> {
     Ok(pub_key.verify(msg, &sig).is_ok())
 }
 
-/// 校验服务端 check_beta_access 响应签名（ed25519，绑定 device_id + 过期时间）。
-/// 返回 true 表示响应可信。
-pub fn verify_beta_access_signature(
-    device_id: &str,
-    allowed: bool,
-    pending: bool,
-    exp: i64,
-    signature: &str,
-) -> Result<bool, String> {
-    verify_with_public_key(
-        &beta_access_message(device_id, allowed, pending, exp),
-        signature,
-    )
-}
-
-pub fn verify_fallback_module_signature(
-    module_key: &str,
-    version: i64,
-    code: &str,
-    signature: &str,
-) -> Result<bool, String> {
-    verify_with_public_key(
-        &fallback_module_message(module_key, version, code),
-        signature,
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use ed25519_dalek::{Signer, SigningKey};
 
+    /// 私钥种子绝不入源码：仅从环境变量读取，未设置则跳过依赖匹配密钥的用例。
     fn env_seed() -> Option<[u8; 32]> {
         let hex = std::env::var("XY_FALLBACK_TEST_SEED").ok()?;
         let bytes: Vec<u8> = (0..hex.len())
@@ -94,17 +99,17 @@ mod tests {
         Some(seed)
     }
 
-    fn sign_of(module_key: &str, version: i64, code: &str) -> Option<String> {
+    fn sign_of(config_json: &str) -> Option<String> {
         let key = SigningKey::from_bytes(&env_seed()?);
-        let msg = fallback_module_message(module_key, version, code);
+        let msg = fallback_config_message(config_json);
         Some(hex::encode(key.sign(&msg).to_bytes()))
     }
 
     #[test]
     fn message_is_stable() {
-        let m = String::from_utf8(fallback_module_message("lx_search", 1, "function(){}")).unwrap();
-        assert!(m.starts_with("xianyu-fallback-v1\x00lx_search\x00"));
-        assert_eq!(m, "xianyu-fallback-v1\x00lx_search\x001\x00function(){}");
+        let m = String::from_utf8(fallback_config_message("{\"version\":1}")).unwrap();
+        assert!(m.starts_with("xianyu-fallback-config-v1\x00"));
+        assert_eq!(m, "xianyu-fallback-config-v1\x00{\"version\":1}");
     }
 
     #[test]
@@ -134,17 +139,16 @@ mod tests {
 
     #[test]
     fn rejects_malformed_signature() {
-        assert!(verify_fallback_module_signature("lx_search", 1, "function(){}", "not-hex!!").is_err());
+        assert!(verify_fallback_config_signature("{\"version\":1}", "not-hex!!").is_err());
     }
 
     #[test]
-    fn rejects_signature_reused_across_versions() {
-        let Some(sig) = sign_of("lx_search", 1, "function(){}") else {
+    fn rejects_tampered_config() {
+        let Some(sig) = sign_of("{\"version\":1}") else {
             eprintln!("跳过：未设置 XY_FALLBACK_TEST_SEED");
             return;
         };
-        assert!(
-            !verify_fallback_module_signature("lx_search", 2, "function(){}", &sig).unwrap()
-        );
+        assert!(verify_fallback_config_signature("{\"version\":1}", &sig).unwrap());
+        assert!(!verify_fallback_config_signature("{\"version\":2}", &sig).unwrap());
     }
 }

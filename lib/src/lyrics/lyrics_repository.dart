@@ -59,21 +59,14 @@ class LyricsRepository {
 
   Future<String> _fetchFromBuiltinSource(String source, String infoJson) async {
     try {
-      // 先走服务端热修模块（lx_lyric/fetchLyric），未加载/失败回退 Rust 内置实现
-      final obj = await dispatchFallbackModule<Map<String, dynamic>?>(
-        kFallbackModuleLxLyric,
-        'fetchLyric',
-        {'source': source, 'songInfo': jsonDecode(infoJson)},
-        () async {
-          final raw = await fetchLyricFromSource(
-            source: source,
-            songInfoJson: infoJson,
-          );
-          if (raw.isEmpty || raw == 'null') return null;
-          return jsonDecode(raw) as Map<String, dynamic>;
-        },
+      // lx_lyric 链路固定原生实现；服务端签名配置可关闭该链路（关闭即返回空）
+      if (fallbackMethodDisabled(kFallbackModuleLxLyric, 'fetchLyric')) return '';
+      final raw = await fetchLyricFromSource(
+        source: source,
+        songInfoJson: infoJson,
       );
-      if (obj == null) return '';
+      if (raw.isEmpty || raw == 'null') return '';
+      final obj = jsonDecode(raw) as Map<String, dynamic>;
       String text = '';
       final lxlyric = obj['lxlyric'] as String? ?? '';
       final lyric = obj['lyric'] as String? ?? '';

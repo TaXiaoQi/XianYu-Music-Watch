@@ -1126,6 +1126,9 @@ String _qualityLabel(String? q) {
       return 'FLAC';
     case 'flac24bit':
       return 'FLAC24';
+    case 'spatial':
+      // 汽水(qs) 特有空间音频档
+      return tr('空间音频');
     case 'hires':
       return 'Hi-Res';
     case 'vinyl':

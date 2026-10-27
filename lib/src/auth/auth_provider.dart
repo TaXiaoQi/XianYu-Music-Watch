@@ -454,7 +454,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  /// 拉取服务端下发的兜底（热修）模块清单
+  /// 拉取服务端下发的兜底行为配置（config JSON + 签名）
   Future<Map<String, dynamic>> fetchFallbackModules() =>
       requestAction('get_fallback_modules', {});
 

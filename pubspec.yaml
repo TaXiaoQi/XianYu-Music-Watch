@@ -67,3 +67,40 @@ flutter:
 
   assets:
     - assets/img/splash_logo.png
+
+# 鸿蒙（flutter_ohos）插件钉版：3.47.7 flutter 工具 pub get 不再做 OHOS
+# 插件重映射，以下包会被解析回 pub.dev 原版（无 ohos 平台实现），
+# 导致 GeneratedPluginRegistrant.ets 丢插件 → 启动即黑屏（readAppMode 抛
+# MissingPluginException，runApp 永不执行）。显式钉回 SIG/TPC fork，
+# ref 锁 commit（与历史 pubspec.lock 一致），不随分支漂移。
+dependency_overrides:
+  audio_service:
+    git:
+      url: https://gitcode.com/openharmony-sig/fluttertpc_audio_service.git
+      path: audio_service
+      ref: 89d712c150cd979692fb360fe698bd107c7eae47
+  audio_session:
+    git:
+      url: https://gitcode.com/CPF-Flutter/flutter_audio_session.git
+      path: .
+      ref: bd97a32d519c94772a4693d92cca88b145c6f4f3
+  just_audio:
+    git:
+      url: https://gitcode.com/openharmony-sig/fluttertpc_just_audio.git
+      path: just_audio
+      ref: e366bb5858812da73b204ac5f071b9d2cdd11ebe
+  path_provider:
+    git:
+      url: https://gitcode.com/openharmony-tpc/flutter_packages.git
+      path: packages/path_provider/path_provider
+      ref: 2f21e26e09efb92b8429c840ae7ca0cb024f036c
+  permission_handler:
+    git:
+      url: https://gitcode.com/openharmony-sig/flutter_permission_handler.git
+      path: permission_handler
+      ref: 9094b9494b311dae71fe0399d9acd546a773edef
+  shared_preferences:
+    git:
+      url: https://gitcode.com/openharmony-tpc/flutter_packages.git
+      path: packages/shared_preferences/shared_preferences
+      ref: 2f21e26e09efb92b8429c840ae7ca0cb024f036c

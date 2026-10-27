@@ -11,6 +11,7 @@ use tokio::sync::RwLock;
 mod kg;
 mod kw;
 mod mg;
+mod qs;
 mod tx;
 mod wy;
 
@@ -19,6 +20,7 @@ pub use tx::{tx_album_songs, tx_batch_track_interval, tx_search_albums};
 pub(crate) use kg::*;
 pub(crate) use kw::*;
 pub(crate) use mg::*;
+pub(crate) use qs::*;
 pub(crate) use tx::*;
 pub(crate) use wy::*;
 
@@ -273,6 +275,7 @@ pub async fn lx_search(
         "tx" => search_tx(keyword, actual_limit).await,
         "wy" => search_wy(keyword, actual_limit).await,
         "mg" => search_mg(keyword, actual_limit).await,
+        "qs" => search_qs(keyword, actual_limit).await,
         _ => Err(format!("Unknown LX source: {}", source)),
     }?;
 
