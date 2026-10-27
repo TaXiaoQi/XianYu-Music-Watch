@@ -100,6 +100,16 @@ class Ecloud189Provider extends CloudProvider {
     }
   }
 
+  /// 重发设备校验验证码（弹窗内「发送验证码」按钮调用；对齐移动端）。
+  @override
+  Future<void> resendDeviceSms(String username) async {
+    final pending = _pendingSms[username];
+    if (pending == null) {
+      throw const CloudException('登录会话已失效，请重新登录');
+    }
+    await _sendDeviceSms(pending);
+  }
+
   /// 现役账密登录全链；要求设备短信二次校验时发码并暂存会话。
   Future<CloudAccount> _passwordLogin(
       String username, String password) async {

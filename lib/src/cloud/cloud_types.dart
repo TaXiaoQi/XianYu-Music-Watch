@@ -97,6 +97,9 @@ class CloudLoginField {
     this.obscure = false,
     this.isPhone = false,
     this.isSmsCode = false,
+    this.optional = false,
+    this.switchLabel,
+    this.collapseLabel,
   });
 
   final String key;
@@ -108,6 +111,16 @@ class CloudLoginField {
 
   /// 该字段是短信验证码输入框（决定是否显示「发送验证码」按钮）。
   final bool isSmsCode;
+
+  /// 选填字段（多通道二选一表单用，如 139 服务密码与短信互备）。
+  final bool optional;
+
+  /// optional 字段折叠态的切换入口文案（如「使用服务密码登录」）；
+  /// 为空则不折叠、直接渲染输入框。
+  final String? switchLabel;
+
+  /// optional 字段展开后显示的切回入口文案（如「使用短信验证码登录」）。
+  final String? collapseLabel;
 }
 
 /// 扫码登录会话。
@@ -297,9 +310,14 @@ class CloudException implements Exception {
   String toString() => message;
 }
 
-/// 登录要求短信二次校验（如天翼 -133 设备校验）。provider 已自动发码并
-/// 暂存会话，UI 弹窗收码后调 [CloudProvider.submitSmsCode] 完成绑定。
+/// 登录要求短信二次校验（如天翼 -133 设备校验、139 主动短信登录）。
+/// provider 发码并暂存会话，UI 弹窗收码后调 [CloudProvider.submitSmsCode]
+/// 完成绑定。[hint] 为弹窗说明文案（不传用「新设备登录」默认文案）。
 class CloudSmsRequiredException extends CloudException {
-  const CloudSmsRequiredException(this.username) : super('需要短信验证');
+  const CloudSmsRequiredException(this.username, {this.hint})
+      : super('需要短信验证');
   final String username;
+
+  /// 弹窗说明行（部分盘语义不同，如 139 是主动短信登录）。
+  final String? hint;
 }
