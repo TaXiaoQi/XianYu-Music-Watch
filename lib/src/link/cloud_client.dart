@@ -41,6 +41,7 @@ class CloudLinkClient {
     required String url,
     required String key,
     String name = '弦予腕上',
+    Future<String?> Function()? tokenProvider,
   }) async {
     await close();
     _closed = false;
@@ -58,9 +59,24 @@ class CloudLinkClient {
         return;
       }
       _ws = ws;
-      ws.add(
-        jsonEncode({'op': 'hello', 'role': 'watch', 'key': key, 'name': name}),
-      );
+      // 用户 token：服务端据此校验并绑定房间归属（渗透 V-08），未登录不携带。
+      String? token;
+      final get = tokenProvider;
+      if (get != null) {
+        try {
+          token = await get();
+        } catch (_) {
+          token = null;
+        }
+      }
+      final hello = <String, dynamic>{
+        'op': 'hello',
+        'role': 'watch',
+        'key': key,
+        'name': name,
+      };
+      if (token != null && token.isNotEmpty) hello['token'] = token;
+      ws.add(jsonEncode(hello));
       _ready = false;
       _readyTimer?.cancel();
       _readyTimer = Timer(const Duration(seconds: 8), () {

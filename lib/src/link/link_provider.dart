@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:crypto/crypto.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../auth/auth_provider.dart';
 import '../core/ambient.dart';
 import '../core/application_logger.dart';
 import '../effects/sound_effect_provider.dart';
@@ -169,6 +170,10 @@ class LinkController extends StateNotifier<LinkState>
   final CloudLinkClient _cloud = CloudLinkClient();
   FrameDecoder _decoder = FrameDecoder();
   final int Function() _nextSeq = makeSeqGenerator();
+
+  /// 云端 relay hello 帧携带的登录 token 获取器（由 linkControllerProvider 注入）。
+  /// 服务端据此校验并绑定房间归属（渗透 V-08）；未登录返回 null。
+  Future<String?> Function()? tokenProvider;
 
   static const _heartbeatInterval = Duration(seconds: 3);
   static const _deadAfter = Duration(seconds: 10);
@@ -700,6 +705,7 @@ class LinkController extends StateNotifier<LinkState>
     _cloud.connect(
       url: _cloudUrl.isEmpty ? kDefaultCloudRelayUrl : _cloudUrl,
       key: _cloudKey,
+      tokenProvider: tokenProvider,
     );
   }
 
@@ -1211,6 +1217,9 @@ final linkControllerProvider = StateNotifierProvider<LinkController, LinkState>(
     final controller = LinkController();
     controller.isAmbient = () => ref.read(ambientModeProvider);
     controller.attachFx(ref.read(soundEffectProvider.notifier));
+    // 云端 relay hello 携带登录 token，服务端绑定房间归属（渗透 V-08）。
+    controller.tokenProvider =
+        () async => ref.read(authProvider.notifier).authToken;
     return controller;
   },
 );
