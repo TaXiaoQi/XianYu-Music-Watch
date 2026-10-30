@@ -4,7 +4,7 @@ mod store;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::time::Duration;
 
 use base64::{engine::general_purpose, Engine as _};
@@ -22,9 +22,62 @@ pub const HOST_SHIM_JS: &str = include_str!("host_shim.js");
 pub const PACKAGES_BUNDLE_JS: &str = include_str!("packages_bundle.js");
 
 const MEMORY_LIMIT: usize = 256 * 1024 * 1024;
-const MAX_STACK_SIZE: usize = 2 * 1024 * 1024;
+// JS 层栈上限必须显著小于 JS 线程的原生栈（JS_THREAD_STACK）。QuickJS 按
+// 「执行线程栈顶 - 上限」判定超限：若上限 ≥ 线程实际可用原生栈（FRB/tokio
+// worker 仅 2MB，手表端主线程 1MB），栈检查永远来不及触发，深递归脚本
+// （如 jsjiami 混淆 VM 的初始化解密链）会打穿 OS 守护页，整个 App 原生
+// 崩溃（HelloWorld 插件更新即崩客户端的根因）。
+// 注意：rquickjs 0.12 的 set_max_stack_size 会把 >16MiB 的值静默视为 0
+// （完全关闭栈检查），因此这里必须取 16MiB 且不可再调大。
+const MAX_STACK_SIZE: usize = 16 * 1024 * 1024;
+const JS_THREAD_STACK: usize = 64 * 1024 * 1024;
 const LOAD_TIMEOUT_MS: u64 = 30_000;
 const MAX_LOG_ENTRIES: usize = 2000;
+
+/// 插件 JS 专用执行线程（64MB 原生栈）。
+///
+/// 插件 JS 的栈预算由 MAX_STACK_SIZE 相对「执行线程栈顶」划定，不能超过
+/// 线程实际原生栈。此前 JS 在 FRB/tokio worker（2MB）上执行，深递归插件
+/// 直接杀进程；所有插件 JS（加载 / 调用 / 常驻驱动 / 运行时释放）统一
+/// 路由到这条大栈线程执行。单线程串行即可满足：插件 JS 以网络等待为主，
+/// 且同插件调用本就由 call_lock 串行。
+static JS_THREAD: OnceLock<tokio::runtime::Handle> = OnceLock::new();
+
+fn js_thread() -> &'static tokio::runtime::Handle {
+    JS_THREAD.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::Builder::new()
+            .name("plugin-js".to_string())
+            .stack_size(JS_THREAD_STACK)
+            .spawn(move || {
+                let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                else {
+                    return;
+                };
+                let _ = tx.send(rt.handle().clone());
+                // 常驻泵：驱动插件 JS 的全部任务直到进程退出
+                rt.block_on(std::future::pending::<()>());
+            })
+            .expect("spawn plugin-js thread");
+        rx.recv().expect("plugin-js runtime handle")
+    })
+}
+
+/// 把一段 JS 驱动 future 路由到插件 JS 线程执行（要求 'static，按值捕获）。
+async fn drive_js<F, T>(fut: F) -> Result<T, String>
+where
+    F: std::future::Future<Output = T> + Send + 'static,
+    T: Send + 'static,
+{
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    js_thread().spawn(async move {
+        let out = fut.await;
+        let _ = tx.send(out);
+    });
+    rx.await.map_err(|_| "插件 JS 任务已被丢弃".to_string())
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PluginKind {
@@ -559,11 +612,16 @@ impl PluginEngine {
     }
 
     async fn destroy(&self, plugin_id: &str) {
-        self.instances.lock().await.remove(plugin_id);
+        if let Some(inst) = self.instances.lock().await.remove(plugin_id) {
+            // 运行时释放也路由到 JS 线程：与栈预算按执行线程划定的语义一致，
+            // 深堆 free 链在小栈线程上有溢出风险。
+            js_thread().spawn(async move {
+                drop(inst);
+            });
+        }
     }
 
     async fn create_runtime(
-        &self,
     ) -> Result<(AsyncRuntime, AsyncContext, Arc<AtomicI64>), String> {
         let runtime = AsyncRuntime::new().map_err(|e| e.to_string())?;
         runtime
@@ -592,16 +650,19 @@ impl PluginEngine {
         self.http.clone()
     }
 
+    /// 环境初始化：原生桥 + shim + 依赖包 + __xyPostSetup（不依赖 &self，
+    /// 供池内 prepare 任务按值捕获共享组件后在 JS 线程执行）。
     async fn setup_context(
-        &self,
+        http: &Arc<HttpBridge>,
+        store: &Arc<PluginStore>,
         ctx: &AsyncContext,
         logs: &Arc<StdMutex<Vec<EngineLog>>>,
         current_call: &Arc<AtomicU64>,
         plugin_id: &str,
         pending_lx_alerts: &Arc<StdMutex<Vec<serde_json::Value>>>,
     ) -> Result<(), String> {
-        let http = self.http.clone();
-        let store = self.store.clone();
+        let http = http.clone();
+        let store = store.clone();
         ctx.async_with(async |ctx| {
             let inner: rquickjs::Result<()> = (|| {
                 register_bridges(&ctx, &http, &store, logs, current_call, plugin_id, pending_lx_alerts)?;
@@ -628,105 +689,45 @@ impl PluginEngine {
             return load_err("插件内容为空".to_string());
         }
 
-        let (runtime, ctx, deadline) = match self.create_runtime().await {
-            Ok(x) => x,
+        // JS 必须在专用大栈线程上执行（见 js_thread 注释）；drive_js 要求
+        // 'static future，共享组件与脚本全部按值捕获。
+        let prepared = drive_js(prepare_musicfree(
+            self.http.clone(),
+            self.store.clone(),
+            self.pending_lx_alerts.clone(),
+            plugin_id.to_string(),
+            script.to_string(),
+            user_vars_json.to_string(),
+        ))
+        .await;
+
+        let prepared = match prepared {
+            Ok(p) => p,
             Err(e) => return load_err(e),
         };
 
-        let logs = Arc::new(StdMutex::new(Vec::new()));
-        let current_call = Arc::new(AtomicU64::new(0));
-
-        deadline.store(now_ms() + LOAD_TIMEOUT_MS as i64, Ordering::Relaxed);
-        let script_owned = script.to_string();
-        let user_vars_owned = user_vars_json.to_string();
-
-        let setup_result = self
-            .setup_context(&ctx, &logs, &current_call, plugin_id, &self.pending_lx_alerts)
-            .await;
-        let load_json: Result<String, String> = match setup_result {
-            Err(e) => Err(e),
-            Ok(()) => {
-                let outcome = tokio::time::timeout(
-                    Duration::from_millis(LOAD_TIMEOUT_MS + 2000),
-                    ctx.async_with(async |ctx| -> Result<String, String> {
-                        let globals = ctx.globals();
-                        let inner: rquickjs::Result<String> = (|| {
-                            let load: Function = globals.get("__xyLoadMusicFree")?;
-                            load.call((
-                                script_owned.as_str(),
-                                user_vars_owned.as_str(),
-                            ))
-                        })();
-                        inner.map_err(|e| engine_error_message(&ctx, &e))
-                    }),
-                )
-                .await;
-                match outcome {
-                    Err(_) => Err("插件加载超时(30s)".to_string()),
-                    Ok(Err(e)) => Err(e),
-                    Ok(Ok(json)) => Ok(json),
-                }
-            }
-        };
-        deadline.store(0, Ordering::Relaxed);
-
-        let json = match load_json {
-            Ok(json) => json,
-            Err(e) => return load_err(e),
-        };
-
-        let parsed = match serde_json::from_str::<serde_json::Value>(&json) {
-            Ok(v) => v,
-            Err(e) => {
-                return EngineLoadResult {
-                    ok: false,
-                    error: Some(format!("插件加载结果解析失败: {}", e)),
-                    metadata: None,
-                    logs: take_logs(&logs, 0),
-                    lx_update_alerts: None,
-                }
-            }
-        };
-
-        if parsed.get("ok").and_then(|x| x.as_bool()).unwrap_or(false) {
-            let metadata = parsed.get("metadata").cloned().unwrap_or(serde_json::Value::Null);
+        let result = prepared.result;
+        if result.ok {
+            let live = prepared.live.expect("ok load carries live parts");
+            let metadata = result.metadata.clone().unwrap_or(serde_json::Value::Null);
             let instance = Arc::new(PluginInstance {
                 id: plugin_id.to_string(),
                 kind: PluginKind::MusicFree,
                 metadata: metadata.clone(),
-                ctx,
-                runtime,
-                deadline_ms: deadline,
+                ctx: live.ctx,
+                runtime: live.runtime,
+                deadline_ms: live.deadline,
                 call_seq: Arc::new(AtomicU64::new(0)),
-                current_call,
-                logs: logs.clone(),
+                current_call: live.current_call,
+                logs: live.logs,
                 call_lock: AsyncMutex::new(()),
             });
             self.instances
                 .lock()
                 .await
                 .insert(plugin_id.to_string(), instance);
-            EngineLoadResult {
-                ok: true,
-                error: None,
-                metadata: Some(metadata),
-                logs: take_logs(&logs, 0),
-                lx_update_alerts: None,
-            }
-        } else {
-            let error = parsed
-                .get("error")
-                .and_then(|x| x.as_str())
-                .unwrap_or("插件加载失败")
-                .to_string();
-            EngineLoadResult {
-                ok: false,
-                error: Some(error),
-                metadata: None,
-                logs: take_logs(&logs, 0),
-                lx_update_alerts: None,
-            }
         }
+        result
     }
 
     pub async fn load_lx(
@@ -741,128 +742,52 @@ impl PluginEngine {
             return load_err("插件内容为空".to_string());
         }
 
-        let (runtime, ctx, deadline) = match self.create_runtime().await {
-            Ok(x) => x,
+        let prepared = drive_js(prepare_lx(
+            self.http.clone(),
+            self.store.clone(),
+            self.pending_lx_alerts.clone(),
+            plugin_id.to_string(),
+            script.to_string(),
+            script_info_json.to_string(),
+        ))
+        .await;
+
+        let prepared = match prepared {
+            Ok(p) => p,
             Err(e) => return load_err(e),
         };
 
-        let logs = Arc::new(StdMutex::new(Vec::new()));
-        let current_call = Arc::new(AtomicU64::new(0));
-
-        deadline.store(now_ms() + LOAD_TIMEOUT_MS as i64, Ordering::Relaxed);
-        let script_owned = script.to_string();
-        let script_info_owned = script_info_json.to_string();
-
-        let setup_result = self
-            .setup_context(&ctx, &logs, &current_call, plugin_id, &self.pending_lx_alerts)
-            .await;
-        let load_json: Result<String, String> = match setup_result {
-            Err(e) => Err(e),
-            Ok(()) => {
-                let outcome = tokio::time::timeout(
-                    Duration::from_millis(LOAD_TIMEOUT_MS + 2000),
-                    ctx.async_with(async |ctx| -> Result<String, String> {
-                        let globals = ctx.globals();
-                        let inner: rquickjs::Result<Option<String>> = (|| {
-                            let setup: Function = globals.get("__xySetupLx")?;
-                            let setup_result: Value = setup.call((
-                                script_info_owned.as_str(),
-                                script_owned.as_str(),
-                            ))?;
-                            if !setup_result.is_null() && !setup_result.is_undefined() {
-                                let s = rquickjs::String::from_js(&ctx, setup_result)?;
-                                return Ok(Some(s.to_string()?));
-                            }
-                            Ok(None)
-                        })();
-                        match inner {
-                            Err(e) => return Err(engine_error_message(&ctx, &e)),
-                            Ok(Some(json)) => return Ok(json),
-                            Ok(None) => {}
-                        }
-                        let init_promise: Promise = match globals.get("__xyLxInitPromise") {
-                            Ok(p) => p,
-                            Err(e) => return Err(engine_error_message(&ctx, &e)),
-                        };
-                        promise_to_json(&ctx, init_promise)
-                            .await
-                            .map_err(|e| engine_error_message(&ctx, &e))
-                    }),
-                )
-                .await;
-                match outcome {
-                    Err(_) => Err("LX 插件初始化超时(30s)".to_string()),
-                    Ok(Err(e)) => Err(e),
-                    Ok(Ok(json)) => Ok(json),
-                }
-            }
-        };
-        deadline.store(0, Ordering::Relaxed);
-
-        let json = match load_json {
-            Ok(json) => json,
-            Err(e) => return load_err(e),
-        };
-
-        let parsed = match serde_json::from_str::<serde_json::Value>(&json) {
-            Ok(v) => v,
-            Err(e) => {
-                return EngineLoadResult {
-                    ok: false,
-                    error: Some(format!("LX 插件初始化结果解析失败: {}", e)),
-                    metadata: None,
-                    logs: take_logs(&logs, 0),
-                    lx_update_alerts: None,
-                }
-            }
-        };
-
-        if parsed.get("ok").and_then(|x| x.as_bool()).unwrap_or(false) {
-            let metadata = parsed.get("initInfo").cloned().unwrap_or(serde_json::Value::Null);
-            // runtime 即将 move 进实例，先克隆句柄用于 settle 驱动
-            let rt_handle = runtime.clone();
+        let mut result = prepared.result;
+        if result.ok {
+            let live = prepared.live.expect("ok load carries live parts");
+            let metadata = result.metadata.clone().unwrap_or(serde_json::Value::Null);
+            // 常驻驱动句柄：idle() 会在 executor 首次 Empty 时提前返回，
+            // 而 LX 脚本常在 init 后经 setTimeout/异步 HTTP 自调 checkUpdate()
+            // 或 send(updateAlert)。drive() 持续驱动直到 runtime 随实例销毁
+            // drop；必须在 JS 线程上驱动（栈预算按执行线程划定）。
+            let rt_handle = live.runtime.clone();
             let instance = Arc::new(PluginInstance {
                 id: plugin_id.to_string(),
                 kind: PluginKind::Lx,
                 metadata: metadata.clone(),
-                ctx,
-                runtime,
-                deadline_ms: deadline,
+                ctx: live.ctx,
+                runtime: live.runtime,
+                deadline_ms: live.deadline,
                 call_seq: Arc::new(AtomicU64::new(0)),
-                current_call,
-                logs: logs.clone(),
+                current_call: live.current_call,
+                logs: live.logs,
                 call_lock: AsyncMutex::new(()),
             });
             self.instances
                 .lock()
                 .await
                 .insert(plugin_id.to_string(), instance);
-            // 给 checkUpdate 的异步响应一个短暂落地窗口：LX 插件常在 init 时
-            // 自调 checkUpdate()，其 HTTP 响应在 send(inited) 之后到达。
-            // idle() 在无挂起任务时立即返回，通常不产生额外等待。
-            let _ = tokio::time::timeout(Duration::from_millis(1500), rt_handle.idle()).await;
-            let alerts = self.drain_pending_lx_alerts();
-            EngineLoadResult {
-                ok: true,
-                error: None,
-                metadata: Some(metadata),
-                logs: take_logs(&logs, 0),
-                lx_update_alerts: alerts,
-            }
-        } else {
-            let error = parsed
-                .get("error")
-                .and_then(|x| x.as_str())
-                .unwrap_or("LX 插件初始化失败")
-                .to_string();
-            EngineLoadResult {
-                ok: false,
-                error: Some(error),
-                metadata: None,
-                logs: take_logs(&logs, 0),
-                lx_update_alerts: None,
-            }
+            js_thread().spawn(async move {
+                rt_handle.drive().await;
+            });
+            result.lx_update_alerts = self.drain_pending_lx_alerts();
         }
+        result
     }
 
     pub async fn call(
@@ -894,58 +819,78 @@ impl PluginEngine {
         let args_owned = args_json.to_string();
         let user_vars_owned = user_vars_json.map(|s| s.to_string());
         let kind = instance.kind;
+        let ctx = instance.ctx.clone();
+        let deadline = instance.deadline_ms.clone();
 
+        // JS 驱动路由到插件 JS 专用大栈线程（见 js_thread 注释）。
+        // WithFuture 借用 ctx，须在 'static async 块内持有 ctx 本体再驱动。
+        // 层级：timeout(Elapsed) → drive_js(桥接错误) → JS 执行 Result<String,String>。
         let outcome = tokio::time::timeout(
             Duration::from_millis(timeout_ms + 2000),
-            instance.ctx.async_with(async |ctx| -> Result<String, String> {
-                let globals = ctx.globals();
-                let inner: rquickjs::Result<Promise> = (|| {
-                    match kind {
-                        PluginKind::MusicFree => {
-                            if let Some(vars) = &user_vars_owned {
-                                let set_vars: Function = globals.get("__xySetUserVars")?;
-                                set_vars.call::<_, ()>((vars.as_str(),))?;
+            drive_js(async move {
+                ctx.async_with(async |ctx| -> Result<String, String> {
+                    let globals = ctx.globals();
+                    let inner: rquickjs::Result<Promise> = (|| {
+                        match kind {
+                            PluginKind::MusicFree => {
+                                if let Some(vars) = &user_vars_owned {
+                                    let set_vars: Function = globals.get("__xySetUserVars")?;
+                                    set_vars.call::<_, ()>((vars.as_str(),))?;
+                                }
+                                let call_fn: Function = globals.get("__xyCallMusicFree")?;
+                                Ok(call_fn.call((method_owned.as_str(), args_owned.as_str()))?)
                             }
-                            let call_fn: Function = globals.get("__xyCallMusicFree")?;
-                            Ok(call_fn.call((method_owned.as_str(), args_owned.as_str()))?)
+                            PluginKind::Lx => {
+                                let data_json = extract_first_arg(&args_owned);
+                                let call_fn: Function = globals.get("__xyLxRequest")?;
+                                Ok(call_fn.call((data_json.as_str(),))?)
+                            }
                         }
-                        PluginKind::Lx => {
-                            let data_json = extract_first_arg(&args_owned);
-                            let call_fn: Function = globals.get("__xyLxRequest")?;
-                            Ok(call_fn.call((data_json.as_str(),))?)
-                        }
-                    }
-                })();
-                let promise = match inner {
-                    Ok(p) => p,
-                    Err(e) => return Err(engine_error_message(&ctx, &e)),
-                };
-                let chained = match chain_result_serialization(&globals, promise) {
-                    Ok(p) => p,
-                    Err(e) => return Err(engine_error_message(&ctx, &e)),
-                };
-                promise_to_json(&ctx, chained)
-                    .await
-                    .map_err(|e| engine_error_message(&ctx, &e))
+                    })();
+                    let promise = match inner {
+                        Ok(p) => p,
+                        Err(e) => return Err(engine_error_message(&ctx, &e)),
+                    };
+                    let chained = match chain_result_serialization(&globals, promise) {
+                        Ok(p) => p,
+                        Err(e) => return Err(engine_error_message(&ctx, &e)),
+                    };
+                    promise_to_json(&ctx, chained)
+                        .await
+                        .map_err(|e| engine_error_message(&ctx, &e))
+                })
+                .await
             }),
         )
         .await;
-
-        instance.deadline_ms.store(0, Ordering::Relaxed);
-        instance.current_call.store(0, Ordering::Relaxed);
 
         let logs = take_logs(&instance.logs, call_id);
 
         match outcome {
             Err(_) => {
+                // 外层超时：池内任务仍持有 ctx 在跑 JS，置过期 deadline 让中断
+                // 处理器尽快掐断；实例 JS 状态未知，销毁重建。
+                deadline.store(1, Ordering::Relaxed);
+                instance.current_call.store(0, Ordering::Relaxed);
                 self.destroy(plugin_id).await;
                 call_err(
                     format!("方法调用超时: {} ({}ms)", method, timeout_ms),
                     logs,
                 )
             }
-            Ok(Err(e)) => call_err(format!("引擎调用失败: {}", e), logs),
-            Ok(Ok(json)) => {
+            Ok(Err(e)) => {
+                deadline.store(0, Ordering::Relaxed);
+                instance.current_call.store(0, Ordering::Relaxed);
+                call_err(format!("JS 线程错误: {}", e), logs)
+            }
+            Ok(Ok(Err(e))) => {
+                deadline.store(0, Ordering::Relaxed);
+                instance.current_call.store(0, Ordering::Relaxed);
+                call_err(format!("引擎调用失败: {}", e), logs)
+            }
+            Ok(Ok(Ok(json))) => {
+                deadline.store(0, Ordering::Relaxed);
+                instance.current_call.store(0, Ordering::Relaxed);
                 match serde_json::from_str::<serde_json::Value>(&json) {
                     Ok(v) if v.get("ok").and_then(|x| x.as_bool()).unwrap_or(false) => {
                         EngineCallResult {
@@ -976,7 +921,269 @@ impl PluginEngine {
     }
 
     pub async fn unload_all(&self) {
-        self.instances.lock().await.clear();
+        // 实例释放路由到 JS 线程（同 destroy：深堆 free 链在小栈线程有溢出风险）
+        let instances: Vec<Arc<PluginInstance>> = self
+            .instances
+            .lock()
+            .await
+            .drain()
+            .map(|(_, v)| v)
+            .collect();
+        if !instances.is_empty() {
+            js_thread().spawn(async move {
+                drop(instances);
+            });
+        }
+    }
+}
+
+/// 池内加载产出：结果 + 成功时携带待登记的活实例部件。
+struct PreparedLoad {
+    result: EngineLoadResult,
+    live: Option<PreparedLive>,
+}
+
+struct PreparedLive {
+    runtime: AsyncRuntime,
+    ctx: AsyncContext,
+    deadline: Arc<AtomicI64>,
+    logs: Arc<StdMutex<Vec<EngineLog>>>,
+    current_call: Arc<AtomicU64>,
+}
+
+fn failed(result: EngineLoadResult) -> PreparedLoad {
+    PreparedLoad { result, live: None }
+}
+
+/// MusicFree 插件池内加载：在 JS 线程上完整跑完加载流程，产出结果与活实例部件。
+async fn prepare_musicfree(
+    http: Arc<HttpBridge>,
+    store: Arc<PluginStore>,
+    pending_lx_alerts: Arc<StdMutex<Vec<serde_json::Value>>>,
+    plugin_id: String,
+    script: String,
+    user_vars_json: String,
+) -> PreparedLoad {
+    let (runtime, ctx, deadline) = match PluginEngine::create_runtime().await {
+        Ok(x) => x,
+        Err(e) => return failed(load_err(e)),
+    };
+
+    let logs = Arc::new(StdMutex::new(Vec::new()));
+    let current_call = Arc::new(AtomicU64::new(0));
+
+    deadline.store(now_ms() + LOAD_TIMEOUT_MS as i64, Ordering::Relaxed);
+
+    let setup_result = PluginEngine::setup_context(
+        &http, &store, &ctx, &logs, &current_call, &plugin_id, &pending_lx_alerts,
+    )
+    .await;
+    let load_json: Result<String, String> = match setup_result {
+        Err(e) => Err(e),
+        Ok(()) => {
+            let outcome = tokio::time::timeout(
+                Duration::from_millis(LOAD_TIMEOUT_MS + 2000),
+                ctx.async_with(async |ctx| -> Result<String, String> {
+                    let globals = ctx.globals();
+                    let inner: rquickjs::Result<String> = (|| {
+                        let load: Function = globals.get("__xyLoadMusicFree")?;
+                        load.call((script.as_str(), user_vars_json.as_str()))
+                    })();
+                    inner.map_err(|e| engine_error_message(&ctx, &e))
+                }),
+            )
+            .await;
+            match outcome {
+                Err(_) => Err("插件加载超时(30s)".to_string()),
+                Ok(Err(e)) => Err(e),
+                Ok(Ok(json)) => Ok(json),
+            }
+        }
+    };
+    // 失败（尤其外层超时）时池内任务可能仍持有 ctx 在跑 JS：置过期 deadline
+    // 让中断处理器尽快掐断；成功路径照常解除。
+    deadline.store(if load_json.is_err() { 1 } else { 0 }, Ordering::Relaxed);
+
+    let json = match load_json {
+        Ok(json) => json,
+        Err(e) => return failed(load_err(e)),
+    };
+
+    let parsed = match serde_json::from_str::<serde_json::Value>(&json) {
+        Ok(v) => v,
+        Err(e) => {
+            return failed(EngineLoadResult {
+                ok: false,
+                error: Some(format!("插件加载结果解析失败: {}", e)),
+                metadata: None,
+                logs: take_logs(&logs, 0),
+                lx_update_alerts: None,
+            })
+        }
+    };
+
+    if parsed.get("ok").and_then(|x| x.as_bool()).unwrap_or(false) {
+        let metadata = parsed.get("metadata").cloned().unwrap_or(serde_json::Value::Null);
+        PreparedLoad {
+            result: EngineLoadResult {
+                ok: true,
+                error: None,
+                metadata: Some(metadata),
+                logs: take_logs(&logs, 0),
+                lx_update_alerts: None,
+            },
+            live: Some(PreparedLive {
+                runtime,
+                ctx,
+                deadline,
+                logs,
+                current_call,
+            }),
+        }
+    } else {
+        let error = parsed
+            .get("error")
+            .and_then(|x| x.as_str())
+            .unwrap_or("插件加载失败")
+            .to_string();
+        PreparedLoad {
+            result: EngineLoadResult {
+                ok: false,
+                error: Some(error),
+                metadata: None,
+                logs: take_logs(&logs, 0),
+                lx_update_alerts: None,
+            },
+            live: None,
+        }
+    }
+}
+
+/// LX 插件池内加载：__xySetupLx 同步注入 + 等待 inited Promise 结算。
+async fn prepare_lx(
+    http: Arc<HttpBridge>,
+    store: Arc<PluginStore>,
+    pending_lx_alerts: Arc<StdMutex<Vec<serde_json::Value>>>,
+    plugin_id: String,
+    script: String,
+    script_info_json: String,
+) -> PreparedLoad {
+    let (runtime, ctx, deadline) = match PluginEngine::create_runtime().await {
+        Ok(x) => x,
+        Err(e) => return failed(load_err(e)),
+    };
+
+    let logs = Arc::new(StdMutex::new(Vec::new()));
+    let current_call = Arc::new(AtomicU64::new(0));
+
+    deadline.store(now_ms() + LOAD_TIMEOUT_MS as i64, Ordering::Relaxed);
+
+    let setup_result = PluginEngine::setup_context(
+        &http, &store, &ctx, &logs, &current_call, &plugin_id, &pending_lx_alerts,
+    )
+    .await;
+    let load_json: Result<String, String> = match setup_result {
+        Err(e) => Err(e),
+        Ok(()) => {
+            let outcome = tokio::time::timeout(
+                Duration::from_millis(LOAD_TIMEOUT_MS + 2000),
+                ctx.async_with(async |ctx| -> Result<String, String> {
+                    let globals = ctx.globals();
+                    let inner: rquickjs::Result<Option<String>> = (|| {
+                        let setup: Function = globals.get("__xySetupLx")?;
+                        let setup_result: Value =
+                            setup.call((script_info_json.as_str(), script.as_str()))?;
+                        if !setup_result.is_null() && !setup_result.is_undefined() {
+                            // 同步加载失败，返回错误 JSON
+                            let s = rquickjs::String::from_js(&ctx, setup_result)?;
+                            return Ok(Some(s.to_string()?));
+                        }
+                        Ok(None)
+                    })();
+                    match inner {
+                        Err(e) => return Err(engine_error_message(&ctx, &e)),
+                        Ok(Some(json)) => return Ok(json),
+                        Ok(None) => {}
+                    }
+                    // 等待 inited 事件（驱动 job 队列直到 resolve/reject）
+                    let init_promise: Promise = match globals.get("__xyLxInitPromise") {
+                        Ok(p) => p,
+                        Err(e) => return Err(engine_error_message(&ctx, &e)),
+                    };
+                    promise_to_json(&ctx, init_promise)
+                        .await
+                        .map_err(|e| engine_error_message(&ctx, &e))
+                }),
+            )
+            .await;
+            match outcome {
+                Err(_) => Err("LX 插件初始化超时(30s)".to_string()),
+                Ok(Err(e)) => Err(e),
+                Ok(Ok(json)) => Ok(json),
+            }
+        }
+    };
+    // 同 prepare_musicfree：失败时掐断仍在跑的 JS
+    deadline.store(if load_json.is_err() { 1 } else { 0 }, Ordering::Relaxed);
+
+    let json = match load_json {
+        Ok(json) => json,
+        Err(e) => return failed(load_err(e)),
+    };
+
+    let parsed = match serde_json::from_str::<serde_json::Value>(&json) {
+        Ok(v) => v,
+        Err(e) => {
+            return failed(EngineLoadResult {
+                ok: false,
+                error: Some(format!("LX 插件初始化结果解析失败: {}", e)),
+                metadata: None,
+                logs: take_logs(&logs, 0),
+                lx_update_alerts: None,
+            })
+        }
+    };
+
+    if parsed.get("ok").and_then(|x| x.as_bool()).unwrap_or(false) {
+        let metadata = parsed.get("initInfo").cloned().unwrap_or(serde_json::Value::Null);
+        // runtime 即将 move 进实例，先克隆句柄用于 settle 驱动。
+        // LX 脚本常在 init 中自调 checkUpdate()，其 HTTP 响应往往在
+        // send(inited) 之后才到达；此处仍在 JS 线程上给一个短落地窗口，
+        // 让自报更新进入 pending 队列随加载结果送达（上限 1500ms）。
+        let rt_handle = runtime.clone();
+        let _ = tokio::time::timeout(Duration::from_millis(1500), rt_handle.idle()).await;
+        PreparedLoad {
+            result: EngineLoadResult {
+                ok: true,
+                error: None,
+                metadata: Some(metadata),
+                logs: take_logs(&logs, 0),
+                lx_update_alerts: None,
+            },
+            live: Some(PreparedLive {
+                runtime,
+                ctx,
+                deadline,
+                logs,
+                current_call,
+            }),
+        }
+    } else {
+        let error = parsed
+            .get("error")
+            .and_then(|x| x.as_str())
+            .unwrap_or("LX 插件初始化失败")
+            .to_string();
+        PreparedLoad {
+            result: EngineLoadResult {
+                ok: false,
+                error: Some(error),
+                metadata: None,
+                logs: take_logs(&logs, 0),
+                lx_update_alerts: None,
+            },
+            live: None,
+        }
     }
 }
 
@@ -991,8 +1198,6 @@ fn extract_first_arg(args_json: &str) -> String {
 }
 
 // ==================== 全局引擎（移动端单例） ====================
-
-use std::sync::OnceLock;
 
 static ENGINE: OnceLock<PluginEngine> = OnceLock::new();
 
