@@ -344,6 +344,17 @@ class PluginEngine {
       AppLog.warn('plugin', '[lxRequest] ${source.name}/$action 跳过：插件未加载或未启用');
       return null;
     }
+    final platformKey = (data['source'] ?? '').toString();
+    final qualityKey = (data['type'] ?? '').toString();
+    // 确定性失败负缓存短路（仅 musicUrl：歌词/封面与音质阶梯无关，能力缺失
+    // 不代表歌词也被拒），与移动端一致
+    if (action == 'musicUrl' &&
+        (_isDeterministicBanned(source.id) ||
+            _isCapabilityBanned(source.id, platformKey, qualityKey))) {
+      AppLog.debug('plugin',
+          '[lxRequest] ${source.name}/$action 短路：失败冷却中 ($platformKey/$qualityKey)');
+      return null;
+    }
 
     try {
       final response = await call(source.id, 'request', [
@@ -357,6 +368,8 @@ class PluginEngine {
           },
         },
       ], timeoutMs: timeoutMs);
+      // 请求成功说明插件实例存活且链路可用：解除插件级确定性失败冷却
+      _clearDeterministicBan(source.id);
       AppLog.debug(
         'plugin',
         '[lxRequest] ${source.name}/$action source=${data['source']} type=${data['type']} 完成',
@@ -365,6 +378,11 @@ class PluginEngine {
     } catch (e) {
       final msg = e is PluginEngineException ? e.message : e.toString();
       AppLog.warn('plugin', '[lxRequest] ${source.name}/$action 失败: $msg');
+      // 失败记账（仅 musicUrl）：命中确定性/能力型特征才生效，60s 冷却内同请求短路
+      if (action == 'musicUrl') {
+        _markDeterministicFailure(source.id, msg);
+        _markCapabilityFailure(source.id, platformKey, qualityKey, msg);
+      }
       if (action == 'lyric' &&
           RegExp(
             r'action\s+not\s+support|not\s+support',
@@ -673,6 +691,9 @@ class PluginEngine {
   }
 
   static void _markAuthFailure(String pluginId, String msg) {
+    // 能力型报错（账号/卡密不支持某平台或音质）：与鉴权无关，不计入鉴权熔断，
+    // 否则「卡密不支持该平台或音质」会把卡密实际可用的平台也一并熔断（与移动端一致）
+    if (isCapabilityFailureMessage(msg)) return;
     // 熔断期间被挡住的重试会再次走到这里（错误同样含鉴权关键词），
     // 不刷新熔断截止时间，否则「一直点播放就永远熔断」。
     if (isAuthBanned(pluginId)) return;
@@ -691,6 +712,85 @@ class PluginEngine {
       RegExp(r'API密钥|API\s*key|api[_\s-]?secret|卡密|\b40[13]\b|鉴权失效已临时熔断',
               caseSensitive: false)
           .hasMatch(msg);
+
+  // ==================== 确定性失败负缓存（与移动端一致） ====================
+  // 能力型报错（不支持平台/音质）：与鉴权无关
+  static bool isCapabilityFailureMessage(String msg) => RegExp(
+          r'不支持该平台|不支持.{0,8}音质|音质.{0,8}不支持|无此音质|未开放平台',
+          caseSensitive: false)
+      .hasMatch(msg);
+
+  // 平台级能力缺失（该平台所有档位都不可用）
+  static bool _isPlatformUnsupportedMessage(String msg) =>
+      RegExp(r'不支持该平台|未开放平台', caseSensitive: false).hasMatch(msg);
+
+  // 封 IP / 插件实例缺失等重试注定同样失败的错误：按插件记 60s 冷却，
+  // 任一成功响应即解除。此前每首歌会按音质阶梯 × 兜底插件逐级重打数百次。
+  static final Map<String, DateTime> _deterministicBannedUntil = {};
+  static const Duration _deterministicBanTtl = Duration(seconds: 60);
+
+  // 平台/平台+档位级能力缺失：卡密不支持 kw 只禁 kw，档位不支持只禁该档位组合
+  static final Map<String, DateTime> _capabilityBannedUntil = {};
+  static const Duration _capabilityBanTtl = Duration(seconds: 60);
+
+  static bool _isDeterministicFailureMessage(String msg) =>
+      RegExp(r'block\s*ip|插件实例不存在', caseSensitive: false).hasMatch(msg);
+
+  static bool _isDeterministicBanned(String pluginId) {
+    final until = _deterministicBannedUntil[pluginId];
+    if (until == null) return false;
+    if (DateTime.now().isAfter(until)) {
+      _deterministicBannedUntil.remove(pluginId);
+      return false;
+    }
+    return true;
+  }
+
+  static void _markDeterministicFailure(String pluginId, String msg) {
+    if (!_isDeterministicFailureMessage(msg)) return;
+    if (_isDeterministicBanned(pluginId)) return;
+    _deterministicBannedUntil[pluginId] =
+        DateTime.now().add(_deterministicBanTtl);
+    final brief = msg.length > 40 ? '${msg.substring(0, 40)}…' : msg;
+    AppLog.warn('plugin',
+        '[$pluginId] 确定性失败（$brief），${_deterministicBanTtl.inSeconds} 秒内跳过该插件');
+  }
+
+  static void _clearDeterministicBan(String pluginId) {
+    _deterministicBannedUntil.remove(pluginId);
+  }
+
+  static bool _isCapabilityBanned(
+      String pluginId, String platform, String quality) {
+    final now = DateTime.now();
+    _capabilityBannedUntil.removeWhere((_, until) => now.isAfter(until));
+    if (_capabilityBannedUntil.containsKey('$pluginId|$platform')) return true;
+    if (quality.isNotEmpty &&
+        _capabilityBannedUntil
+            .containsKey('$pluginId|$platform|$quality')) {
+      return true;
+    }
+    return false;
+  }
+
+  static void _markCapabilityFailure(
+      String pluginId, String platform, String quality, String msg) {
+    if (platform.isEmpty) return;
+    // 平台级优先判定：卡密类报错常写「不支持该平台或音质」，两者都能匹配，
+    // 按平台级处理（该平台全部档位短路），档位级仅兜纯音质报错
+    final key = _isPlatformUnsupportedMessage(msg)
+        ? '$pluginId|$platform'
+        : (quality.isNotEmpty &&
+                (isUnsupportedQualityError(msg) ||
+                    RegExp(r'无此音质', caseSensitive: false).hasMatch(msg)))
+            ? '$pluginId|$platform|$quality'
+            : '';
+    if (key.isEmpty || _capabilityBannedUntil.containsKey(key)) return;
+    _capabilityBannedUntil[key] = DateTime.now().add(_capabilityBanTtl);
+    final brief = msg.length > 40 ? '${msg.substring(0, 40)}…' : msg;
+    AppLog.warn('plugin',
+        '[$pluginId] 能力缺失（$brief），${_capabilityBanTtl.inSeconds} 秒内跳过同平台/档位请求');
+  }
 
   Future<dynamic> _callGetMediaSourceWithRetry(
     String pluginId,
