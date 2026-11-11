@@ -208,10 +208,27 @@ class _TopListDetailPageState extends ConsumerState<TopListDetailPage> {
     try {
       final engine = await ref.read(pluginEngineProvider.future);
       final catalog = PluginCatalogService(engine, [widget.source]);
-      final songs = await catalog.getTopListDetail(
-        widget.source,
-        widget.item.raw,
-      );
+      // 榜单分页拉全（与桌面端同策略）：整页 30 条继续翻页，
+      // 不足整页/零新增（插件不分页时返回重复数据）即到底
+      final songs = <PluginSearchResult>[];
+      final seen = <String>{};
+      const maxPages = 10;
+      for (var page = 1; page <= maxPages; page++) {
+        final list = await catalog.getTopListDetail(
+          widget.source,
+          widget.item.raw,
+          page: page,
+        );
+        if (!mounted) return;
+        var added = 0;
+        for (final s in list) {
+          if (seen.add('${s.source}:${s.songmid}')) {
+            songs.add(s);
+            added++;
+          }
+        }
+        if (list.isEmpty || added == 0 || list.length < 30) break;
+      }
       if (!mounted) return;
       setState(() {
         _songs = songs;
