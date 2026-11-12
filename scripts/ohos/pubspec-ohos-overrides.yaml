@@ -11,11 +11,15 @@
 # 为纯 Dart 无需 override；仅需覆盖带平台通道的 5 个插件 + 表冠 stub。
 
 dependency_overrides:
-  # ---- ohos forks (PoC verified on the mobile project, same constraints) ----
+  # ---- ohos forks（ref 锁 commit，与历史 pubspec.lock 一致，不随分支漂移）----
+  # 3.47.7 flutter 工具 pub get 不再做 OHOS 插件重映射，不钉回 SIG/TPC fork
+  # 会解析回 pub.dev 原版（无 ohos 平台实现），GeneratedPluginRegistrant.ets
+  # 丢插件 → 启动即黑屏（readAppMode 抛 MissingPluginException，runApp 永不执行）
   path_provider:
     git:
       url: https://gitcode.com/openharmony-tpc/flutter_packages.git
       path: packages/path_provider/path_provider
+      ref: 2f21e26e09efb92b8429c840ae7ca0cb024f036c
 
   # 无 ohos 实现时每个 SharedPreferences.getInstance() 都会抛
   # MissingPluginException（设置持久化/配对地址全依赖它）。
@@ -23,11 +27,13 @@ dependency_overrides:
     git:
       url: https://gitcode.com/openharmony-tpc/flutter_packages.git
       path: packages/shared_preferences/shared_preferences
+      ref: 2f21e26e09efb92b8429c840ae7ca0cb024f036c
 
   just_audio:
     git:
       url: https://gitcode.com/openharmony-sig/fluttertpc_just_audio.git
       path: just_audio
+      ref: e366bb5858812da73b204ac5f071b9d2cdd11ebe
 
   # audio_session：just_audio fork 钉死 br_v0.2.2_ohos，而 audio_service fork
   # 对它是不带 ref 的 git HEAD 依赖——两者无法统一，必须显式 override 钉住
@@ -35,20 +41,22 @@ dependency_overrides:
   audio_session:
     git:
       url: https://gitcode.com/CPF-Flutter/flutter_audio_session.git
-      ref: br_v0.2.2_ohos
+      path: .
+      ref: bd97a32d519c94772a4693d92cca88b145c6f4f3
 
   # 后台播放保障（MediaSession/前台媒体服务）
   audio_service:
     git:
       url: https://gitcode.com/openharmony-sig/fluttertpc_audio_service.git
       path: audio_service
+      ref: 89d712c150cd979692fb360fe698bd107c7eae47
 
   # 本地扫描运行时权限（SIG fork 11.3.1，主包内嵌 ohos 子包自引用）
   permission_handler:
     git:
       url: https://gitcode.com/openharmony-sig/flutter_permission_handler.git
       path: permission_handler
-      ref: br_permission_handler_v11.3.1_ohos
+      ref: 9094b9494b311dae71fe0399d9acd546a773edef
 
   # ---- wearable_rotary（表冠输入）----
   # 官方包只有 Android/Tizen 实现，鸿蒙生态暂无适配 fork；鸿蒙原生表冠
