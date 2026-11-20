@@ -8,6 +8,7 @@ import '../player/player_provider.dart';
 import '../i18n/i18n.dart';
 import '../rust/api.dart';
 import 'host_sheet_import.dart';
+import 'lx_plugin_gate.dart';
 import 'plugin_engine.dart';
 import 'plugin_host_fallback.dart';
 import 'plugin_models.dart';
@@ -731,7 +732,8 @@ class PluginCatalogService {
         KgSheetImport.isKgKeyword(keyword) ||
         (looksLikeSheetLinkOrId(keyword) &&
             KgSheetImport.isKgSource(source.name, source.sources));
-    if (!applicable) return null;
+    // 内置 lx 兜底仅在对应平台有启用插件时可用
+    if (!applicable || !hasEnabledLxPluginFor(sources, 'kg')) return null;
     final kg = await KgSheetImport.import(keyword);
     if (kg == null || kg.tracks.isEmpty) return null;
     return _hostImportSheetItem(source, keyword, kg);
@@ -746,7 +748,8 @@ class PluginCatalogService {
         QishuiSheetImport.isQishuiKeyword(keyword) ||
         (looksLikeSheetLinkOrId(keyword) &&
             QishuiSheetImport.isQishuiSource(source.name, source.sources));
-    if (!applicable) return null;
+    // 内置兜底仅在存在启用的汽水相关插件时可用
+    if (!applicable || !hasEnabledLxPluginFor(sources, 'qishui')) return null;
     final qs = await QishuiSheetImport.import(keyword);
     if (qs == null || qs.tracks.isEmpty) return null;
     return _hostImportSheetItem(source, keyword, qs);
@@ -761,7 +764,8 @@ class PluginCatalogService {
         WySheetImport.isWyKeyword(keyword) ||
         (looksLikeSheetLinkOrId(keyword) &&
             WySheetImport.isWySource(source.name, source.sources));
-    if (!applicable) return null;
+    // 内置 lx 兜底仅在对应平台有启用插件时可用
+    if (!applicable || !hasEnabledLxPluginFor(sources, 'wy')) return null;
     final wy = await WySheetImport.import(keyword);
     if (wy == null || wy.tracks.isEmpty) return null;
     return _hostImportSheetItem(source, keyword, wy);
@@ -776,7 +780,8 @@ class PluginCatalogService {
         TxSheetImport.isTxKeyword(keyword) ||
         (looksLikeSheetLinkOrId(keyword) &&
             TxSheetImport.isTxSource(source.name, source.sources));
-    if (!applicable) return null;
+    // 内置 lx 兜底仅在对应平台有启用插件时可用
+    if (!applicable || !hasEnabledLxPluginFor(sources, 'tx')) return null;
     final tx = await TxSheetImport.import(keyword);
     if (tx == null || tx.tracks.isEmpty) return null;
     return _hostImportSheetItem(source, keyword, tx);
@@ -791,7 +796,8 @@ class PluginCatalogService {
         KwSheetImport.isKwKeyword(keyword) ||
         (looksLikeSheetLinkOrId(keyword) &&
             KwSheetImport.isKwSource(source.name, source.sources));
-    if (!applicable) return null;
+    // 内置 lx 兜底仅在对应平台有启用插件时可用
+    if (!applicable || !hasEnabledLxPluginFor(sources, 'kw')) return null;
     final kw = await KwSheetImport.import(keyword);
     if (kw == null || kw.tracks.isEmpty) return null;
     return _hostImportSheetItem(source, keyword, kw);
@@ -806,7 +812,8 @@ class PluginCatalogService {
         MgSheetImport.isMgKeyword(keyword) ||
         (looksLikeSheetLinkOrId(keyword) &&
             MgSheetImport.isMgSource(source.name, source.sources));
-    if (!applicable) return null;
+    // 内置 lx 兜底仅在对应平台有启用插件时可用
+    if (!applicable || !hasEnabledLxPluginFor(sources, 'mg')) return null;
     final mg = await MgSheetImport.import(keyword);
     if (mg == null || mg.tracks.isEmpty) return null;
     return _hostImportSheetItem(source, keyword, mg);
@@ -847,7 +854,10 @@ class PluginCatalogService {
     PluginSource source,
     String urlLike,
   ) async {
-    final kg = await KgSheetImport.import(urlLike);
+    // 内置 lx 兜底仅在对应平台有启用插件时可用（无插件不兜底）
+    final kg = hasEnabledLxPluginFor(sources, 'kg')
+        ? await KgSheetImport.import(urlLike)
+        : null;
     if (kg != null && kg.tracks.isNotEmpty) {
       final songs = kg.tracks
           .map((e) => mfItemToSearchResult(e, source))
@@ -855,7 +865,9 @@ class PluginCatalogService {
           .toList();
       if (songs.isNotEmpty) return kg.tracks;
     }
-    final qs = await QishuiSheetImport.import(urlLike);
+    final qs = hasEnabledLxPluginFor(sources, 'qishui')
+        ? await QishuiSheetImport.import(urlLike)
+        : null;
     if (qs != null && qs.tracks.isNotEmpty) {
       final songs = qs.tracks
           .map((e) => mfItemToSearchResult(e, source))
@@ -863,8 +875,9 @@ class PluginCatalogService {
           .toList();
       if (songs.isNotEmpty) return qs.tracks;
     }
-    if (WySheetImport.isWyKeyword(urlLike) ||
-        WySheetImport.isWySource(source.name, source.sources)) {
+    if ((WySheetImport.isWyKeyword(urlLike) ||
+            WySheetImport.isWySource(source.name, source.sources)) &&
+        hasEnabledLxPluginFor(sources, 'wy')) {
       final wy = await WySheetImport.import(urlLike);
       if (wy != null && wy.tracks.isNotEmpty) {
         final songs = wy.tracks
@@ -874,8 +887,9 @@ class PluginCatalogService {
         if (songs.isNotEmpty) return wy.tracks;
       }
     }
-    if (TxSheetImport.isTxKeyword(urlLike) ||
-        TxSheetImport.isTxSource(source.name, source.sources)) {
+    if ((TxSheetImport.isTxKeyword(urlLike) ||
+            TxSheetImport.isTxSource(source.name, source.sources)) &&
+        hasEnabledLxPluginFor(sources, 'tx')) {
       final tx = await TxSheetImport.import(urlLike);
       if (tx != null && tx.tracks.isNotEmpty) {
         final songs = tx.tracks
@@ -885,8 +899,9 @@ class PluginCatalogService {
         if (songs.isNotEmpty) return tx.tracks;
       }
     }
-    if (KwSheetImport.isKwKeyword(urlLike) ||
-        KwSheetImport.isKwSource(source.name, source.sources)) {
+    if ((KwSheetImport.isKwKeyword(urlLike) ||
+            KwSheetImport.isKwSource(source.name, source.sources)) &&
+        hasEnabledLxPluginFor(sources, 'kw')) {
       final kw = await KwSheetImport.import(urlLike);
       if (kw != null && kw.tracks.isNotEmpty) {
         final songs = kw.tracks
@@ -896,8 +911,9 @@ class PluginCatalogService {
         if (songs.isNotEmpty) return kw.tracks;
       }
     }
-    if (MgSheetImport.isMgKeyword(urlLike) ||
-        MgSheetImport.isMgSource(source.name, source.sources)) {
+    if ((MgSheetImport.isMgKeyword(urlLike) ||
+            MgSheetImport.isMgSource(source.name, source.sources)) &&
+        hasEnabledLxPluginFor(sources, 'mg')) {
       final mg = await MgSheetImport.import(urlLike);
       if (mg != null && mg.tracks.isNotEmpty) {
         final songs = mg.tracks
