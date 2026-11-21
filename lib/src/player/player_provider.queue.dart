@@ -3,15 +3,19 @@ part of 'player_provider.dart';
 extension PlayerNotifierQueue on PlayerNotifier {
   Future<void> playQueue(List<QueueItem> items, {int startIndex = 0}) async {
     if (items.isEmpty) return;
+    // 防御钳制：调用方传入越界索引时 items[startIndex] 会 RangeError
+    // 崩 UI 线程（try 只包到 _playAt），非法索引回落 0
+    final start =
+        (startIndex < 0 || startIndex >= items.length) ? 0 : startIndex;
     _shuffleHistory.clear();
     _shuffleFuture.clear();
     state = state.copyWith(
       queue: items,
-      queueIndex: startIndex,
-      current: items[startIndex],
+      queueIndex: start,
+      current: items[start],
     );
     try {
-      await _playAt(startIndex);
+      await _playAt(start);
     } catch (e) {
       state = state.copyWith(isPlaying: false, error: e.toString());
     }
