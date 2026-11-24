@@ -865,7 +865,7 @@ pub fn preview_rename(root_path: String, config_json: String) -> Result<String, 
 pub fn apply_rename(operations_json: String) -> Result<u32, String> {
     let operations: Vec<xianyu_core::toolbox::RenameOperation> =
         serde_json::from_str(&operations_json).map_err(|e| e.to_string())?;
-    xianyu_core::toolbox::apply_rename(operations)
+    xianyu_core::toolbox::apply_rename(operations, None)
 }
 
 pub fn refresh_folder_songs(
