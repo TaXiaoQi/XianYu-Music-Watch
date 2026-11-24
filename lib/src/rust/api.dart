@@ -3,9 +3,7 @@
 
 // ignore_for_file: invalid_use_of_internal_member, unused_import, unnecessary_import
 
-import 'fallback_verify.dart';
 import 'frb_generated.dart';
-import 'music/types.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `open_scan_conn`, `open_stats_conn`, `parse_remote_source`, `stats_schema_ready`
@@ -523,7 +521,7 @@ Future<String> getSongLyricsForEdit({required String path}) =>
 Future<String> saveSongLyrics({
   required String path,
   required String lyrics,
-  required LyricsStorageSource source,
+  required String source,
   String? sourcePath,
 }) => RustLib.instance.api.crateApiSaveSongLyrics(
   path: path,
@@ -879,7 +877,7 @@ Future<String> hostSha256Hex({required String text}) =>
 /// `key_id` 为响应携带的 keyId（可选）：已知 keyId 仅对该槽位严格验签，
 /// 缺失/未知则遍历槽位；签名有效且 keyId 未知时返回 key_unknown=true
 /// （Dart 层采纳配置并上报 FallbackConfigKeyUnknown 事件）。
-Future<FallbackVerifyResult> verifyFallbackConfigSignature({
+Future<String> verifyFallbackConfigSignature({
   required String configJson,
   required String signature,
   String? keyId,
