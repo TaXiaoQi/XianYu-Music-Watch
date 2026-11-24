@@ -203,6 +203,7 @@ class WatchBackupService {
         'playbackSpeed': s.playbackSpeed,
         'keepScreenOn': s.keepScreenOn,
         'libraryMinDurationSeconds': s.libraryMinDurationSeconds,
+        'libraryMinFileSizeMb': s.libraryMinFileSizeMb,
         'scanFormats': s.scanFormats,
         'watchLinkageEnabled': s.watchLinkageEnabled,
         'onlineQuality': s.onlineQuality,
@@ -227,6 +228,7 @@ class WatchBackupService {
       playbackSpeed: asDouble('playbackSpeed'),
       keepScreenOn: asBool('keepScreenOn'),
       libraryMinDurationSeconds: asInt('libraryMinDurationSeconds'),
+      libraryMinFileSizeMb: asDouble('libraryMinFileSizeMb'),
       scanFormats: j['scanFormats'] is List
           ? (j['scanFormats'] as List).cast<String>()
           : null,

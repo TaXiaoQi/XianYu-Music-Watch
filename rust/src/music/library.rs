@@ -825,9 +825,11 @@ pub fn get_library_song_paths_for_folder_view(
 pub fn scan_library(
 	db_conn: Arc<Mutex<Connection>>,
 	minimum_duration_seconds: Option<u32>,
+	minimum_file_size_bytes: Option<u64>,
 	cover_cache_dir: Option<PathBuf>,
 ) -> Result<Vec<LibrarySong>, String> { // 实现
-	let options = ScanOptions::from_minimum_duration_seconds(minimum_duration_seconds);
+	let options = ScanOptions::from_minimum_duration_seconds(minimum_duration_seconds)
+		.with_minimum_file_size_bytes(minimum_file_size_bytes);
 
 	let folder_paths: Vec<String> = {
 		let conn = db_conn.lock().map_err(|e| e.to_string())?;

@@ -345,7 +345,17 @@ class PluginUpdateService {
         sourceUrl: checkResult.updateUrl,
       );
       if (newSource.id != source.id) {
+        // 更新换 id 后保持原插件在列表中的排序位置（用户反馈：更新即沉底）。
+        // 旧记录此时仍在列表中，先取其 sortOrder（老数据无该字段时用当前
+        // 列表位置兜底），移除旧插件后让新插件继承该位置。
+        final oldSources = manager.sources;
+        final oldIndex = oldSources.indexWhere((s) => s.id == source.id);
+        final oldOrder =
+            oldIndex >= 0 ? (oldSources[oldIndex].sortOrder ?? oldIndex) : null;
         await manager.remove(source.id);
+        if (oldOrder != null) {
+          await manager.inheritSortOrder(newSource.id, oldOrder);
+        }
         // 更新即换 id：云端仍存的旧脚本会被下轮「先拉后推」的下载按 id
         // 原样恢复回来，旧脚本一跑又自报更新，弹窗反复出现（#666888）。
         // 落墓碑让下载跳过恢复，并顺手清理云端残留。

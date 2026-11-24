@@ -242,28 +242,34 @@ Future<String> scanMusicFolder({
   required String dbPath,
   required String folderPath,
   int? minimumDurationSeconds,
+  PlatformInt64? minimumFileSizeBytes,
   List<String>? allowedFormats,
 }) => RustLib.instance.api.crateApiScanMusicFolder(
   dbPath: dbPath,
   folderPath: folderPath,
   minimumDurationSeconds: minimumDurationSeconds,
+  minimumFileSizeBytes: minimumFileSizeBytes,
   allowedFormats: allowedFormats,
 );
 
 Future<String> parseAudioFiles({
   required List<String> paths,
   int? minimumDurationSeconds,
+  PlatformInt64? minimumFileSizeBytes,
 }) => RustLib.instance.api.crateApiParseAudioFiles(
   paths: paths,
   minimumDurationSeconds: minimumDurationSeconds,
+  minimumFileSizeBytes: minimumFileSizeBytes,
 );
 
 Future<String> parseMusicFolder({
   required String folderPath,
   int? minimumDurationSeconds,
+  PlatformInt64? minimumFileSizeBytes,
 }) => RustLib.instance.api.crateApiParseMusicFolder(
   folderPath: folderPath,
   minimumDurationSeconds: minimumDurationSeconds,
+  minimumFileSizeBytes: minimumFileSizeBytes,
 );
 
 Future<String> parseAudioFromFdAndroid({
@@ -305,11 +311,13 @@ Future<String> scanSafSongsCommit({
   required String folderKey,
   required String songsJson,
   int? minimumDurationSeconds,
+  PlatformInt64? minimumFileSizeBytes,
 }) => RustLib.instance.api.crateApiScanSafSongsCommit(
   dbPath: dbPath,
   folderKey: folderKey,
   songsJson: songsJson,
   minimumDurationSeconds: minimumDurationSeconds,
+  minimumFileSizeBytes: minimumFileSizeBytes,
 );
 
 Future<String> listRemoteSources({required String dbPath}) =>
@@ -615,10 +623,12 @@ Future<String> refreshFolderSongs({
   required String dbPath,
   required String folderPath,
   int? minimumDurationSeconds,
+  PlatformInt64? minimumFileSizeBytes,
 }) => RustLib.instance.api.crateApiRefreshFolderSongs(
   dbPath: dbPath,
   folderPath: folderPath,
   minimumDurationSeconds: minimumDurationSeconds,
+  minimumFileSizeBytes: minimumFileSizeBytes,
 );
 
 Future<String> resolveDownloadFullPath({
@@ -1146,9 +1156,11 @@ Future<String> getLibrarySongPathsForAllView({
 Future<String> scanLibrary({
   required String dbPath,
   int? minimumDurationSeconds,
+  PlatformInt64? minimumFileSizeBytes,
 }) => RustLib.instance.api.crateApiScanLibrary(
   dbPath: dbPath,
   minimumDurationSeconds: minimumDurationSeconds,
+  minimumFileSizeBytes: minimumFileSizeBytes,
 );
 
 Future<String> getFolderChildren({

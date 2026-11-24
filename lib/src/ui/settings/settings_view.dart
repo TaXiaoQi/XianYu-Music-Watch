@@ -673,6 +673,20 @@ class _LibraryPageState extends ConsumerState<_LibraryPage> {
         ),
         onTap: () => _pickMinDuration(context, settings),
       ),
+      _actionRow(
+        s: s,
+        icon: Icon(Icons.sd_storage_outlined, size: 24 * s),
+        title: tr('最小文件大小'),
+        subtitle: tr('过滤体积过小的音频'),
+        trailing: Text(
+          settings.libraryMinFileSizeMb <= 0
+              ? tr('不过滤')
+              : '${_formatMb(settings.libraryMinFileSizeMb)} MB',
+          style: TextStyle(
+              fontSize: 12 * s, color: Colors.white.withValues(alpha: 0.7)),
+        ),
+        onTap: () => _pickMinFileSize(context, settings),
+      ),
     ]);
   }
 }
@@ -1774,5 +1788,31 @@ Future<void> _pickMinDuration(BuildContext context, AppSettings s) async {
     await container
         .read(settingsProvider.notifier)
         .setLibraryMinDurationSeconds(v);
+  }
+}
+
+/// 1.0 → "1"，1.5 → "1.5"，避免界面上出现多余的 ".0"。
+String _formatMb(double value) =>
+    value == value.roundToDouble() ? value.toInt().toString() : value.toStringAsFixed(1);
+
+Future<void> _pickMinFileSize(BuildContext context, AppSettings s) async {
+  final container = ProviderScope.containerOf(context, listen: false);
+  final options = [
+    (0.0, tr('不过滤')),
+    (1.0, '1 MB'),
+    (2.0, '2 MB'),
+    (5.0, '5 MB'),
+    (10.0, '10 MB'),
+  ];
+  final v = await showFullPicker<double>(
+    context,
+    title: tr('最小文件大小'),
+    current: s.libraryMinFileSizeMb,
+    options: options,
+  );
+  if (v != null) {
+    await container
+        .read(settingsProvider.notifier)
+        .setLibraryMinFileSizeMb(v);
   }
 }

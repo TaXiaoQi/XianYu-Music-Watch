@@ -438,6 +438,19 @@ class PluginManager extends StateNotifier<PluginListState> {
     state = PluginListState(sources: list);
   }
 
+  /// 更新换 id 后沿用旧插件的排序位置，避免更新后插件沉底（用户反馈）。
+  Future<void> inheritSortOrder(String id, int sortOrder) async {
+    await _ensureLoaded();
+    final current = state.sources.where((s) => s.id == id).toList();
+    if (current.isEmpty || current.first.sortOrder == sortOrder) return;
+    final engine = await _getEngine();
+    final list = sortPluginSources(state.sources
+        .map((s) => s.id == id ? s.copyWith(sortOrder: sortOrder) : s)
+        .toList());
+    await engine.store.saveSources(list);
+    state = PluginListState(sources: list);
+  }
+
   Future<bool> reload(String id) async {
     final engine = await _getEngine();
     final source = state.sources.where((s) => s.id == id).toList();
@@ -457,11 +470,18 @@ class PluginManager extends StateNotifier<PluginListState> {
       sourceUrl: oldSource.first.sourceUrl,
     );
     if (newSource.id == oldId) return;
+    // 更新换 id 后保持原插件在列表中的排序位置，避免更新即沉底
+    final oldIndex = state.sources.indexWhere((s) => s.id == oldId);
+    final oldOrder =
+        oldIndex >= 0 ? (state.sources[oldIndex].sortOrder ?? oldIndex) : null;
     await engine.destroy(oldId);
     await engine.store.deleteScript(oldId);
     final list = state.sources.where((s) => s.id != oldId).toList();
     await engine.store.saveSources(list);
     state = PluginListState(sources: list);
+    if (oldOrder != null) {
+      await inheritSortOrder(newSource.id, oldOrder);
+    }
     engine.bakaManager.clearCache(oldId);
     if (newSource.id != oldId) engine.bakaManager.clearCache(newSource.id);
   }

@@ -55,7 +55,11 @@ struct ParsedTaskResult {
 }
 
 fn song_meets_duration_threshold(song: &Song, options: &ScanOptions) -> bool {
-	options.minimum_duration_seconds == 0 || song.duration >= options.minimum_duration_seconds
+	let duration_ok =
+		options.minimum_duration_seconds == 0 || song.duration >= options.minimum_duration_seconds;
+	let size_ok =
+		options.minimum_file_size_bytes == 0 || song.file_size >= options.minimum_file_size_bytes;
+	duration_ok && size_ok
 }
 
 pub(super) fn load_db_snapshot_for_folder(

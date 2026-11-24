@@ -254,6 +254,8 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
     final settings = _ref.read(settingsProvider).valueOrNull;
     final selectedFormats = settings?.scanFormats ?? kSupportedScanFormats;
     final minDuration = settings?.libraryMinDurationSeconds ?? 0;
+    final minFileSizeMb = settings?.libraryMinFileSizeMb ?? 0;
+    final minFileSizeBytes = (minFileSizeMb * 1024 * 1024).round();
 
     final allowed = <String>[
       for (final f in selectedFormats) ...(_formatExtensions[f] ?? [f]),
@@ -273,6 +275,7 @@ class LibraryNotifier extends StateNotifier<LibraryState> {
           dbPath: dbPath,
           folderPath: folder,
           minimumDurationSeconds: minDuration > 0 ? minDuration : null,
+          minimumFileSizeBytes: minFileSizeBytes > 0 ? minFileSizeBytes : null,
           allowedFormats: allowed,
         );
         total += (jsonDecode(songsJson) as List).length;

@@ -424,6 +424,7 @@ class SyncNotifier extends StateNotifier<SyncState> {
         .toSet();
     final installedNow = <String>{};
     final staleCloudIds = <String>{};
+    final linkFetchFailures = <String>[];
     for (final item in items) {
       final cloudId = (item['id'] as String?)?.trim() ?? '';
       if (cloudId.isEmpty || existingIds.contains(cloudId)) continue;
@@ -442,7 +443,23 @@ class SyncNotifier extends StateNotifier<SyncState> {
           continue;
         }
       }
-      if (script.trim().isEmpty) continue;
+      if (script.trim().isEmpty) {
+        // 链接型插件（云端只存链接元数据，script 为空）：从源链接现拉
+        // 脚本再安装（对齐桌面端；旧快照有脚本时不会走到这里）
+        final srcUrl = ((item['sourceUrl'] as String?) ?? '').trim();
+        final filePath = ((item['filePath'] as String?) ?? '').trim();
+        final linkUrl = _isHttpUrl(srcUrl)
+            ? srcUrl
+            : (_isHttpUrl(filePath) ? filePath : '');
+        if (linkUrl.isEmpty) continue;
+        script = await fetchPluginScript(linkUrl) ?? '';
+        if (script.trim().isEmpty) {
+          final name = ((item['name'] as String?) ?? '').trim();
+          linkFetchFailures.add(name.isEmpty ? linkUrl : name);
+          AppLog.warn('sync', '链接型插件 "$name" 源链接拉取失败: $linkUrl');
+          continue;
+        }
+      }
       try {
         final source = await manager.installFromScript(
           script,
@@ -494,6 +511,14 @@ class SyncNotifier extends StateNotifier<SyncState> {
         }
       }
     }
+    if (linkFetchFailures.isNotEmpty) {
+      // 链接型插件源拉取失败：明确报错（不中断其他同步步骤，由
+      // _runSteps 汇总为「部分完成」提示）
+      throw Exception(
+        tr('链接型插件 {names} 源链接拉取失败（源可能已失效）',
+            {'names': linkFetchFailures.join('、')}),
+      );
+    }
   }
 
   Future<void> _syncPluginsUpload() async {
@@ -518,8 +543,14 @@ class SyncNotifier extends StateNotifier<SyncState> {
     for (final p in sources) {
       try {
         final scriptPath = '$dir/plugins/${p.id}.js';
-        final script = await rust.readPluginFile(path: scriptPath);
-        if (script.trim().isEmpty) continue;
+        // 链接型插件（导入来源为 http(s) URL）只同步链接元数据，script
+        // 留空不传本体（对齐桌面端）；仅本地文件导入的插件同步脚本本体
+        final isLinkOnly = _isHttpUrl(p.sourceUrl) || _isHttpUrl(p.filePath);
+        var script = '';
+        if (!isLinkOnly) {
+          script = await rust.readPluginFile(path: scriptPath);
+          if (script.trim().isEmpty) continue;
+        }
         final plugin = <String, dynamic>{
           'id': p.id,
           'name': p.name,
@@ -530,8 +561,9 @@ class SyncNotifier extends StateNotifier<SyncState> {
           'sources': p.sources,
           'filePath': scriptPath,
           'sourceUrl': p.sourceUrl,
-          'script': _encodeRevBase64(script),
-          'scriptEncoded': true,
+          'sortOrder': p.sortOrder,
+          'script': isLinkOnly ? '' : _encodeRevBase64(script),
+          'scriptEncoded': !isLinkOnly,
         };
         // 用户变量加密上传（与桌面/移动同步协议一致）
         final ciyuanxiId = _ciyuanxiId;
@@ -598,6 +630,10 @@ class SyncNotifier extends StateNotifier<SyncState> {
 }
 
 // ─── 共享小工具 ───────────────────────────────────────────
+
+/// http(s) URL 判定（链接型插件识别，对齐桌面端 /^https?:\/\//i）
+bool _isHttpUrl(String s) =>
+    RegExp(r'^https?://', caseSensitive: false).hasMatch(s.trim());
 
 Map<String, dynamic> _asMap(Object? v) =>
     v is Map ? v.cast<String, dynamic>() : const {};

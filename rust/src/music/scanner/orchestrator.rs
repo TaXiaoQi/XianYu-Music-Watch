@@ -151,21 +151,25 @@ pub(crate) fn scan_single_directory_internal(
 pub(crate) fn parse_audio_files(
 	paths: Vec<String>,
 	minimum_duration_seconds: Option<u32>,
+	minimum_file_size_bytes: Option<u64>,
 ) -> Result<Vec<Song>, String> { // 实现
-	let options = ScanOptions::from_minimum_duration_seconds(minimum_duration_seconds);
+	let options = ScanOptions::from_minimum_duration_seconds(minimum_duration_seconds)
+		.with_minimum_file_size_bytes(minimum_file_size_bytes);
 	Ok(parse_audio_files_internal(paths, options))
 }
 
 pub(crate) fn parse_music_folder(
 	folder_path: String,
 	minimum_duration_seconds: Option<u32>,
+	minimum_file_size_bytes: Option<u64>,
 ) -> Result<Vec<Song>, String> { // 实现
 	let root = Path::new(&folder_path);
 	if !root.is_dir() || fs::read_dir(root).is_err() {
 		return Err("所选路径不是可读取的文件夹".to_string());
 	}
 
-	let options = ScanOptions::from_minimum_duration_seconds(minimum_duration_seconds);
+	let options = ScanOptions::from_minimum_duration_seconds(minimum_duration_seconds)
+		.with_minimum_file_size_bytes(minimum_file_size_bytes);
 	let mut paths: Vec<String> = WalkDir::new(root)
 		.into_iter()
 		.filter_map(Result::ok)

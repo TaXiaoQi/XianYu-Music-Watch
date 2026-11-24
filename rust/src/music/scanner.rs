@@ -36,17 +36,20 @@ pub(crate) fn commit_saf_scan_songs(
 	options: &ScanOptions,
 ) -> Result<(), String> {
 	let snapshot = diff::load_db_snapshot_for_folder(conn, folder_key)?;
-	let current: HashSet<String> = songs.iter().map(|s| s.path.clone()).collect();
 
 	let mut to_add = Vec::new();
 	let mut to_update = Vec::new();
+	let mut current: HashSet<String> = HashSet::new();
 	for song in songs {
-		if options.minimum_duration_seconds > 0
-			&& song.duration > 0
-			&& song.duration < options.minimum_duration_seconds
-		{
+		let duration_ok = options.minimum_duration_seconds == 0
+			|| song.duration == 0
+			|| song.duration >= options.minimum_duration_seconds;
+		let size_ok =
+			options.minimum_file_size_bytes == 0 || song.file_size >= options.minimum_file_size_bytes;
+		if !(duration_ok && size_ok) {
 			continue;
 		}
+		current.insert(song.path.clone());
 		match snapshot.get(&song.path) {
 			Some(db) => {
 				let changed = db.file_modified_at != song.file_modified_at.map(|v| v as i64)
@@ -74,6 +77,8 @@ pub(super) const UNKNOWN_ALBUM: &str = "未知专辑";
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ScanOptions { // 实现
 	pub(crate) minimum_duration_seconds: u32,
+	/// 单文件体积门槛（字节），0 表示不按体积过滤。
+	pub(crate) minimum_file_size_bytes: u64,
 	pub(crate) allowed_extensions: Option<Vec<String>>,
 }
 
@@ -81,8 +86,15 @@ impl ScanOptions { // ScanOptions
 	pub(crate) fn from_minimum_duration_seconds(value: Option<u32>) -> Self {
 		Self {
 			minimum_duration_seconds: value.unwrap_or(0),
+			minimum_file_size_bytes: 0,
 			allowed_extensions: None,
 		}
+	}
+
+	/// 追加单文件体积门槛；不给就按 0（不过滤）处理。
+	pub(crate) fn with_minimum_file_size_bytes(mut self, value: Option<u64>) -> Self {
+		self.minimum_file_size_bytes = value.unwrap_or(0);
+		self
 	}
 
 	pub(crate) fn new(minimum_duration_seconds: Option<u32>, allowed: Option<Vec<String>>) -> Self {
@@ -100,6 +112,7 @@ impl ScanOptions { // ScanOptions
 		});
 		Self {
 			minimum_duration_seconds: minimum_duration_seconds.unwrap_or(0),
+			minimum_file_size_bytes: 0,
 			allowed_extensions,
 		}
 	}
@@ -507,6 +520,7 @@ pub(crate) fn derive_cover_cache_dir(db_path: &str) -> Option<std::path::PathBuf
 			None,
 			&ScanOptions {
 				minimum_duration_seconds: 10,
+				minimum_file_size_bytes: 0,
 				allowed_extensions: None,
 			},
 		)

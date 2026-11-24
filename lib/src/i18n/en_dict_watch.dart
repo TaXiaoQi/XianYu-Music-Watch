@@ -128,6 +128,8 @@ const Map<String, String> enDictWatch = {
   '未选择': 'None selected',
   '最短时长': 'Minimum duration',
   '过滤铃声等短音频': 'Filter ringtones and other short clips',
+  '最小文件大小': 'Minimum file size',
+  '过滤体积过小的音频': 'Filter tiny audio files',
   '不过滤': 'No filter',
   '30 秒以上': 'Over 30 s',
   '1 分钟以上': 'Over 1 min',

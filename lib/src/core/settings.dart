@@ -64,6 +64,7 @@ class AppSettings {
     this.playbackSpeed = 1.0,
     this.keepScreenOn = true,
     this.libraryMinDurationSeconds = 0,
+    this.libraryMinFileSizeMb = 0,
     this.scanFormats = kSupportedScanFormats,
     this.watchLinkageEnabled = true,
     this.onlineQuality = '320k',
@@ -84,6 +85,9 @@ class AppSettings {
   final double playbackSpeed;
   final bool keepScreenOn;
   final int libraryMinDurationSeconds;
+
+  /// 曲库最小文件大小（MB），0 表示不按体积过滤。
+  final double libraryMinFileSizeMb;
   final List<String> scanFormats;
 
   final bool watchLinkageEnabled;
@@ -118,6 +122,7 @@ class AppSettings {
     double? playbackSpeed,
     bool? keepScreenOn,
     int? libraryMinDurationSeconds,
+    double? libraryMinFileSizeMb,
     List<String>? scanFormats,
     bool? watchLinkageEnabled,
     String? onlineQuality,
@@ -138,6 +143,8 @@ class AppSettings {
       keepScreenOn: keepScreenOn ?? this.keepScreenOn,
       libraryMinDurationSeconds:
           libraryMinDurationSeconds ?? this.libraryMinDurationSeconds,
+      libraryMinFileSizeMb:
+          libraryMinFileSizeMb ?? this.libraryMinFileSizeMb,
       scanFormats: scanFormats ?? this.scanFormats,
       watchLinkageEnabled: watchLinkageEnabled ?? this.watchLinkageEnabled,
       onlineQuality: onlineQuality ?? this.onlineQuality,
@@ -184,6 +191,7 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
       playbackSpeed: prefs.getDouble('playbackSpeed') ?? 1.0,
       keepScreenOn: prefs.getBool('keepScreenOn') ?? true,
       libraryMinDurationSeconds: prefs.getInt('libraryMinDurationSeconds') ?? 0,
+      libraryMinFileSizeMb: prefs.getDouble('libraryMinFileSizeMb') ?? 0,
       scanFormats: _mergeScanFormats(prefs.getStringList('scanFormats')),
       watchLinkageEnabled: prefs.getBool('watchLinkageEnabled') ?? true,
       onlineQuality: prefs.getString('onlineQuality') ?? '320k',
@@ -211,6 +219,7 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
       prefs.setDouble('playbackSpeed', next.playbackSpeed),
       prefs.setBool('keepScreenOn', next.keepScreenOn),
       prefs.setInt('libraryMinDurationSeconds', next.libraryMinDurationSeconds),
+      prefs.setDouble('libraryMinFileSizeMb', next.libraryMinFileSizeMb),
       prefs.setStringList('scanFormats', next.scanFormats),
       prefs.setBool('watchLinkageEnabled', next.watchLinkageEnabled),
       prefs.setString('onlineQuality', next.onlineQuality),
@@ -237,6 +246,8 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
       _save((await _current()).copyWith(keepScreenOn: v));
   Future<void> setLibraryMinDurationSeconds(int s) async =>
       _save((await _current()).copyWith(libraryMinDurationSeconds: s));
+  Future<void> setLibraryMinFileSizeMb(double mb) async =>
+      _save((await _current()).copyWith(libraryMinFileSizeMb: mb));
   Future<void> setScanFormats(List<String> v) async =>
       _save((await _current()).copyWith(scanFormats: v));
   Future<void> setWatchLinkageEnabled(bool v) async =>
