@@ -564,7 +564,8 @@ class PluginEngine {
     return candidates.take(1).toList();
   }
 
-  bool isBakaPlugin(String pluginId) => bakaManager.isBakaPlugin(pluginId);
+  bool isBakaPlugin(String pluginId, {PluginSource? source}) =>
+      bakaManager.isBakaPlugin(pluginId, source: source);
 
   Future<ResolvedMediaUrl?> getMusicFreeUrl(
     PluginSource source,
@@ -604,8 +605,9 @@ class PluginEngine {
     }
 
     // anime 插件 qualities 键可被 Baka 识别规则命中，需排除
-    if (source.format != PluginFormat.anime &&
-        bakaManager.isBakaPlugin(source.id)) {
+    if (source.format == PluginFormat.baka ||
+        (source.format != PluginFormat.anime &&
+            bakaManager.isBakaPlugin(source.id, source: source))) {
       return bakaManager.getMediaSource(
         source,
         musicItem,

@@ -221,9 +221,14 @@ class PluginManager extends StateNotifier<PluginListState> {
     final source = PluginSource(
       id: id,
       name: (nameOverride ?? fallbackName).toString(),
+      // BakaMusic 系插件（Toskysun）：一等 baka 格式，走 BakaPluginManager 专用处理
       format: isLx
           ? PluginFormat.lx
-          : (isAnime ? PluginFormat.anime : PluginFormat.musicfree),
+          : (isAnime
+              ? PluginFormat.anime
+              : (mAuthor.toLowerCase().contains('toskysun')
+                  ? PluginFormat.baka
+                  : PluginFormat.musicfree)),
       version: mVersion,
       author: mAuthor,
       description: mDesc,
