@@ -8,7 +8,6 @@ import '../i18n/i18n.dart';
 import 'plugin_models.dart';
 import 'plugin_host_fallback.dart';
 import 'plugin_store.dart';
-import 'baka_plugin_manager.dart';
 
 class PluginEngine {
   final String dataDir;
@@ -58,8 +57,6 @@ class PluginEngine {
   static const int _maxPluginSize = 2 * 1024 * 1024;
 
   PluginEngine(this.dataDir, this.store);
-
-  late final BakaPluginManager bakaManager = BakaPluginManager(this);
 
   String _resolveId(String pluginId) => _aliases[pluginId] ?? pluginId;
 
@@ -309,7 +306,7 @@ class PluginEngine {
     try {
       final meta = await ensureLoaded(source);
       if (meta == null) return false;
-      if (source.format.isMfCompatible) {
+      if (source.format.usesMfSandbox) {
         final methods = meta['_availableMethods'];
         return methods is List && methods.contains('getMediaSource');
       }
@@ -564,26 +561,12 @@ class PluginEngine {
     return candidates.take(1).toList();
   }
 
-  bool isBakaPlugin(String pluginId, {PluginSource? source}) =>
-      bakaManager.isBakaPlugin(pluginId, source: source);
-
-  Future<ResolvedMediaUrl?> getMusicFreeUrl(
+  /// mf 协议歌曲条目归一化：rawData 展开、platform/title/artist/id 补齐。
+  /// mf 与 baka 两条 arm 共用的宿主设施（本方法不含任何 baka 分支）。
+  Map<String, dynamic> prepareMusicItem(
     PluginSource source,
-    Map<String, dynamic> songInfo, {
-    String preferred = '320k',
-    String fallback = 'lower',
-  }) async {
-    await ensureLoaded(source);
-    final meta = metadataOf(source.id);
-    final declaredRaw = meta?['supportedQualities'];
-    final declaredKeys = <String>{};
-    if (declaredRaw is List) {
-      for (final dq in declaredRaw) {
-        final norm = _normalizeQualityKey(dq);
-        if (norm != null) declaredKeys.add(norm);
-      }
-    }
-
+    Map<String, dynamic> songInfo,
+  ) {
     final raw = songInfo['rawData'];
     final musicItem = raw is Map<String, dynamic>
         ? Map<String, dynamic>.from(raw)
@@ -603,19 +586,27 @@ class PluginEngine {
     if (!musicItem.containsKey('songmid') && songInfo.containsKey('songmid')) {
       musicItem['songmid'] = songInfo['songmid'];
     }
+    return musicItem;
+  }
 
-    // anime 插件 qualities 键可被 Baka 识别规则命中，需排除
-    if (source.format == PluginFormat.baka ||
-        (source.format != PluginFormat.anime &&
-            bakaManager.isBakaPlugin(source.id, source: source))) {
-      return bakaManager.getMediaSource(
-        source,
-        musicItem,
-        preferred: preferred,
-        fallback: fallback,
-        declaredKeys: declaredKeys,
-      );
+  Future<ResolvedMediaUrl?> getMusicFreeUrl(
+    PluginSource source,
+    Map<String, dynamic> songInfo, {
+    String preferred = '320k',
+    String fallback = 'lower',
+  }) async {
+    await ensureLoaded(source);
+    final meta = metadataOf(source.id);
+    final declaredRaw = meta?['supportedQualities'];
+    final declaredKeys = <String>{};
+    if (declaredRaw is List) {
+      for (final dq in declaredRaw) {
+        final norm = _normalizeQualityKey(dq);
+        if (norm != null) declaredKeys.add(norm);
+      }
     }
+
+    final musicItem = prepareMusicItem(source, songInfo);
 
     final tryQs = _musicFreeQualityCandidates(
       preferred,
@@ -1087,7 +1078,7 @@ class PluginEngine {
     String sourceKey,
     Map<String, dynamic> songInfo,
   ) async {
-    if (source.format.isMfCompatible) {
+    if (source.format.usesMfSandbox) {
       return getMusicFreeLyric(source, songInfo);
     }
     final response = await lxRequest(source, 'lyric', {

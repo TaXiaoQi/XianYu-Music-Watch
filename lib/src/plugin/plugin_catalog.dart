@@ -151,7 +151,7 @@ class PluginCatalogService {
   PluginCatalogService(this.engine, this.sources);
 
   List<PluginSource> get musicFreeSources => sources
-      .where((s) => s.enabled && s.format.isMfCompatible)
+      .where((s) => s.enabled && s.format.usesMfSandbox)
       .toList();
 
   /// 已启用且覆盖榜单平台（wy/kg/kw/tx）的 LX 音源，

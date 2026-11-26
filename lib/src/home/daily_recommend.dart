@@ -136,7 +136,7 @@ class DailyRecommendItem {
   }
 
   QueueItem toQueueItem(String quality) {
-    final isMf = isMfFormatValue(pluginFormat);
+    final isMf = usesMfSandboxValue(pluginFormat);
     final src = song['source']?.toString() ?? '';
     final mid = song['songmid']?.toString() ?? '';
     return QueueItem(
@@ -321,7 +321,7 @@ Future<List<PluginSearchResult>> _searchPlugin(
   PluginSource plugin,
   String keyword,
 ) async {
-  if (plugin.format.isMfCompatible) {
+  if (plugin.format.usesMfSandbox) {
     return PluginCatalogService(engine, [
       plugin,
     ]).searchMusic(plugin, keyword, limit: _searchLimit);
@@ -639,7 +639,7 @@ class DailyRecommendNotifier extends AsyncNotifier<DailyRecommendState> {
       final ids = <String>[];
       final seen = <String>{};
       for (final it in items) {
-        if (!isMfFormatValue(it.pluginFormat)) {
+        if (!usesMfSandboxValue(it.pluginFormat)) {
           continue;
         }
         if (!wyIds.contains(it.pluginId)) continue;

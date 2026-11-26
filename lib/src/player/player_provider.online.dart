@@ -91,8 +91,9 @@ extension PlayerNotifierOnline on PlayerNotifier {
     }
   }
 
-  /// 按音质解析插件直链：mf 格式走 getMusicFreeUrl 自带降级链（fallback
-  /// pause 只试请求档），lx 格式走 getMusicUrl 单档直取；qs 源走原生取流。
+  /// 按音质解析插件直链：沙箱格式（mf/baka）走 pluginGetMediaUrl 分发层
+  /// 自带降级链（fallback pause 只试请求档），lx 格式走 getMusicUrl 单档
+  /// 直取；qs 源走原生取流。
   Future<ResolvedMediaUrl?> _resolvePluginUrl(
     Map<String, dynamic> songJson,
     String quality,
@@ -105,8 +106,9 @@ extension PlayerNotifierOnline on PlayerNotifier {
     final engine = await _ref.read(pluginEngineProvider.future);
     final source = await _findPluginSource(engine, pluginId);
     if (source == null) return null;
-    if (isMfFormatValue(format)) {
-      return engine.getMusicFreeUrl(
+    if (usesMfSandboxValue(format)) {
+      return pluginGetMediaUrl(
+        engine,
         source,
         musicInfo,
         preferred: quality,

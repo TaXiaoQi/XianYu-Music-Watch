@@ -43,7 +43,7 @@ extension PlayerNotifierSourceSwitch on PlayerNotifier {
     final enabled = sources.where((s) => s.enabled).toList();
     final quality = _preferredOnlineQuality;
 
-    if (!isMfFormatValue(songJson['format'] as String?)) {
+    if (!usesMfSandboxValue(songJson['format'] as String?)) {
       final sourceKey = songJson['source'] as String? ?? '';
       final musicInfo = songJson['musicInfo'];
       if (sourceKey.isNotEmpty && musicInfo is Map && musicInfo.isNotEmpty) {

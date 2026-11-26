@@ -26,12 +26,12 @@ enum PluginFormat {
 
 extension PluginFormatX on PluginFormat {
   /// MF 兼容格式（musicfree / baka / anime 共用同一套通用调用链）
-  bool get isMfCompatible =>
+  bool get usesMfSandbox =>
       this == PluginFormat.musicfree || this == PluginFormat.baka || this == PluginFormat.anime;
 }
 
 /// songJson.format 字符串版兼容判断（musicfree / baka / anime 同链路）
-bool isMfFormatValue(String? v) => v == 'musicfree' || v == 'baka' || v == 'anime';
+bool usesMfSandboxValue(String? v) => v == 'musicfree' || v == 'baka' || v == 'anime';
 
 class PluginSource {
   final String id;

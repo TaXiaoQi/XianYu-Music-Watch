@@ -273,7 +273,7 @@ class PluginUpdateService {
 
     String? updateUrl;
 
-    if (source.format.isMfCompatible) {
+    if (source.format.usesMfSandbox) {
       final script = await engine.store.readScript(source.id);
       if (script != null) {
         updateUrl = _extractMusicFreeSrcUrl(script);
@@ -300,7 +300,7 @@ class PluginUpdateService {
     final newScript = await fetchPluginScript(updateUrl);
     if (newScript == null || newScript.isEmpty) return null;
 
-    if (source.format.isMfCompatible && source.id.isNotEmpty) {
+    if (source.format.usesMfSandbox && source.id.isNotEmpty) {
       final newHash = sha256.convert(utf8.encode(newScript)).toString();
       if (newHash == source.id) {
         return PluginUpdateCheckResult(
@@ -313,7 +313,7 @@ class PluginUpdateService {
     }
 
     String newVersion = '';
-    if (source.format.isMfCompatible) {
+    if (source.format.usesMfSandbox) {
       newVersion = _extractMusicFreeVersion(newScript) ?? '';
     } else {
       newVersion = engine.parseLxScriptInfo(newScript)['version'] ?? '';
