@@ -409,8 +409,10 @@ class PluginEngine {
     'hires',
     'vinyl',
     'dolby',
+    'dts',
     'atmos',
     'atmos_plus',
+    'atmos_pro',
     'master',
   ];
 
@@ -442,12 +444,16 @@ class PluginEngine {
     'hr': 'hires',
     'vinyl': 'vinyl',
     'dolby': 'dolby',
+    'dts': 'dts',
     'atmos': 'atmos',
     'galaxy': 'atmos',
     'atmosplus': 'atmos_plus',
     'atmos_plus': 'atmos_plus',
     'atmos+': 'atmos_plus',
     'galaxy51': 'atmos_plus',
+    'atmospro': 'atmos_pro',
+    'atmos_pro': 'atmos_pro',
+    'galaxy916': 'atmos_pro',
     'master': 'master',
   };
 
@@ -956,8 +962,10 @@ class PluginEngine {
         case 'master':
         case 'vinyl':
         case 'dolby':
+        case 'dts':
         case 'atmos':
         case 'atmos_plus':
+        case 'atmos_pro':
           selected = _kgHashField(songInfo, 'ResFileHash');
           if (selected.isEmpty) selected = _kgHashField(songInfo, 'origin_hash');
           if (selected.isEmpty) selected = _kgHashField(songInfo, 'sqhash');

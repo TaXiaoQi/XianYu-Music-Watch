@@ -214,8 +214,10 @@ class BakaPluginManager {
       case 'hires':
       case 'vinyl':
       case 'dolby':
+      case 'dts':
       case 'atmos':
       case 'atmos_plus':
+      case 'atmos_pro':
       case 'master':
         return 'super';
     }

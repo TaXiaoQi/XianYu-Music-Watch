@@ -404,8 +404,10 @@ class _QualityPage extends ConsumerWidget {
         ('hires', '高解析度 · Hi-Res'),
         ('vinyl', '黑胶音色 · 无损'),
         ('dolby', '杜比全景声'),
+        ('dts', 'DTS音质'),
         ('atmos', '臻品音质 · 立体空间声场'),
         ('atmos_plus', '臻品全景声'),
+        ('atmos_pro', '臻品全景声 916'),
         ('master', '臻品母带'),
       ])
         _SettingsChoiceRow(
